@@ -96,10 +96,11 @@ class LayoutViewer:
         right_col.grid(row=0, column=1, sticky='ne')
         
         # Cost display frame (top of right column)
-        cost_frame = ttk.LabelFrame(right_col, text='Cost', padding=6)
+        # Use a simple frame (no redundant title)
+        cost_frame = ttk.Frame(right_col, padding=6)
         cost_frame.grid(row=0, column=0, sticky='ew', pady=(0, 10))
         
-        ttk.Label(cost_frame, text='Total:', font=('TkDefaultFont', 9, 'bold')).grid(row=0, column=0, sticky='w', pady=1)
+        ttk.Label(cost_frame, text='Total cost:', font=('TkDefaultFont', 9, 'bold')).grid(row=0, column=0, sticky='w', pady=1)
         self.cost_total_label = ttk.Label(cost_frame, text='--', font=('TkDefaultFont', 9))
         self.cost_total_label.grid(row=0, column=1, sticky='w', padx=4, pady=1)
         
@@ -312,20 +313,26 @@ class LayoutViewer:
         # Update cost labels with human-readable format
         self.cost_total_label.config(text=f'{cost.total_cost:.1f}')
         
-        # Empty space as percentage
+        # Empty space as percentage (fraction of page unused)
         empty_pct = cost.empty_space_fraction * 100
         self.cost_empty_label.config(text=f'{empty_pct:.1f}%')
         
-        # Size mismatch: show raw %-squared (multiply by 100 then square)
-        # cost.size_mismatch_cost = (sum of squared fractional errors) * size_importance
-        raw_sq = cost.size_mismatch_cost / self.size_importance if self.size_importance > 0 else 0.0
-        size_pct_sq = raw_sq * 10000.0  # (error * 100)^2 => multiply fractional sum by 100^2
-        self.cost_size_label.config(text=f'{size_pct_sq:.1f} %-sq')
+        # Size mismatch: show %-squared as returned from evaluator (divide λ)
+        # Evaluator computes: size_mismatch_cost = λ × (sum of squared percentage errors)
+        size_pct_sq = cost.size_mismatch_cost / self.size_importance if self.size_importance > 0 else 0.0
+        self.cost_size_label.config(text=f'{size_pct_sq:.2f} %-sq')
 
         # Show formula: Total = Empty% + λ × SizeMismatch%-sq
         # This is for readability; units are mixed intentionally as requested
+        # Use empty space COST (percent above acceptable threshold) in the formula,
+        # not the raw empty fraction. Also show threshold annotation on the line above.
+        empty_cost_pct = cost.empty_space_cost
+        threshold_pct = 5.0
+        comparator = '< 5%' if empty_pct < threshold_pct else '≥ 5%'
+        self.cost_empty_label.config(text=f'{empty_pct:.1f}% (cost = {empty_cost_pct:.1f}%, since {comparator})')
+
         self.cost_formula_label.config(
-            text=f'{cost.total_cost:.1f} = {empty_pct:.1f}% + λ×{size_pct_sq:.1f} %-sq'
+            text=f'{cost.total_cost:.1f} = {empty_cost_pct:.1f}% + λ×{size_pct_sq:.2f} %-sq'
         )
         
         # Create weight display rows for each photo
