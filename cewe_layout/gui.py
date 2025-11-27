@@ -149,9 +149,13 @@ class LayoutViewer:
         self.size_importance_entry.bind('<Return>', lambda e: self.on_size_importance_changed())
         self.size_importance_entry.bind('<FocusOut>', lambda e: self.on_size_importance_changed())
 
-        # Reset sizes button
-        reset_btn = ttk.Button(param_frame, text='Reset sizes', command=self.reset_sizes)
-        reset_btn.grid(row=2, column=0, columnspan=2, sticky='w', pady=6)
+        # Equal sizes button
+        equal_btn = ttk.Button(param_frame, text='Equal sizes', command=self.equal_sizes)
+        equal_btn.grid(row=2, column=0, columnspan=2, sticky='ew', pady=(6,2))
+        
+        # Stored sizes button
+        stored_btn = ttk.Button(param_frame, text='Stored sizes', command=self.stored_sizes)
+        stored_btn.grid(row=3, column=0, columnspan=2, sticky='ew', pady=2)
         
         # Photo weight rows (will be populated dynamically)
         self.weight_widgets = []  # List of (photo_label, desired_entry, actual_label)
@@ -651,21 +655,28 @@ class LayoutViewer:
         ttk.Button(button_frame, text='OK', command=apply_sizes).pack(side='left', padx=5)
         ttk.Button(button_frame, text='Cancel', command=dialog.destroy).pack(side='left', padx=5)
 
-    def reset_sizes(self):
-        """Reset preferred sizes based on current page layout areas."""
+    def equal_sizes(self):
+        """Set all photos to equal preferred size (1.0)."""
         if not self.pages:
             return
         pageno, info = self.pages[self.index]
         current_layout = self.layout_mgr.get_current(pageno)
         photos = current_layout.photos if current_layout else info.get('photos', [])
-        total_area = sum((p.get('area_width', 0) or 0) * (p.get('area_height', 0) or 0) for p in photos)
-        if total_area <= 0:
-            return
         for p in photos:
             fn = p.get('filename', '')
-            area = (p.get('area_width', 0) or 0) * (p.get('area_height', 0) or 0)
-            preferred = (area / total_area)
-            self.layout_mgr.set_size(pageno, fn, preferred)
+            self.layout_mgr.set_size(pageno, fn, 1.0)
+        self.update_weights_display()
+    
+    def stored_sizes(self):
+        """Restore preferred sizes from original layout areas."""
+        if not self.pages:
+            return
+        pageno, info = self.pages[self.index]
+        stored = self.layout_mgr.get_stored_sizes_for_page(pageno)
+        if not stored:
+            return
+        for fn, size in stored.items():
+            self.layout_mgr.set_size(pageno, fn, size)
         self.update_weights_display()
 
     def use_original(self):
