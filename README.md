@@ -12,7 +12,13 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-2. Run the GUI viewer against an unpacked `.xmcf` folder or `.mcf` file:
+2. Run the diagnostic just to list all page contents of an unpacked `.xmcf` folder or `.mcf` file:
+
+```bash
+python run_cewe_layout.py --input /path/to/Album-2022-tester.xmcf
+```
+
+3. Run the GUI viewer against an unpacked `.xmcf` folder or `.mcf` file:
 
 ```bash
 python run_cewe_layout.py --input /path/to/Album-2022-tester.xmcf --gui
