@@ -82,6 +82,11 @@ class LayoutManager:
         """Return dict of filename -> preferred_size for a page."""
         return dict(self.page_sizes[pageno])
 
+    def clear_sizes(self, pageno):
+        """Clear stored preferred sizes for a page."""
+        if pageno in self.page_sizes:
+            del self.page_sizes[pageno]
+
     def set_gap(self, pageno, gap):
         """Set gap spacing for a page (MCF units, 0.1mm)."""
         self.page_gaps[pageno] = gap

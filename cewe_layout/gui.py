@@ -30,6 +30,19 @@ class LayoutViewer:
         # initialize layout manager with originals from file
         for pageno, info in self.pages:
             self.layout_mgr.set_original(pageno, info.get('photos', []))
+            # Initialize default preferred sizes from current layout areas
+            photos = info.get('photos', [])
+            total_area = sum((p.get('area_width', 0) or 0) * (p.get('area_height', 0) or 0) for p in photos)
+            if total_area > 0:
+                for p in photos:
+                    fn = p.get('filename', '')
+                    area = (p.get('area_width', 0) or 0) * (p.get('area_height', 0) or 0)
+                    preferred = (area / total_area) if total_area > 0 else 1.0
+                    self.layout_mgr.set_size(pageno, fn, preferred)
+            else:
+                # Fallback to uniform sizes
+                for p in photos:
+                    self.layout_mgr.set_size(pageno, p.get('filename', ''), 1.0)
 
         # Main window for page display
         self.root = root
@@ -135,6 +148,10 @@ class LayoutViewer:
         self.size_importance_entry.grid(row=1, column=1, sticky='w', padx=4, pady=2)
         self.size_importance_entry.bind('<Return>', lambda e: self.on_size_importance_changed())
         self.size_importance_entry.bind('<FocusOut>', lambda e: self.on_size_importance_changed())
+
+        # Reset sizes button
+        reset_btn = ttk.Button(param_frame, text='Reset sizes', command=self.reset_sizes)
+        reset_btn.grid(row=2, column=0, columnspan=2, sticky='w', pady=6)
         
         # Photo weight rows (will be populated dynamically)
         self.weight_widgets = []  # List of (photo_label, desired_entry, actual_label)
@@ -381,7 +398,7 @@ class LayoutViewer:
         """Handle preferred size entry change."""
         try:
             new_size = float(var.get())
-            if 0.1 <= new_size <= 5.0:  # Reasonable bounds
+            if 0.0 <= new_size <= 5.0:  # Reasonable bounds
                 self.layout_mgr.set_size(pageno, filename, new_size)
                 self.update_weights_display()  # Refresh display
         except ValueError:
@@ -614,7 +631,7 @@ class LayoutViewer:
             var = tk.DoubleVar(value=current_size)
             size_vars[photo.get('filename', '')] = var
             
-            spinbox = ttk.Spinbox(frame, from_=0.5, to=2.0, increment=0.1, 
+            spinbox = ttk.Spinbox(frame, from_=0.0, to=5.0, increment=0.05, 
                                  textvariable=var, width=6)
             spinbox.pack(side='right', padx=5)
         
@@ -633,6 +650,23 @@ class LayoutViewer:
         
         ttk.Button(button_frame, text='OK', command=apply_sizes).pack(side='left', padx=5)
         ttk.Button(button_frame, text='Cancel', command=dialog.destroy).pack(side='left', padx=5)
+
+    def reset_sizes(self):
+        """Reset preferred sizes based on current page layout areas."""
+        if not self.pages:
+            return
+        pageno, info = self.pages[self.index]
+        current_layout = self.layout_mgr.get_current(pageno)
+        photos = current_layout.photos if current_layout else info.get('photos', [])
+        total_area = sum((p.get('area_width', 0) or 0) * (p.get('area_height', 0) or 0) for p in photos)
+        if total_area <= 0:
+            return
+        for p in photos:
+            fn = p.get('filename', '')
+            area = (p.get('area_width', 0) or 0) * (p.get('area_height', 0) or 0)
+            preferred = (area / total_area)
+            self.layout_mgr.set_size(pageno, fn, preferred)
+        self.update_weights_display()
 
     def use_original(self):
         """Discard current layout and revert to original from file."""
