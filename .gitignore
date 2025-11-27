@@ -1,4 +1,12 @@
 cewe_layout/.DS_Store
-/cewe_layout/__pycache__
 .DS_Store
+
+# Python caches
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+
+# Specific subfolders (redundant with above but explicit)
+/cewe_layout/__pycache__
 /cewe_layout/algorithms/__pycache__
