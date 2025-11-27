@@ -235,7 +235,7 @@ class LayoutViewer:
         cost = evaluate_layout(page_w, page_h, rectangles)
         
         # Update cost label
-        cost_text = f'Total: {cost.total:.2f}  (Empty: {cost.empty_cost:.2f}, Weight: {cost.weight_mismatch:.2f})'
+        cost_text = f'Total: {cost.total_cost:.2f}  (Empty: {cost.empty_space_cost:.2f}, Weight: {cost.weight_mismatch_cost:.2f})'
         self.cost_label.config(text=cost_text)
         
         # Create weight display rows for each photo
