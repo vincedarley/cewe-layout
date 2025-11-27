@@ -1,7 +1,7 @@
 """Layout generation and management for pages.
 
 Provides collage-generator integration, in-memory layout storage with undo,
-and per-photo weight management.
+and per-photo preferred size management.
 """
 from collections import defaultdict
 import copy
@@ -9,20 +9,22 @@ import copy
 
 class PageLayout:
     """In-memory representation of a page layout."""
-    def __init__(self, pageno, photos_with_areas):
+    def __init__(self, pageno, photos_with_areas, gap=0.0):
         self.pageno = pageno
         # photos_with_areas: list of photo dicts with area info
         self.photos = copy.deepcopy(photos_with_areas)
+        self.gap = gap  # Uniform spacing in MCF units (0.1mm)
 
     def clone(self):
-        return PageLayout(self.pageno, self.photos)
+        return PageLayout(self.pageno, self.photos, self.gap)
 
 
 class LayoutManager:
-    """Manages in-memory layout history per page, weights, and original state."""
+    """Manages in-memory layout history per page, sizes, and original state."""
     def __init__(self):
         self.page_layouts = defaultdict(list)  # pageno -> [PageLayout, ...]
-        self.page_weights = defaultdict(lambda: defaultdict(lambda: 1.0))  # pageno -> filename -> weight
+        self.page_sizes = defaultdict(lambda: defaultdict(lambda: 1.0))  # pageno -> filename -> preferred_size
+        self.page_gaps = {}  # pageno -> gap (MCF units, 0.1mm)
         self.page_original = {}  # pageno -> PageLayout (read from file)
 
     def set_original(self, pageno, photos):
@@ -68,14 +70,22 @@ class LayoutManager:
         if pageno in self.page_layouts:
             del self.page_layouts[pageno]
 
-    def set_weight(self, pageno, filename, weight):
-        """Set weight for a photo by filename."""
-        self.page_weights[pageno][filename] = weight
+    def set_size(self, pageno, filename, preferred_size):
+        """Set preferred size for a photo by filename."""
+        self.page_sizes[pageno][filename] = preferred_size
 
-    def get_weight(self, pageno, filename):
-        """Get weight for a photo (default 1.0)."""
-        return self.page_weights[pageno][filename]
+    def get_size(self, pageno, filename):
+        """Get preferred size for a photo (default 1.0)."""
+        return self.page_sizes[pageno][filename]
 
-    def get_weights_for_page(self, pageno):
-        """Return dict of filename -> weight for a page."""
-        return dict(self.page_weights[pageno])
+    def get_sizes_for_page(self, pageno):
+        """Return dict of filename -> preferred_size for a page."""
+        return dict(self.page_sizes[pageno])
+
+    def set_gap(self, pageno, gap):
+        """Set gap spacing for a page (MCF units, 0.1mm)."""
+        self.page_gaps[pageno] = gap
+
+    def get_gap(self, pageno):
+        """Get gap spacing for a page (default 0.0)."""
+        return self.page_gaps.get(pageno, 0.0)

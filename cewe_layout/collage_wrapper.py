@@ -17,7 +17,7 @@ from .algorithms.collage_generator import CollageGeneratorAlgorithm
 
 
 def generate_layout_for_page(photos, page_width_mcf, page_height_mcf, mcf_base_folder, 
-                           algorithm=None, temperature=1.0, weights=None, **kwargs):
+                           algorithm=None, temperature=1.0, preferred_sizes=None, gap=0.0, **kwargs):
     """
     High-level function to generate a new layout for a page.
     
@@ -31,7 +31,8 @@ def generate_layout_for_page(photos, page_width_mcf, page_height_mcf, mcf_base_f
         mcf_base_folder: Base folder for resolving image paths.
         algorithm: LayoutAlgorithm instance (defaults to CollageGeneratorAlgorithm).
         temperature: Temperature for randomness (if supported by algorithm).
-        weights: Optional dict mapping filename -> desired_weight (0.5 to 2.0).
+        preferred_sizes: Optional dict mapping filename -> preferred_size (0.5 to 2.0).
+        gap: Uniform spacing between photos and edges (MCF units). Default 0.0.
         **kwargs: Additional algorithm-specific parameters.
     
     Returns:
@@ -40,37 +41,43 @@ def generate_layout_for_page(photos, page_width_mcf, page_height_mcf, mcf_base_f
     if algorithm is None:
         algorithm = CollageGeneratorAlgorithm(temperature=temperature)
     
+    # Adjust page dimensions for gap (algorithm works on reduced page)
+    algo_page_width = page_width_mcf - gap if gap > 0 else page_width_mcf
+    algo_page_height = page_height_mcf - gap if gap > 0 else page_height_mcf
+    
     # Step 1: Translate MCF photos to abstract layout rectangles
     rectangles, error = _photos_to_rectangles(
-        photos, mcf_base_folder, weights
+        photos, mcf_base_folder, preferred_sizes, gap
     )
     if not rectangles:
         return False, [], error
     
-    # Step 2: Run the layout algorithm (operates on page coordinates, not MCF)
+    # Step 2: Run the layout algorithm (operates on gap-adjusted page coordinates)
     success, positioned_rects, error_msg = algorithm.generate_layout(
-        page_width_mcf, page_height_mcf, rectangles, **kwargs
+        algo_page_width, algo_page_height, rectangles, **kwargs
     )
     if not success:
         return False, [], error_msg
     
-    # Step 3: Translate results back to MCF coordinates
-    updated_photos = _rectangles_to_photos(photos, positioned_rects)
+    # Step 3: Translate results back to MCF coordinates (apply gap)
+    updated_photos = _rectangles_to_photos(photos, positioned_rects, gap)
     
     return True, updated_photos, ""
 
 
-def _photos_to_rectangles(photos, mcf_base_folder, weights=None):
+def _photos_to_rectangles(photos, mcf_base_folder, preferred_sizes=None, gap=0.0):
     """
     Convert MCF photo list to abstract LayoutRectangle objects.
     
     For each photo, load the image, extract its dimensions, and create a LayoutRectangle
-    with the correct width/height ratio.
+    with the correct width/height ratio. If gap > 0, dimensions are increased by gap
+    so the algorithm can work on gap-free space.
     
     Args:
         photos: List of MCF photo dicts.
         mcf_base_folder: Base folder for image paths.
-        weights: Optional dict mapping filename -> desired_weight.
+        preferred_sizes: Optional dict mapping filename -> preferred_size.
+        gap: Uniform spacing (MCF units). Photo dimensions increased by this amount.
     
     Returns:
         Tuple (rectangles: list, error: str).
@@ -101,30 +108,40 @@ def _photos_to_rectangles(photos, mcf_base_folder, weights=None):
             return [], f"Invalid image dimensions: {img_path}"
         
         # Create LayoutRectangle with image dimensions
+        # If gap > 0, increase dimensions so algorithm works on gap-free space
         # Use photo index as item_id for reversal later
         item_id = str(photo_idx)
-        desired_weight = 1.0
-        if weights and fn in weights:
-            desired_weight = weights[fn]
+        preferred_size = 1.0
+        if preferred_sizes and fn in preferred_sizes:
+            preferred_size = preferred_sizes[fn]
+        
+        # Add gap to dimensions (algorithm will position in gap-free space)
+        rect_width = float(img_width) + gap
+        rect_height = float(img_height) + gap
         
         rect = LayoutRectangle(
             item_id=item_id,
-            width=float(img_width),
-            height=float(img_height),
-            desired_weight=desired_weight
+            width=rect_width,
+            height=rect_height,
+            preferred_size=preferred_size
         )
         rectangles.append(rect)
     
     return rectangles, ""
 
 
-def _rectangles_to_photos(photos, rectangles):
+def _rectangles_to_photos(photos, rectangles, gap=0.0):
     """
     Convert algorithm output (positioned LayoutRectangle) back to MCF photo format.
+    
+    If gap > 0, applies gap by:
+    - Adding gap to x, y (margin from edges)
+    - Subtracting gap from width, height (spacing between photos)
     
     Args:
         photos: Original MCF photo list.
         rectangles: List of positioned LayoutRectangle objects from algorithm.
+        gap: Uniform spacing (MCF units).
     
     Returns:
         Updated photos list with new area_left/top/width/height.
@@ -137,10 +154,11 @@ def _rectangles_to_photos(photos, rectangles):
         
         if photo_idx < len(photos) and rect.x is not None and rect.y is not None:
             photo = photos[photo_idx].copy()
-            photo['area_left'] = rect.x
-            photo['area_top'] = rect.y
-            photo['area_width'] = rect.width
-            photo['area_height'] = rect.height
+            # Apply gap: shift position and reduce size
+            photo['area_left'] = rect.x + gap
+            photo['area_top'] = rect.y + gap
+            photo['area_width'] = max(0, rect.width - gap)
+            photo['area_height'] = max(0, rect.height - gap)
             updated_photos.append(photo)
     
     return updated_photos

@@ -190,7 +190,7 @@ class CollageGeneratorAlgorithm(LayoutAlgorithm):
         Args:
             page_width: Page width in page coordinates.
             page_height: Page height in page coordinates.
-            rectangles: List of LayoutRectangle objects with width, height, desired_weight.
+            rectangles: List of LayoutRectangle objects with width, height, preferred_size.
             **kwargs: Additional parameters (unused for collage-generator).
         
         Returns:
@@ -286,5 +286,5 @@ class CollageGeneratorAlgorithm(LayoutAlgorithm):
                 rect.y = pixel_rect['y'] * scale_y
                 rect.width = pixel_rect['width'] * scale_x
                 rect.height = pixel_rect['height'] * scale_y
-                # Collage-generator achieves the desired weight (no scaling)
-                rect.achieved_weight = rect.desired_weight
+                # Collage-generator achieves the preferred size (no scaling)
+                rect.actual_size = rect.preferred_size

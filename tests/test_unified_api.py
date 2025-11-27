@@ -26,7 +26,7 @@ def test_layout_rectangle():
         item_id="photo_0",
         width=1920.0,
         height=1080.0,
-        desired_weight=1.5,
+        preferred_size=1.5,
         x=None,  # Optional input hint
         y=None
     )
@@ -35,8 +35,8 @@ def test_layout_rectangle():
     assert rect.item_id == "photo_0"
     assert rect.width == 1920.0
     assert rect.height == 1080.0
-    assert rect.desired_weight == 1.5
-    assert rect.achieved_weight == 0.0
+    assert rect.preferred_size == 1.5
+    assert rect.actual_size == 0.0
     assert rect.x is None
     assert rect.y is None
     
@@ -45,14 +45,14 @@ def test_layout_rectangle():
     rect.y = 50.0
     rect.width = 400.0
     rect.height = 300.0
-    rect.achieved_weight = 1.5
+    rect.actual_size = 1.5
     
     # Check output state
     assert rect.x == 100.0
     assert rect.y == 50.0
     assert rect.width == 400.0
     assert rect.height == 300.0
-    assert rect.achieved_weight == 1.5
+    assert rect.actual_size == 1.5
     
     print(f"  ✅ {rect}")
 
@@ -65,9 +65,9 @@ def test_collage_generator_algorithm():
     
     # Create input rectangles (representing 3 photos with different aspect ratios)
     rectangles = [
-        LayoutRectangle(item_id="0", width=1920.0, height=1080.0, desired_weight=1.0),  # 16:9
-        LayoutRectangle(item_id="1", width=1080.0, height=1080.0, desired_weight=1.0),  # 1:1
-        LayoutRectangle(item_id="2", width=1080.0, height=1440.0, desired_weight=1.0),  # 3:4
+        LayoutRectangle(item_id="0", width=1920.0, height=1080.0, preferred_size=1.0),  # 16:9
+        LayoutRectangle(item_id="1", width=1080.0, height=1080.0, preferred_size=1.0),  # 1:1
+        LayoutRectangle(item_id="2", width=1080.0, height=1440.0, preferred_size=1.0),  # 3:4
     ]
     
     # Run layout
@@ -85,7 +85,7 @@ def test_collage_generator_algorithm():
     for i, rect in enumerate(result_rects):
         assert rect.x is not None, f"Rectangle {i} missing x"
         assert rect.y is not None, f"Rectangle {i} missing y"
-        assert rect.achieved_weight > 0, f"Rectangle {i} has zero achieved_weight"
+        assert rect.actual_size > 0, f"Rectangle {i} has zero actual_size"
         print(f"  ✅ Rectangle {i}: {rect}")
     
     # Verify no rectangles overlap (rough check)

@@ -13,6 +13,7 @@ from .parser import extract_pages_info, parse_mcf_from_path
 from .layout_ops import LayoutManager
 from .collage_wrapper import generate_layout_for_page
 from .algorithms.evaluator import evaluate_layout
+from .gap_utils import estimate_gap
 
 
 class LayoutViewer:
@@ -65,7 +66,7 @@ class LayoutViewer:
         orig_btn = ttk.Button(self.ctrl, text='Use Original', command=self.use_original)
         orig_btn.grid(row=1, column=3, padx=4, pady=4)
         
-        weights_btn = ttk.Button(self.ctrl, text='Adjust Weights', command=self.adjust_weights)
+        weights_btn = ttk.Button(self.ctrl, text='Adjust Sizes', command=self.adjust_sizes)
         weights_btn.grid(row=2, column=0, padx=4, pady=4)
         
         quit_btn = ttk.Button(self.ctrl, text='Quit (q)', command=self.quit)
@@ -75,15 +76,64 @@ class LayoutViewer:
         self.info_frame = ttk.LabelFrame(self.ctrl, text='Layout Info', padding=8)
         self.info_frame.grid(row=3, column=0, columnspan=5, padx=4, pady=8, sticky='ew')
         
-        # Cost display labels
-        ttk.Label(self.info_frame, text='Cost:').grid(row=0, column=0, sticky='w')
-        self.cost_label = ttk.Label(self.info_frame, text='--', font=('TkDefaultFont', 9))
-        self.cost_label.grid(row=0, column=1, columnspan=4, sticky='w', padx=4)
+        # Configure columns: left column (0) for photos, right column (1) for cost/params
+        self.info_frame.columnconfigure(0, weight=1)
+        self.info_frame.columnconfigure(1, weight=0)
         
-        # Weights header
-        ttk.Label(self.info_frame, text='Photo', font=('TkDefaultFont', 9, 'bold')).grid(row=1, column=0, padx=2, pady=2)
-        ttk.Label(self.info_frame, text='Desired', font=('TkDefaultFont', 9, 'bold')).grid(row=1, column=1, padx=2, pady=2)
-        ttk.Label(self.info_frame, text='Actual', font=('TkDefaultFont', 9, 'bold')).grid(row=1, column=2, padx=2, pady=2)
+        # LEFT COLUMN: Photo weights
+        photo_frame = ttk.Frame(self.info_frame)
+        photo_frame.grid(row=0, column=0, sticky='nw', padx=(0, 20))
+        
+        ttk.Label(photo_frame, text='Photo', font=('TkDefaultFont', 9, 'bold')).grid(row=0, column=0, padx=2, pady=2, sticky='w')
+        ttk.Label(photo_frame, text='Preferred', font=('TkDefaultFont', 9, 'bold')).grid(row=0, column=1, padx=2, pady=2, sticky='w')
+        ttk.Label(photo_frame, text='Actual', font=('TkDefaultFont', 9, 'bold')).grid(row=0, column=2, padx=2, pady=2, sticky='w')
+        
+        # Photo weight rows will be added dynamically to photo_frame
+        self.photo_frame = photo_frame
+        
+        # RIGHT COLUMN: Cost info (top) and Parameters (bottom)
+        right_col = ttk.Frame(self.info_frame)
+        right_col.grid(row=0, column=1, sticky='ne')
+        
+        # Cost display frame (top of right column)
+        cost_frame = ttk.LabelFrame(right_col, text='Cost', padding=6)
+        cost_frame.grid(row=0, column=0, sticky='ew', pady=(0, 10))
+        
+        ttk.Label(cost_frame, text='Total:', font=('TkDefaultFont', 9, 'bold')).grid(row=0, column=0, sticky='w', pady=1)
+        self.cost_total_label = ttk.Label(cost_frame, text='--', font=('TkDefaultFont', 9))
+        self.cost_total_label.grid(row=0, column=1, sticky='w', padx=4, pady=1)
+        
+        ttk.Label(cost_frame, text='Empty space:', font=('TkDefaultFont', 8)).grid(row=1, column=0, sticky='w', pady=1)
+        self.cost_empty_label = ttk.Label(cost_frame, text='--', font=('TkDefaultFont', 8))
+        self.cost_empty_label.grid(row=1, column=1, sticky='w', padx=4, pady=1)
+        
+        ttk.Label(cost_frame, text='Size mismatch:', font=('TkDefaultFont', 8)).grid(row=2, column=0, sticky='w', pady=1)
+        self.cost_size_label = ttk.Label(cost_frame, text='--', font=('TkDefaultFont', 8))
+        self.cost_size_label.grid(row=2, column=1, sticky='w', padx=4, pady=1)
+
+        # Formula display: Total = Empty% + λ × SizeMismatch%-sq
+        self.cost_formula_label = ttk.Label(cost_frame, text='', font=('TkDefaultFont', 8, 'italic'))
+        self.cost_formula_label.grid(row=3, column=0, columnspan=2, sticky='w', pady=(4,0))
+        
+        # Parameters frame (bottom of right column)
+        param_frame = ttk.LabelFrame(right_col, text='Parameters', padding=6)
+        param_frame.grid(row=1, column=0, sticky='ew')
+        
+        # Gap parameter
+        ttk.Label(param_frame, text='Gap (mm):').grid(row=0, column=0, sticky='w', pady=2)
+        self.gap_var = tk.StringVar(value='0.0')
+        self.gap_entry = ttk.Entry(param_frame, textvariable=self.gap_var, width=8)
+        self.gap_entry.grid(row=0, column=1, sticky='w', padx=4, pady=2)
+        self.gap_entry.bind('<Return>', lambda e: self.on_gap_changed())
+        self.gap_entry.bind('<FocusOut>', lambda e: self.on_gap_changed())
+        
+        # Weight importance parameter
+        ttk.Label(param_frame, text='Size importance (λ):').grid(row=1, column=0, sticky='w', pady=2)
+        self.size_importance_var = tk.StringVar(value='100.0')
+        self.size_importance_entry = ttk.Entry(param_frame, textvariable=self.size_importance_var, width=8)
+        self.size_importance_entry.grid(row=1, column=1, sticky='w', padx=4, pady=2)
+        self.size_importance_entry.bind('<Return>', lambda e: self.on_size_importance_changed())
+        self.size_importance_entry.bind('<FocusOut>', lambda e: self.on_size_importance_changed())
         
         # Photo weight rows (will be populated dynamically)
         self.weight_widgets = []  # List of (photo_label, desired_entry, actual_label)
@@ -96,6 +146,7 @@ class LayoutViewer:
 
         self.photo_image = None
         self.thumb_cache = {}  # filename -> PIL.Image (thumbnail)
+        self.size_importance = 100.0  # Default size importance factor
         self.render_page()
 
     def render_page(self):
@@ -198,6 +249,18 @@ class LayoutViewer:
         page_w = info.get('page_width', 2100.0)
         page_h = info.get('page_height', 2970.0)
         
+        # Estimate gap from current layout if not already set
+        current_gap = self.layout_mgr.get_gap(pageno)
+        if current_gap == 0.0 and photos:
+            estimated_gap = estimate_gap(photos, page_w, page_h)
+            if estimated_gap > 0:
+                self.layout_mgr.set_gap(pageno, estimated_gap)
+                current_gap = estimated_gap
+        
+        # Update gap display (convert MCF units to mm: 1 MCF unit = 0.1mm)
+        gap_mm = current_gap / 10.0
+        self.gap_var.set(f'{gap_mm:.1f}')
+        
         # Clear existing weight widgets
         for widgets in self.weight_widgets:
             for w in widgets:
@@ -205,10 +268,13 @@ class LayoutViewer:
         self.weight_widgets.clear()
         
         if not photos:
-            self.cost_label.config(text='No photos')
+            self.cost_total_label.config(text='--')
+            self.cost_empty_label.config(text='No photos')
+            self.cost_size_label.config(text='--')
             return
         
         # Build LayoutRectangle list from photos
+        # Transform to gap-free coordinate space (same as algorithm uses)
         from .algorithms.base import LayoutRectangle
         rectangles = []
         for i, p in enumerate(photos):
@@ -218,74 +284,124 @@ class LayoutViewer:
             h = p.get('area_height', 0)
             
             fn = p.get('filename', '')
-            desired_weight = self.layout_mgr.get_weight(pageno, fn)
+            preferred_size = self.layout_mgr.get_size(pageno, fn)
             
+            # Transform to gap-free space: subtract gap from position, add gap to dimensions
+            # This reverses the transformation applied in collage_wrapper._rectangles_to_photos
             rect = LayoutRectangle(
                 item_id=str(i),
-                width=w,
-                height=h,
-                desired_weight=desired_weight,
-                x=left,
-                y=top
+                width=w + current_gap,
+                height=h + current_gap,
+                preferred_size=preferred_size,
+                x=left - current_gap,
+                y=top - current_gap
             )
-            rect.achieved_weight = desired_weight  # Placeholder; evaluator will compute
+            rect.actual_size = preferred_size  # Placeholder; evaluator will compute
             rectangles.append(rect)
         
-        # Evaluate layout cost
-        cost = evaluate_layout(page_w, page_h, rectangles)
+        # Evaluate in gap-free coordinate space (page dimensions reduced by gap)
+        eval_page_w = page_w - current_gap if current_gap > 0 else page_w
+        eval_page_h = page_h - current_gap if current_gap > 0 else page_h
         
-        # Update cost label
-        cost_text = f'Total: {cost.total_cost:.2f}  (Empty: {cost.empty_space_cost:.2f}, Weight: {cost.weight_mismatch_cost:.2f})'
-        self.cost_label.config(text=cost_text)
+        cost = evaluate_layout(
+            eval_page_w, eval_page_h, rectangles,
+            size_importance=self.size_importance,
+            acceptable_empty_fraction=0.05
+        )
+        
+        # Update cost labels with human-readable format
+        self.cost_total_label.config(text=f'{cost.total_cost:.1f}')
+        
+        # Empty space as percentage
+        empty_pct = cost.empty_space_fraction * 100
+        self.cost_empty_label.config(text=f'{empty_pct:.1f}%')
+        
+        # Size mismatch: show raw %-squared (multiply by 100 then square)
+        # cost.size_mismatch_cost = (sum of squared fractional errors) * size_importance
+        raw_sq = cost.size_mismatch_cost / self.size_importance if self.size_importance > 0 else 0.0
+        size_pct_sq = raw_sq * 10000.0  # (error * 100)^2 => multiply fractional sum by 100^2
+        self.cost_size_label.config(text=f'{size_pct_sq:.1f} %-sq')
+
+        # Show formula: Total = Empty% + λ × SizeMismatch%-sq
+        # This is for readability; units are mixed intentionally as requested
+        self.cost_formula_label.config(
+            text=f'{cost.total_cost:.1f} = {empty_pct:.1f}% + λ×{size_pct_sq:.1f} %-sq'
+        )
         
         # Create weight display rows for each photo
         for i, (rect, p) in enumerate(zip(rectangles, photos)):
-            row = 2 + i
+            row = 1 + i  # Row 0 has headers, data starts at row 1
             
             # Photo number label
-            photo_label = ttk.Label(self.info_frame, text=f'{i+1}', font=('TkDefaultFont', 9))
+            photo_label = ttk.Label(self.photo_frame, text=f'{i+1}', font=('TkDefaultFont', 9))
             photo_label.grid(row=row, column=0, padx=2, pady=1)
             
             # Desired weight entry (editable)
-            desired_var = tk.StringVar(value=f'{rect.desired_weight:.1f}')
-            desired_entry = ttk.Entry(self.info_frame, textvariable=desired_var, width=6)
+            desired_var = tk.StringVar(value=f'{rect.preferred_size:.1f}')
+            desired_entry = ttk.Entry(self.photo_frame, textvariable=desired_var, width=6)
             desired_entry.grid(row=row, column=1, padx=2, pady=1)
             
             # Bind entry changes to update weights in layout manager
             fn = p.get('filename', '')
-            desired_entry.bind('<Return>', lambda e, pg=pageno, f=fn, var=desired_var: self.on_weight_changed(pg, f, var))
-            desired_entry.bind('<FocusOut>', lambda e, pg=pageno, f=fn, var=desired_var: self.on_weight_changed(pg, f, var))
+            desired_entry.bind('<Return>', lambda e, pg=pageno, f=fn, var=desired_var: self.on_size_changed(pg, f, var))
+            desired_entry.bind('<FocusOut>', lambda e, pg=pageno, f=fn, var=desired_var: self.on_size_changed(pg, f, var))
             
             # Actual weight label (computed from area)
-            total_area = page_w * page_h
+            # Use the same coordinate space as evaluation
+            total_area = (eval_page_w * eval_page_h)
             photo_area = rect.width * rect.height
             actual_fraction = photo_area / total_area if total_area > 0 else 0.0
             
             # Normalize to show relative to sum of all desired weights
-            total_desired = sum(r.desired_weight for r in rectangles)
+            total_desired = sum(r.preferred_size for r in rectangles)
             if total_desired > 0:
-                actual_weight = (actual_fraction / (photo_area / total_area if photo_area > 0 else 1.0)) * rect.desired_weight
+                actual_weight = (actual_fraction / (photo_area / total_area if photo_area > 0 else 1.0)) * rect.preferred_size
                 # Actually, let's compute the proper achieved weight from cost evaluation
                 # The evaluator normalizes weights, so actual_weight is the normalized area fraction
-                normalized_desired = rect.desired_weight / total_desired
+                normalized_desired = rect.preferred_size / total_desired
                 actual_weight_display = actual_fraction / normalized_desired if normalized_desired > 0 else 0.0
             else:
                 actual_weight_display = 1.0
             
             # Simpler: just show the area fraction as percentage of page
             actual_pct = actual_fraction * 100
-            actual_label = ttk.Label(self.info_frame, text=f'{actual_pct:.1f}%', font=('TkDefaultFont', 9))
+            actual_label = ttk.Label(self.photo_frame, text=f'{actual_pct:.1f}%', font=('TkDefaultFont', 9))
             actual_label.grid(row=row, column=2, padx=2, pady=1)
             
             self.weight_widgets.append((photo_label, desired_entry, actual_label))
     
-    def on_weight_changed(self, pageno, filename, var):
-        """Handle weight entry change."""
+    def on_size_changed(self, pageno, filename, var):
+        """Handle preferred size entry change."""
         try:
-            new_weight = float(var.get())
-            if 0.1 <= new_weight <= 5.0:  # Reasonable bounds
-                self.layout_mgr.set_weight(pageno, filename, new_weight)
+            new_size = float(var.get())
+            if 0.1 <= new_size <= 5.0:  # Reasonable bounds
+                self.layout_mgr.set_size(pageno, filename, new_size)
                 self.update_weights_display()  # Refresh display
+        except ValueError:
+            pass  # Ignore invalid input
+    
+    def on_gap_changed(self):
+        """Handle gap entry change."""
+        if not self.pages:
+            return
+        try:
+            pageno, info = self.pages[self.index]
+            gap_mm = float(self.gap_var.get())
+            # Convert mm to MCF units (1mm = 10 MCF units)
+            gap_mcf = gap_mm * 10.0
+            if 0.0 <= gap_mcf <= 200.0:  # Reasonable bounds (0-20mm)
+                self.layout_mgr.set_gap(pageno, gap_mcf)
+                self.update_weights_display()  # Refresh cost display
+        except ValueError:
+            pass  # Ignore invalid input
+    
+    def on_size_importance_changed(self):
+        """Handle size importance parameter change."""
+        try:
+            new_importance = float(self.size_importance_var.get())
+            if 0.1 <= new_importance <= 100.0:  # Reasonable bounds
+                self.size_importance = new_importance
+                self.update_weights_display()  # Refresh cost display
         except ValueError:
             pass  # Ignore invalid input
 
@@ -388,9 +504,12 @@ class LayoutViewer:
 
             page_w = info.get('page_width', 2100.0)
             page_h = info.get('page_height', 2970.0)
+            
+            # Get current gap for this page
+            gap = self.layout_mgr.get_gap(pageno)
 
             success, updated_photos, error_msg = generate_layout_for_page(
-                photos, page_w, page_h, Path(self.mcf_base_folder), temperature=1.0
+                photos, page_w, page_h, Path(self.mcf_base_folder), temperature=1.0, gap=gap
             )
 
             # If this page has an origin_left (right-hand page), the parser
@@ -441,23 +560,23 @@ class LayoutViewer:
         messagebox.showinfo('Save', f'Layout for page {pageno} saved. Memory cleared.')
         self.render_page()
 
-    def adjust_weights(self):
-        """Open dialog to adjust per-photo weights for layout generation."""
+    def adjust_sizes(self):
+        """Open dialog to adjust per-photo preferred sizes for layout generation."""
         pageno, info = self.pages[self.index]
         current_layout = self.layout_mgr.get_current(pageno)
         photos = current_layout.photos if current_layout else info.get('photos', [])
         
         if not photos:
-            messagebox.showinfo('Adjust Weights', 'No photos on this page.')
+            messagebox.showinfo('Adjust Sizes', 'No photos on this page.')
             return
         
         # Create top-level weight dialog
         dialog = tk.Toplevel(self.root)
-        dialog.title(f'Photo Weights - Page {pageno}')
+        dialog.title(f'Photo Sizes - Page {pageno}')
         dialog.geometry('400x500')
         
         # Header
-        tk.Label(dialog, text=f'Adjust weights for page {pageno} photos:', 
+        tk.Label(dialog, text=f'Adjust preferred sizes for page {pageno} photos:', 
                 font=('Helvetica', 10, 'bold')).pack(pady=10)
         
         # Scrollable frame
@@ -474,10 +593,10 @@ class LayoutViewer:
         canvas.configure(yscrollcommand=scrollbar.set)
         
         # Weight controls for each photo
-        weight_vars = {}
+        size_vars = {}
         for i, photo in enumerate(photos):
             fn = photo.get('filename', '').split('/')[-1]
-            current_weight = self.layout_mgr.get_weight(pageno, photo.get('filename', ''))
+            current_size = self.layout_mgr.get_size(pageno, photo.get('filename', ''))
             
             frame = ttk.Frame(scrollable_frame)
             frame.pack(fill='x', padx=5, pady=5)
@@ -485,8 +604,8 @@ class LayoutViewer:
             label = ttk.Label(frame, text=f'{i+1}. {fn[:30]}', width=35, anchor='w')
             label.pack(side='left', padx=5)
             
-            var = tk.DoubleVar(value=current_weight)
-            weight_vars[photo.get('filename', '')] = var
+            var = tk.DoubleVar(value=current_size)
+            size_vars[photo.get('filename', '')] = var
             
             spinbox = ttk.Spinbox(frame, from_=0.5, to=2.0, increment=0.1, 
                                  textvariable=var, width=6)
@@ -499,13 +618,13 @@ class LayoutViewer:
         button_frame = ttk.Frame(dialog)
         button_frame.pack(side='bottom', fill='x', padx=10, pady=10)
         
-        def apply_weights():
-            for fn, var in weight_vars.items():
-                self.layout_mgr.set_weight(pageno, fn, var.get())
+        def apply_sizes():
+            for fn, var in size_vars.items():
+                self.layout_mgr.set_size(pageno, fn, var.get())
             dialog.destroy()
-            messagebox.showinfo('Weights Updated', 'Photo weights updated. Use them in next layout generation.')
+            messagebox.showinfo('Sizes Updated', 'Photo preferred sizes updated. Use them in next layout generation.')
         
-        ttk.Button(button_frame, text='OK', command=apply_weights).pack(side='left', padx=5)
+        ttk.Button(button_frame, text='OK', command=apply_sizes).pack(side='left', padx=5)
         ttk.Button(button_frame, text='Cancel', command=dialog.destroy).pack(side='left', padx=5)
 
     def use_original(self):
