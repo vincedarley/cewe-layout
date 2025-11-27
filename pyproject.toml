@@ -1,0 +1,12 @@
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cewe-layout"
+version = "0.1.0"
+description = "Parse and interact with CEWE photobook .mcf files"
+authors = [ { name = "Vince Darley", email = "vince.darley@gmail.com" } ]
+
+[tool.setuptools]
+packages = ["cewe_layout"]
