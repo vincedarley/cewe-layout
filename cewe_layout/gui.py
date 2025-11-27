@@ -12,6 +12,7 @@ import cv2
 from .parser import extract_pages_info, parse_mcf_from_path
 from .layout_ops import LayoutManager
 from .collage_wrapper import generate_layout_for_page
+from .algorithms.evaluator import evaluate_layout
 
 
 class LayoutViewer:
@@ -66,11 +67,26 @@ class LayoutViewer:
         
         weights_btn = ttk.Button(self.ctrl, text='Adjust Weights', command=self.adjust_weights)
         weights_btn.grid(row=2, column=0, padx=4, pady=4)
-        diag_btn = ttk.Button(self.ctrl, text='Diag Thumb', command=self.diag_thumbnail)
-        diag_btn.grid(row=2, column=1, padx=4, pady=4)
         
         quit_btn = ttk.Button(self.ctrl, text='Quit (q)', command=self.quit)
-        quit_btn.grid(row=1, column=4, padx=8)
+        quit_btn.grid(row=2, column=1, padx=8)
+        
+        # Weights and cost display frame
+        self.info_frame = ttk.LabelFrame(self.ctrl, text='Layout Info', padding=8)
+        self.info_frame.grid(row=3, column=0, columnspan=5, padx=4, pady=8, sticky='ew')
+        
+        # Cost display labels
+        ttk.Label(self.info_frame, text='Cost:').grid(row=0, column=0, sticky='w')
+        self.cost_label = ttk.Label(self.info_frame, text='--', font=('TkDefaultFont', 9))
+        self.cost_label.grid(row=0, column=1, columnspan=4, sticky='w', padx=4)
+        
+        # Weights header
+        ttk.Label(self.info_frame, text='Photo', font=('TkDefaultFont', 9, 'bold')).grid(row=1, column=0, padx=2, pady=2)
+        ttk.Label(self.info_frame, text='Desired', font=('TkDefaultFont', 9, 'bold')).grid(row=1, column=1, padx=2, pady=2)
+        ttk.Label(self.info_frame, text='Actual', font=('TkDefaultFont', 9, 'bold')).grid(row=1, column=2, padx=2, pady=2)
+        
+        # Photo weight rows (will be populated dynamically)
+        self.weight_widgets = []  # List of (photo_label, desired_entry, actual_label)
 
         # keyboard bindings
         self.root.bind('<Left>', lambda e: self.prev_page())
@@ -164,10 +180,114 @@ class LayoutViewer:
             draw.text((x0+4, y0+4), f'{i}: {shortfn}', fill='black')
 
         self._show_image(img)
+        self.update_weights_display()
 
     def _show_image(self, pil_img):
         self.photo_image = ImageTk.PhotoImage(pil_img)
         self.img_label.configure(image=self.photo_image)
+    
+    def update_weights_display(self):
+        """Update the weights and cost display for the current page."""
+        if not self.pages:
+            return
+        
+        pageno, info = self.pages[self.index]
+        current_layout = self.layout_mgr.get_current(pageno)
+        photos = current_layout.photos if current_layout else info.get('photos', [])
+        
+        page_w = info.get('page_width', 2100.0)
+        page_h = info.get('page_height', 2970.0)
+        
+        # Clear existing weight widgets
+        for widgets in self.weight_widgets:
+            for w in widgets:
+                w.destroy()
+        self.weight_widgets.clear()
+        
+        if not photos:
+            self.cost_label.config(text='No photos')
+            return
+        
+        # Build LayoutRectangle list from photos
+        from .algorithms.base import LayoutRectangle
+        rectangles = []
+        for i, p in enumerate(photos):
+            left = p.get('area_left', 0)
+            top = p.get('area_top', 0)
+            w = p.get('area_width', 0)
+            h = p.get('area_height', 0)
+            
+            fn = p.get('filename', '')
+            desired_weight = self.layout_mgr.get_weight(pageno, fn)
+            
+            rect = LayoutRectangle(
+                item_id=str(i),
+                width=w,
+                height=h,
+                desired_weight=desired_weight,
+                x=left,
+                y=top
+            )
+            rect.achieved_weight = desired_weight  # Placeholder; evaluator will compute
+            rectangles.append(rect)
+        
+        # Evaluate layout cost
+        cost = evaluate_layout(page_w, page_h, rectangles)
+        
+        # Update cost label
+        cost_text = f'Total: {cost.total:.2f}  (Empty: {cost.empty_cost:.2f}, Weight: {cost.weight_mismatch:.2f})'
+        self.cost_label.config(text=cost_text)
+        
+        # Create weight display rows for each photo
+        for i, (rect, p) in enumerate(zip(rectangles, photos)):
+            row = 2 + i
+            
+            # Photo number label
+            photo_label = ttk.Label(self.info_frame, text=f'{i+1}', font=('TkDefaultFont', 9))
+            photo_label.grid(row=row, column=0, padx=2, pady=1)
+            
+            # Desired weight entry (editable)
+            desired_var = tk.StringVar(value=f'{rect.desired_weight:.1f}')
+            desired_entry = ttk.Entry(self.info_frame, textvariable=desired_var, width=6)
+            desired_entry.grid(row=row, column=1, padx=2, pady=1)
+            
+            # Bind entry changes to update weights in layout manager
+            fn = p.get('filename', '')
+            desired_entry.bind('<Return>', lambda e, pg=pageno, f=fn, var=desired_var: self.on_weight_changed(pg, f, var))
+            desired_entry.bind('<FocusOut>', lambda e, pg=pageno, f=fn, var=desired_var: self.on_weight_changed(pg, f, var))
+            
+            # Actual weight label (computed from area)
+            total_area = page_w * page_h
+            photo_area = rect.width * rect.height
+            actual_fraction = photo_area / total_area if total_area > 0 else 0.0
+            
+            # Normalize to show relative to sum of all desired weights
+            total_desired = sum(r.desired_weight for r in rectangles)
+            if total_desired > 0:
+                actual_weight = (actual_fraction / (photo_area / total_area if photo_area > 0 else 1.0)) * rect.desired_weight
+                # Actually, let's compute the proper achieved weight from cost evaluation
+                # The evaluator normalizes weights, so actual_weight is the normalized area fraction
+                normalized_desired = rect.desired_weight / total_desired
+                actual_weight_display = actual_fraction / normalized_desired if normalized_desired > 0 else 0.0
+            else:
+                actual_weight_display = 1.0
+            
+            # Simpler: just show the area fraction as percentage of page
+            actual_pct = actual_fraction * 100
+            actual_label = ttk.Label(self.info_frame, text=f'{actual_pct:.1f}%', font=('TkDefaultFont', 9))
+            actual_label.grid(row=row, column=2, padx=2, pady=1)
+            
+            self.weight_widgets.append((photo_label, desired_entry, actual_label))
+    
+    def on_weight_changed(self, pageno, filename, var):
+        """Handle weight entry change."""
+        try:
+            new_weight = float(var.get())
+            if 0.1 <= new_weight <= 5.0:  # Reasonable bounds
+                self.layout_mgr.set_weight(pageno, filename, new_weight)
+                self.update_weights_display()  # Refresh display
+        except ValueError:
+            pass  # Ignore invalid input
 
     def _get_thumbnail(self, path, w, h):
         # Avoid creating huge thumbnails; enforce minimums
@@ -387,50 +507,6 @@ class LayoutViewer:
         
         ttk.Button(button_frame, text='OK', command=apply_weights).pack(side='left', padx=5)
         ttk.Button(button_frame, text='Cancel', command=dialog.destroy).pack(side='left', padx=5)
-
-    def diag_thumbnail(self):
-        """Diagnostic: resolve first photo path and show a thumbnail preview."""
-        pageno, info = self.pages[self.index]
-        current_layout = self.layout_mgr.get_current(pageno)
-        photos = current_layout.photos if current_layout else info.get('photos', [])
-
-        if not photos:
-            messagebox.showinfo('Diag', 'No photos on this page.')
-            return
-
-        p = photos[0]
-        fn = p.get('filename', '')
-        safefn = fn.replace('safecontainer:/', '').lstrip('/')
-        img_path = None
-        if self.image_folder_attr:
-            candidate = os.path.join(self.mcf_base_folder, self.image_folder_attr, safefn)
-            if os.path.exists(candidate):
-                img_path = candidate
-        if img_path is None:
-            candidate = os.path.join(self.mcf_base_folder, safefn)
-            if os.path.exists(candidate):
-                img_path = candidate
-
-        print(f'[diag] page {pageno} filename: {fn} -> resolved: {img_path}')
-
-        if not img_path:
-            messagebox.showerror('Diag', f'Image not found for: {fn}\nTried: {safefn}')
-            return
-
-        # attempt to create a reasonably-sized thumbnail
-        thumb = self._get_thumbnail(img_path, 400, 400)
-        if thumb is None:
-            messagebox.showerror('Diag', f'Failed to create thumbnail for: {img_path}')
-            return
-
-        # show thumbnail in a small window
-        top = tk.Toplevel(self.root)
-        top.title('Diagnostic Thumbnail')
-        ph = ImageTk.PhotoImage(thumb)
-        lbl = ttk.Label(top, image=ph)
-        lbl.image = ph
-        lbl.pack(padx=8, pady=8)
-        messagebox.showinfo('Diag', f'Resolved and loaded: {img_path}')
 
     def use_original(self):
         """Discard current layout and revert to original from file."""
