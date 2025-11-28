@@ -13,7 +13,13 @@ from .parser import extract_pages_info, parse_mcf_from_path
 from .layout_ops import LayoutManager
 from .collage_wrapper import generate_layout_for_page
 from .algorithms.evaluator import evaluate_layout
-from .gap_utils import estimate_gap, estimate_gaps, analyze_gaps
+from .gap_utils import (
+    estimate_gap,
+    estimate_gaps,
+    analyze_gaps,
+    transform_page_to_gapfree,
+    transform_item_to_gapfree
+)
 
 
 class LayoutViewer:
@@ -330,32 +336,30 @@ class LayoutViewer:
         page_h = info.get('page_height', 2970.0)
         origin_left = info.get('origin_left', 0.0)
         
-        # Estimate gap from current layout if not already set
-        current_gap = self.layout_mgr.get_gap(pageno)
-        if current_gap == 0.0 and all_items:
+        # Analyze gaps to get both edge_gap and internal_gap
+        edge_gap = 0.0
+        internal_gap = 0.0
+        if all_items:
             analysis = analyze_gaps(all_items, page_w, page_h, origin_left)
-            # Prefer internal gap; fall back to edge gap
-            estimated_gap = analysis.internal_gap if analysis.internal_gap > 0 else analysis.edge_gap
-            if estimated_gap > 0:
-                self.layout_mgr.set_gap(pageno, estimated_gap)
-                current_gap = estimated_gap
+            edge_gap = analysis.edge_gap
+            internal_gap = analysis.internal_gap
+            
             # Display edge gap (or negative for bleed)
             if analysis.bleed > 0:
-                # Show bleed as negative edge gap
                 self.edge_gap_var.set(f'-{analysis.bleed / 10.0:.1f}')
             else:
-                self.edge_gap_var.set(f'{analysis.edge_gap / 10.0:.1f}')
+                self.edge_gap_var.set(f'{edge_gap / 10.0:.1f}')
         else:
-            # If gap already set, re-estimate to show edge gap and bleed
-            if all_items:
-                analysis = analyze_gaps(all_items, page_w, page_h, origin_left)
-                if analysis.bleed > 0:
-                    # Show bleed as negative edge gap
-                    self.edge_gap_var.set(f'-{analysis.bleed / 10.0:.1f}')
-                else:
-                    self.edge_gap_var.set(f'{analysis.edge_gap / 10.0:.1f}')
-            else:
-                self.edge_gap_var.set('0.0')
+            self.edge_gap_var.set('0.0')
+        
+        # Get or estimate internal gap for layout generation
+        current_gap = self.layout_mgr.get_gap(pageno)
+        if current_gap == 0.0 and internal_gap > 0:
+            self.layout_mgr.set_gap(pageno, internal_gap)
+            current_gap = internal_gap
+        elif current_gap == 0.0 and edge_gap > 0:
+            self.layout_mgr.set_gap(pageno, edge_gap)
+            current_gap = edge_gap
         
         # Update internal gap display (convert MCF units to mm: 1 MCF unit = 0.1mm)
         gap_mm = current_gap / 10.0
@@ -389,15 +393,19 @@ class LayoutViewer:
             fn = p.get('filename', '')
             preferred_size = self.layout_mgr.get_size(pageno, fn)
             
-            # Transform to gap-free space: subtract gap from position, add gap to dimensions
+            # Transform to gap-free space using centralized function
+            gf_left, gf_top, gf_width, gf_height = transform_item_to_gapfree(
+                left, top, w, h, edge_gap, internal_gap
+            )
+            
             rect = LayoutRectangle(
                 item_id=str(i),
-                width=w + current_gap,
-                height=h + current_gap,
+                width=gf_width,
+                height=gf_height,
                 preferred_size=preferred_size,
                 preserve_aspect_ratio=True,
-                x=left - current_gap,
-                y=top - current_gap
+                x=gf_left,
+                y=gf_top
             )
             rect.actual_size = preferred_size  # Placeholder; evaluator will compute
             rectangles.append(rect)
@@ -413,23 +421,28 @@ class LayoutViewer:
             text_id = f'TEXT_{i}'
             preferred_size = self.layout_mgr.get_size(pageno, text_id)
             
-            # Transform to gap-free space
+            # Transform to gap-free space using centralized function
+            gf_left, gf_top, gf_width, gf_height = transform_item_to_gapfree(
+                left, top, w, h, edge_gap, internal_gap
+            )
+            
             rect = LayoutRectangle(
                 item_id=text_id,
-                width=w + current_gap,
-                height=h + current_gap,
+                width=gf_width,
+                height=gf_height,
                 preferred_size=preferred_size,
                 preserve_aspect_ratio=False,
-                x=left - current_gap,
-                y=top - current_gap
+                x=gf_left,
+                y=gf_top
             )
             rect.actual_size = preferred_size
             rectangles.append(rect)
             item_identifiers.append(('text', i, text_id))
         
-        # Evaluate in gap-free coordinate space (page dimensions reduced by gap)
-        eval_page_w = page_w - current_gap if current_gap > 0 else page_w
-        eval_page_h = page_h - current_gap if current_gap > 0 else page_h
+        # Evaluate in gap-free coordinate space using centralized transformation
+        eval_page_w, eval_page_h = transform_page_to_gapfree(
+            page_w, page_h, edge_gap, internal_gap
+        )
         
         cost = evaluate_layout(
             eval_page_w, eval_page_h, rectangles,
@@ -642,9 +655,19 @@ class LayoutViewer:
             # Get texts for this page
             texts = info.get('texts', [])
 
+            # Get gap analysis for this page
+            all_items = info.get('photos', []) + info.get('texts', [])
+            if all_items:
+                analysis = analyze_gaps(all_items, page_w, page_h, info.get('origin_left', 0.0))
+                edge_gap = analysis.edge_gap
+                internal_gap = analysis.internal_gap
+            else:
+                edge_gap = 0.0
+                internal_gap = 0.0
+
             success, updated_photos, updated_texts, error_msg = generate_layout_for_page(
                 photos, page_w, page_h, Path(self.mcf_base_folder), 
-                temperature=1.0, gap=gap, texts=texts
+                temperature=1.0, edge_gap=edge_gap, internal_gap=internal_gap, texts=texts
             )
 
             # If this page has an origin_left (right-hand page), the parser

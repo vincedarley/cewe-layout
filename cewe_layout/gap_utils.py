@@ -282,3 +282,90 @@ def remove_gap_from_layout(photos: List[Dict[str, Any]], gap: float) -> List[Dic
         adjusted.append(adj)
     
     return adjusted
+
+
+def transform_page_to_gapfree(page_width: float, page_height: float,
+                               edge_gap: float, internal_gap: float) -> Tuple[float, float]:
+    """
+    Transform page dimensions from MCF space to gap-free space for algorithms.
+    
+    Gap-free space is where the algorithm operates:
+    - edge_gap is removed from all four edges (margins)
+    - internal_gap is added back once (items expand by internal_gap to touch)
+    
+    Formula: page - 2*edge_gap + internal_gap
+    
+    Rationale:
+    - Remove edge_gap from top/left (margins)
+    - Remove (edge_gap - internal_gap) from bottom/right (margin minus touching expansion)
+    - Simplifies to: page - 2*edge_gap + internal_gap
+    
+    Args:
+        page_width: Page width in MCF units.
+        page_height: Page height in MCF units.
+        edge_gap: Edge gap (margin) in MCF units.
+        internal_gap: Internal gap (spacing between items) in MCF units.
+    
+    Returns:
+        Tuple (gapfree_width, gapfree_height) in MCF units.
+    """
+    gapfree_width = page_width - 2 * edge_gap + internal_gap
+    gapfree_height = page_height - 2 * edge_gap + internal_gap
+    return gapfree_width, gapfree_height
+
+
+def transform_item_to_gapfree(left: float, top: float, width: float, height: float,
+                               edge_gap: float, internal_gap: float) -> Tuple[float, float, float, float]:
+    """
+    Transform an item (photo or text) from MCF space to gap-free space for algorithms.
+    
+    Gap-free space is where the algorithm operates:
+    - Positions subtract edge_gap (remove margins)
+    - Dimensions add internal_gap (items expand to touch neighbors)
+    
+    This ensures items in gap-free space perfectly fill the gap-free page with no gaps.
+    
+    Args:
+        left: Item left position in MCF units.
+        top: Item top position in MCF units.
+        width: Item width in MCF units.
+        height: Item height in MCF units.
+        edge_gap: Edge gap (margin) in MCF units.
+        internal_gap: Internal gap (spacing between items) in MCF units.
+    
+    Returns:
+        Tuple (gapfree_left, gapfree_top, gapfree_width, gapfree_height) in MCF units.
+    """
+    gapfree_left = left - edge_gap
+    gapfree_top = top - edge_gap
+    gapfree_width = width + internal_gap
+    gapfree_height = height + internal_gap
+    return gapfree_left, gapfree_top, gapfree_width, gapfree_height
+
+
+def transform_item_from_gapfree(gapfree_left: float, gapfree_top: float,
+                                 gapfree_width: float, gapfree_height: float,
+                                 edge_gap: float, internal_gap: float) -> Tuple[float, float, float, float]:
+    """
+    Transform an item from gap-free space back to MCF space.
+    
+    Inverse of transform_item_to_gapfree:
+    - Positions add edge_gap (restore margins)
+    - Dimensions subtract internal_gap (items shrink to create gaps)
+    
+    Args:
+        gapfree_left: Item left position in gap-free space.
+        gapfree_top: Item top position in gap-free space.
+        gapfree_width: Item width in gap-free space.
+        gapfree_height: Item height in gap-free space.
+        edge_gap: Edge gap (margin) in MCF units.
+        internal_gap: Internal gap (spacing between items) in MCF units.
+    
+    Returns:
+        Tuple (left, top, width, height) in MCF units.
+    """
+    left = gapfree_left + edge_gap
+    top = gapfree_top + edge_gap
+    width = max(0, gapfree_width - internal_gap)
+    height = max(0, gapfree_height - internal_gap)
+    return left, top, width, height

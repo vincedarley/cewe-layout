@@ -14,10 +14,16 @@ import cv2
 from pathlib import Path
 from .algorithms.base import LayoutRectangle
 from .algorithms.collage_generator import CollageGeneratorAlgorithm
+from .gap_utils import (
+    transform_page_to_gapfree,
+    transform_item_to_gapfree,
+    transform_item_from_gapfree
+)
 
 
 def generate_layout_for_page(photos, page_width_mcf, page_height_mcf, mcf_base_folder, 
-                           algorithm=None, temperature=1.0, preferred_sizes=None, gap=0.0, 
+                           algorithm=None, temperature=1.0, preferred_sizes=None, gap=None,
+                           edge_gap=0.0, internal_gap=0.0,
                            texts=None, **kwargs):
     """
     High-level function to generate a new layout for a page.
@@ -33,7 +39,9 @@ def generate_layout_for_page(photos, page_width_mcf, page_height_mcf, mcf_base_f
         algorithm: LayoutAlgorithm instance (defaults to CollageGeneratorAlgorithm).
         temperature: Temperature for randomness (if supported by algorithm).
         preferred_sizes: Optional dict mapping filename or TEXT_<idx> -> preferred_size (0.5 to 2.0).
-        gap: Uniform spacing between photos and edges (MCF units). Default 0.0.
+        gap: DEPRECATED. Use edge_gap and internal_gap instead. If provided, used for both.
+        edge_gap: Edge gap (margin) in MCF units. Default 0.0.
+        internal_gap: Internal gap (spacing between items) in MCF units. Default 0.0.
         texts: Optional list of MCF text block dicts (with 'area_width', 'area_height').
         **kwargs: Additional algorithm-specific parameters.
     
@@ -46,18 +54,24 @@ def generate_layout_for_page(photos, page_width_mcf, page_height_mcf, mcf_base_f
     if texts is None:
         texts = []
     
-    # Adjust page dimensions for gap (algorithm works on reduced page)
-    algo_page_width = page_width_mcf - gap if gap > 0 else page_width_mcf
-    algo_page_height = page_height_mcf - gap if gap > 0 else page_height_mcf
+    # Handle deprecated gap parameter
+    if gap is not None:
+        edge_gap = gap
+        internal_gap = gap
+    
+    # Transform page to gap-free space (algorithm operates in gap-free coordinates)
+    algo_page_width, algo_page_height = transform_page_to_gapfree(
+        page_width_mcf, page_height_mcf, edge_gap, internal_gap
+    )
     
     # Step 1: Translate MCF photos and texts to abstract layout rectangles
     photo_rects, error = _photos_to_rectangles(
-        photos, mcf_base_folder, preferred_sizes, gap
+        photos, mcf_base_folder, preferred_sizes, edge_gap, internal_gap
     )
     if error:
         return False, [], [], error
     
-    text_rects, error = _texts_to_rectangles(texts, preferred_sizes, gap)
+    text_rects, error = _texts_to_rectangles(texts, preferred_sizes, edge_gap, internal_gap)
     if error:
         return False, [], [], error
     
@@ -73,30 +87,30 @@ def generate_layout_for_page(photos, page_width_mcf, page_height_mcf, mcf_base_f
     if not success:
         return False, [], [], error_msg
     
-    # Step 3: Translate results back to MCF coordinates (apply gap)
+    # Step 3: Translate results back to MCF coordinates (apply gaps)
     # Split by item_id prefix: numeric = photo, TEXT_ = text
     photo_positioned = [r for r in positioned_rects if r.item_id.isdigit()]
     text_positioned = [r for r in positioned_rects if r.item_id.startswith('TEXT_')]
     
-    updated_photos = _rectangles_to_photos(photos, photo_positioned, gap)
-    updated_texts = _rectangles_to_texts(texts, text_positioned, gap)
+    updated_photos = _rectangles_to_photos(photos, photo_positioned, edge_gap, internal_gap)
+    updated_texts = _rectangles_to_texts(texts, text_positioned, edge_gap, internal_gap)
     
     return True, updated_photos, updated_texts, ""
 
 
-def _photos_to_rectangles(photos, mcf_base_folder, preferred_sizes=None, gap=0.0):
+def _photos_to_rectangles(photos, mcf_base_folder, preferred_sizes=None, edge_gap=0.0, internal_gap=0.0):
     """
-    Convert MCF photo list to abstract LayoutRectangle objects.
+    Convert MCF photo list to abstract LayoutRectangle objects in gap-free space.
     
-    For each photo, load the image, extract its dimensions, and create a LayoutRectangle
-    with the correct width/height ratio. If gap > 0, dimensions are increased by gap
-    so the algorithm can work on gap-free space.
+    For each photo, load the image, extract its dimensions, and create a LayoutRectangle.
+    Dimensions are in image pixels; the algorithm will handle aspect ratios.
     
     Args:
         photos: List of MCF photo dicts.
         mcf_base_folder: Base folder for image paths.
         preferred_sizes: Optional dict mapping filename -> preferred_size.
-        gap: Uniform spacing (MCF units). Photo dimensions increased by this amount.
+        edge_gap: Edge gap (margin) in MCF units.
+        internal_gap: Internal gap (spacing between items) in MCF units.
     
     Returns:
         Tuple (rectangles: list, error: str).
@@ -126,22 +140,18 @@ def _photos_to_rectangles(photos, mcf_base_folder, preferred_sizes=None, gap=0.0
         if img_height <= 0 or img_width <= 0:
             return [], f"Invalid image dimensions: {img_path}"
         
-        # Create LayoutRectangle with image dimensions
-        # If gap > 0, increase dimensions so algorithm works on gap-free space
-        # Use photo index as item_id for reversal later
+        # Create LayoutRectangle with image dimensions (in pixels)
+        # The algorithm will scale these to fit the page while preserving aspect ratio
         item_id = str(photo_idx)
         preferred_size = 1.0
         if preferred_sizes and fn in preferred_sizes:
             preferred_size = preferred_sizes[fn]
         
-        # Add gap to dimensions (algorithm will position in gap-free space)
-        rect_width = float(img_width) + gap
-        rect_height = float(img_height) + gap
-        
+        # Use image dimensions directly (algorithm works in abstract space)
         rect = LayoutRectangle(
             item_id=item_id,
-            width=rect_width,
-            height=rect_height,
+            width=float(img_width),
+            height=float(img_height),
             preferred_size=preferred_size,
             preserve_aspect_ratio=True  # Photos must preserve aspect ratio
         )
@@ -150,9 +160,9 @@ def _photos_to_rectangles(photos, mcf_base_folder, preferred_sizes=None, gap=0.0
     return rectangles, ""
 
 
-def _texts_to_rectangles(texts, preferred_sizes=None, gap=0.0):
+def _texts_to_rectangles(texts, preferred_sizes=None, edge_gap=0.0, internal_gap=0.0):
     """
-    Convert MCF text block list to abstract LayoutRectangle objects.
+    Convert MCF text block list to abstract LayoutRectangle objects in gap-free space.
     
     Text blocks do not preserve aspect ratio, so they can be stretched
     to fit layout slots without distortion concerns.
@@ -160,7 +170,8 @@ def _texts_to_rectangles(texts, preferred_sizes=None, gap=0.0):
     Args:
         texts: List of MCF text block dicts (with 'area_width', 'area_height').
         preferred_sizes: Optional dict mapping TEXT_<idx> -> preferred_size.
-        gap: Uniform spacing (MCF units). Text dimensions increased by this amount.
+        edge_gap: Edge gap (margin) in MCF units.
+        internal_gap: Internal gap (spacing between items) in MCF units.
     
     Returns:
         Tuple (rectangles: list, error: str).
@@ -180,14 +191,11 @@ def _texts_to_rectangles(texts, preferred_sizes=None, gap=0.0):
         if preferred_sizes and item_id in preferred_sizes:
             preferred_size = preferred_sizes[item_id]
         
-        # Add gap to dimensions (algorithm will position in gap-free space)
-        rect_width = float(area_width) + gap
-        rect_height = float(area_height) + gap
-        
+        # Use MCF dimensions directly (algorithm will scale to fit)
         rect = LayoutRectangle(
             item_id=item_id,
-            width=rect_width,
-            height=rect_height,
+            width=float(area_width),
+            height=float(area_height),
             preferred_size=preferred_size,
             preserve_aspect_ratio=False  # Text blocks can stretch
         )
@@ -196,18 +204,17 @@ def _texts_to_rectangles(texts, preferred_sizes=None, gap=0.0):
     return rectangles, ""
 
 
-def _rectangles_to_photos(photos, rectangles, gap=0.0):
+def _rectangles_to_photos(photos, rectangles, edge_gap=0.0, internal_gap=0.0):
     """
     Convert algorithm output (positioned LayoutRectangle) back to MCF photo format.
     
-    If gap > 0, applies gap by:
-    - Adding gap to x, y (margin from edges)
-    - Subtracting gap from width, height (spacing between photos)
+    Transforms from gap-free space back to MCF space using edge_gap and internal_gap.
     
     Args:
         photos: Original MCF photo list.
         rectangles: List of positioned LayoutRectangle objects from algorithm.
-        gap: Uniform spacing (MCF units).
+        edge_gap: Edge gap (margin) in MCF units.
+        internal_gap: Internal gap (spacing between items) in MCF units.
     
     Returns:
         Updated photos list with new area_left/top/width/height.
@@ -220,28 +227,31 @@ def _rectangles_to_photos(photos, rectangles, gap=0.0):
         
         if photo_idx < len(photos) and rect.x is not None and rect.y is not None:
             photo = photos[photo_idx].copy()
-            # Apply gap: shift position and reduce size
-            photo['area_left'] = rect.x + gap
-            photo['area_top'] = rect.y + gap
-            photo['area_width'] = max(0, rect.width - gap)
-            photo['area_height'] = max(0, rect.height - gap)
+            # Transform from gap-free space back to MCF space
+            left, top, width, height = transform_item_from_gapfree(
+                rect.x, rect.y, rect.width, rect.height,
+                edge_gap, internal_gap
+            )
+            photo['area_left'] = left
+            photo['area_top'] = top
+            photo['area_width'] = width
+            photo['area_height'] = height
             updated_photos.append(photo)
     
     return updated_photos
 
 
-def _rectangles_to_texts(texts, rectangles, gap=0.0):
+def _rectangles_to_texts(texts, rectangles, edge_gap=0.0, internal_gap=0.0):
     """
     Convert algorithm output (positioned LayoutRectangle) back to MCF text block format.
     
-    If gap > 0, applies gap by:
-    - Adding gap to x, y (margin from edges)
-    - Subtracting gap from width, height (spacing between items)
+    Transforms from gap-free space back to MCF space using edge_gap and internal_gap.
     
     Args:
         texts: Original MCF text block list.
         rectangles: List of positioned LayoutRectangle objects from algorithm.
-        gap: Uniform spacing (MCF units).
+        edge_gap: Edge gap (margin) in MCF units.
+        internal_gap: Internal gap (spacing between items) in MCF units.
     
     Returns:
         Updated texts list with new area_left/top/width/height.
@@ -257,11 +267,15 @@ def _rectangles_to_texts(texts, rectangles, gap=0.0):
         
         if text_idx < len(texts) and rect.x is not None and rect.y is not None:
             text = texts[text_idx].copy()
-            # Apply gap: shift position and reduce size
-            text['area_left'] = rect.x + gap
-            text['area_top'] = rect.y + gap
-            text['area_width'] = max(0, rect.width - gap)
-            text['area_height'] = max(0, rect.height - gap)
+            # Transform from gap-free space back to MCF space
+            left, top, width, height = transform_item_from_gapfree(
+                rect.x, rect.y, rect.width, rect.height,
+                edge_gap, internal_gap
+            )
+            text['area_left'] = left
+            text['area_top'] = top
+            text['area_width'] = width
+            text['area_height'] = height
             updated_texts.append(text)
     
     return updated_texts
