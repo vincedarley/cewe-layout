@@ -2,18 +2,124 @@
 Gap estimation and handling utilities.
 
 Handles uniform spacing (gaps) between photos and page edges.
+Separates edge gaps (margins) from inter-photo gaps.
 """
 
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Tuple
+
+
+def estimate_gaps(photos: List[Dict[str, Any]], page_width: float, page_height: float, 
+                  origin_left: float = 0.0) -> Tuple[float, float]:
+    """
+    Estimate edge gap and inter-photo gap separately.
+    
+    Args:
+        photos: List of photo dicts with area_left, area_top, area_width, area_height.
+        page_width: Page width in MCF units.
+        page_height: Page height in MCF units.
+        origin_left: For right-hand pages, the absolute X offset of this page (default 0.0).
+    
+    Returns:
+        Tuple (edge_gap, inter_photo_gap) in MCF units (0.1mm).
+        Returns (0.0, 0.0) if gaps cannot be reliably estimated.
+    """
+    if not photos:
+        return 0.0, 0.0
+    
+    # Calculate page bounds in absolute coordinates
+    page_left = origin_left
+    page_right = origin_left + page_width
+    page_top = 0.0
+    page_bottom = page_height
+    
+    edge_gaps = []
+    inter_photo_gaps = []
+    
+    # Collect all edge gaps (margins from page boundaries)
+    for p in photos:
+        left = p.get('area_left', 0)
+        top = p.get('area_top', 0)
+        width = p.get('area_width', 0)
+        height = p.get('area_height', 0)
+        right = left + width
+        bottom = top + height
+        
+        # Left edge (distance from page left boundary)
+        left_margin = left - page_left
+        if 0 < left_margin < page_width * 0.2:  # Within 20% of page width
+            edge_gaps.append(left_margin)
+        
+        # Right edge (distance from page right boundary)
+        right_margin = page_right - right
+        if 0 < right_margin < page_width * 0.2:
+            edge_gaps.append(right_margin)
+        
+        # Top edge (distance from page top)
+        top_margin = top - page_top
+        if 0 < top_margin < page_height * 0.2:
+            edge_gaps.append(top_margin)
+        
+        # Bottom edge (distance from page bottom)
+        bottom_margin = page_bottom - bottom
+        if 0 < bottom_margin < page_height * 0.2:
+            edge_gaps.append(bottom_margin)
+    
+    # Collect inter-photo gaps (spacing between adjacent photos)
+    for i, p1 in enumerate(photos):
+        left1 = p1.get('area_left', 0)
+        top1 = p1.get('area_top', 0)
+        width1 = p1.get('area_width', 0)
+        height1 = p1.get('area_height', 0)
+        right1 = left1 + width1
+        bottom1 = top1 + height1
+        
+        for p2 in photos[i+1:]:
+            left2 = p2.get('area_left', 0)
+            top2 = p2.get('area_top', 0)
+            width2 = p2.get('area_width', 0)
+            height2 = p2.get('area_height', 0)
+            right2 = left2 + width2
+            bottom2 = top2 + height2
+            
+            # Check horizontal adjacency (p2 to the right of p1)
+            vertical_overlap = not (bottom1 <= top2 or bottom2 <= top1)
+            if vertical_overlap and left2 > right1:
+                gap = left2 - right1
+                if 0 < gap < page_width * 0.1:  # Reasonable gap
+                    inter_photo_gaps.append(gap)
+            
+            # Check horizontal adjacency (p1 to the right of p2)
+            if vertical_overlap and left1 > right2:
+                gap = left1 - right2
+                if 0 < gap < page_width * 0.1:
+                    inter_photo_gaps.append(gap)
+            
+            # Check vertical adjacency (p2 below p1)
+            horizontal_overlap = not (right1 <= left2 or right2 <= left1)
+            if horizontal_overlap and top2 > bottom1:
+                gap = top2 - bottom1
+                if 0 < gap < page_height * 0.1:
+                    inter_photo_gaps.append(gap)
+            
+            # Check vertical adjacency (p1 below p2)
+            if horizontal_overlap and top1 > bottom2:
+                gap = top1 - bottom2
+                if 0 < gap < page_height * 0.1:
+                    inter_photo_gaps.append(gap)
+    
+    # Calculate average edge gap
+    edge_gap = sum(edge_gaps) / len(edge_gaps) if edge_gaps else 0.0
+    
+    # Calculate average inter-photo gap
+    inter_gap = sum(inter_photo_gaps) / len(inter_photo_gaps) if inter_photo_gaps else 0.0
+    
+    return edge_gap, inter_gap
 
 
 def estimate_gap(photos: List[Dict[str, Any]], page_width: float, page_height: float) -> float:
     """
-    Estimate the average gap between adjacent photos.
-    
-    Analyzes photo positions to detect uniform spacing. Returns the average
-    gap found between horizontally and vertically adjacent photos, and between
-    photos and page edges.
+    Legacy function for backward compatibility.
+    Returns the inter-photo gap (or edge gap if no inter-photo gaps found).
     
     Args:
         photos: List of photo dicts with area_left, area_top, area_width, area_height.
@@ -21,80 +127,11 @@ def estimate_gap(photos: List[Dict[str, Any]], page_width: float, page_height: f
         page_height: Page height in MCF units.
     
     Returns:
-        Estimated gap in MCF units (0.1mm). Returns 0.0 if no clear gap detected
-        or if there are too few photos to estimate reliably.
+        Estimated gap in MCF units (0.1mm).
     """
-    if not photos:
-        return 0.0
-    
-    gaps = []
-    
-    # Sort photos for edge detection
-    sorted_by_left = sorted(photos, key=lambda p: p.get('area_left', 0))
-    sorted_by_top = sorted(photos, key=lambda p: p.get('area_top', 0))
-    
-    # Check left edge gaps (photos near x=0)
-    for p in sorted_by_left[:3]:  # Check first few photos
-        left = p.get('area_left', 0)
-        if left > 0 and left < page_width * 0.1:  # Within 10% of left edge
-            gaps.append(left)
-    
-    # Check top edge gaps (photos near y=0)
-    for p in sorted_by_top[:3]:
-        top = p.get('area_top', 0)
-        if top > 0 and top < page_height * 0.1:
-            gaps.append(top)
-    
-    # Check horizontal adjacency (photos side-by-side)
-    for i, p1 in enumerate(photos):
-        left1 = p1.get('area_left', 0)
-        top1 = p1.get('area_top', 0)
-        width1 = p1.get('area_width', 0)
-        height1 = p1.get('area_height', 0)
-        right1 = left1 + width1
-        
-        for p2 in photos[i+1:]:
-            left2 = p2.get('area_left', 0)
-            top2 = p2.get('area_top', 0)
-            height2 = p2.get('area_height', 0)
-            
-            # Check if p2 is to the right of p1 and vertically overlapping
-            vertical_overlap = not (top1 + height1 <= top2 or top2 + height2 <= top1)
-            if vertical_overlap and left2 > right1:
-                gap = left2 - right1
-                if 0 < gap < page_width * 0.05:  # Reasonable gap (< 5% of page)
-                    gaps.append(gap)
-    
-    # Check vertical adjacency (photos stacked)
-    for i, p1 in enumerate(photos):
-        left1 = p1.get('area_left', 0)
-        top1 = p1.get('area_top', 0)
-        width1 = p1.get('area_width', 0)
-        height1 = p1.get('area_height', 0)
-        bottom1 = top1 + height1
-        
-        for p2 in photos[i+1:]:
-            left2 = p2.get('area_left', 0)
-            top2 = p2.get('area_top', 0)
-            width2 = p2.get('area_width', 0)
-            
-            # Check if p2 is below p1 and horizontally overlapping
-            horizontal_overlap = not (left1 + width1 <= left2 or left2 + width2 <= left1)
-            if horizontal_overlap and top2 > bottom1:
-                gap = top2 - bottom1
-                if 0 < gap < page_height * 0.05:
-                    gaps.append(gap)
-    
-    if not gaps:
-        return 0.0
-    
-    # Return median gap (more robust than mean for outliers)
-    gaps.sort()
-    n = len(gaps)
-    if n % 2 == 0:
-        return (gaps[n//2 - 1] + gaps[n//2]) / 2.0
-    else:
-        return gaps[n//2]
+    edge_gap, inter_gap = estimate_gaps(photos, page_width, page_height)
+    # Prefer inter-photo gap; fall back to edge gap
+    return inter_gap if inter_gap > 0 else edge_gap
 
 
 def apply_gap_to_layout(page_width: float, page_height: float, 

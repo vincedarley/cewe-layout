@@ -13,7 +13,7 @@ from .parser import extract_pages_info, parse_mcf_from_path
 from .layout_ops import LayoutManager
 from .collage_wrapper import generate_layout_for_page
 from .algorithms.evaluator import evaluate_layout
-from .gap_utils import estimate_gap
+from .gap_utils import estimate_gap, estimate_gaps
 
 
 class LayoutViewer:
@@ -34,9 +34,12 @@ class LayoutViewer:
             photos = info.get('photos', [])
             page_w = info.get('page_width', 2100.0)
             page_h = info.get('page_height', 2970.0)
+            origin_left = info.get('origin_left', 0.0)
             
             # Estimate gap to compute gap-free areas (matching evaluation coordinate space)
-            gap = estimate_gap(photos, page_w, page_h) if photos else 0.0
+            # Use inter-photo gap preferentially
+            edge_gap, inter_gap = estimate_gaps(photos, page_w, page_h, origin_left) if photos else (0.0, 0.0)
+            gap = inter_gap if inter_gap > 0 else edge_gap
             
             # Compute total area in gap-free space (add gap to each photo dimension)
             total_area = sum(((p.get('area_width', 0) or 0) + gap) * ((p.get('area_height', 0) or 0) + gap) for p in photos)
@@ -278,11 +281,14 @@ class LayoutViewer:
         
         page_w = info.get('page_width', 2100.0)
         page_h = info.get('page_height', 2970.0)
+        origin_left = info.get('origin_left', 0.0)
         
         # Estimate gap from current layout if not already set
         current_gap = self.layout_mgr.get_gap(pageno)
         if current_gap == 0.0 and photos:
-            estimated_gap = estimate_gap(photos, page_w, page_h)
+            edge_gap, inter_gap = estimate_gaps(photos, page_w, page_h, origin_left)
+            # Prefer inter-photo gap; fall back to edge gap
+            estimated_gap = inter_gap if inter_gap > 0 else edge_gap
             if estimated_gap > 0:
                 self.layout_mgr.set_gap(pageno, estimated_gap)
                 current_gap = estimated_gap
@@ -682,7 +688,8 @@ class LayoutViewer:
         pageno, info = self.pages[self.index]
         page_w = info.get('page_width', 2100.0)
         page_h = info.get('page_height', 2970.0)
-        stored = self.layout_mgr.get_stored_sizes_for_page(pageno, page_w, page_h)
+        origin_left = info.get('origin_left', 0.0)
+        stored = self.layout_mgr.get_stored_sizes_for_page(pageno, page_w, page_h, origin_left)
         if not stored:
             return
         for fn, size in stored.items():
