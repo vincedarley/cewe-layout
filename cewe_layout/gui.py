@@ -765,7 +765,7 @@ class LayoutViewer:
             elif algo_name == 'Generic-GA':
                 algorithm = GeneticPhotoLayoutAlgorithm()
             elif algo_name == 'Fan-GA':
-                algorithm = FanLayoutAlgorithm()
+                algorithm = FanLayoutAlgorithm(size_importance=self.size_importance)
             else:
                 algorithm = CollageGeneratorAlgorithm(temperature=1.0)  # fallback
             

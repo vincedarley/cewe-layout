@@ -228,17 +228,19 @@ def _compute_layout(node: TreeNode, x: float, y: float):
 
 
 def _evaluate_cost(tree: TreeNode, canvas_width: float, canvas_height: float,
-                  rectangles, lambda_param: float = 0.5) -> float:
-    """Evaluate cost function (Section III.C).
+                  rectangles, lambda_param: float = 100.0) -> float:
+    """Evaluate cost function matching our standard evaluator.
     
-    Cost = λ * size_error + (1-λ) * (1 - coverage)
+    Cost = empty_space_percent + λ × size_mismatch_percent_squared
+    
+    This matches the evaluator in evaluator.py for consistency across algorithms.
     
     Args:
         tree: Layout tree
         canvas_width: Canvas width
         canvas_height: Canvas height
         rectangles: List of LayoutRectangle objects
-        lambda_param: Trade-off parameter (default 0.5)
+        lambda_param: Size importance parameter (default 100.0 to match UI)
         
     Returns:
         Cost value (lower is better)
@@ -257,31 +259,41 @@ def _evaluate_cost(tree: TreeNode, canvas_width: float, canvas_height: float,
                 collect_leaves(node.right)
     collect_leaves(tree)
     
-    # Compute normalized desired sizes
-    total_desired = sum(rect.preferred_size for rect in rectangles)
-    desired_normalized = [rect.preferred_size / total_desired for rect in rectangles]
+    # Compute total photo area for coverage
+    total_photo_area = sum(leaf.width * leaf.height for leaf in leaves)
+    used_fraction = total_photo_area / canvas_area if canvas_area > 0 else 0.0
+    empty_fraction = 1.0 - used_fraction
     
-    # Compute size error term
-    size_error = 0.0
+    # Empty space cost: only penalize above 5% threshold, convert to percent
+    acceptable_empty_fraction = 0.05
+    excess_empty = max(0.0, empty_fraction - acceptable_empty_fraction)
+    empty_space_percent = excess_empty * 100.0
+    
+    # Size mismatch cost: squared errors in percentage space
+    # Normalize desired sizes to sum to 1.0
+    total_preferred_size = sum(rect.preferred_size for rect in rectangles)
+    if total_preferred_size <= 0:
+        total_preferred_size = float(len(rectangles))
+    
+    size_mismatch_sum = 0.0
     for leaf in leaves:
         actual_area = leaf.width * leaf.height
-        actual_normalized = actual_area / canvas_area
-        desired = desired_normalized[leaf.photo_idx]
+        actual_normalized = actual_area / canvas_area if canvas_area > 0 else 0.0
         
-        # Piecewise error function
-        if actual_normalized < desired:
-            k = 0.5
-        else:
-            k = 1.0
+        rect = rectangles[leaf.photo_idx]
+        preferred_normalized = rect.preferred_size / total_preferred_size
         
-        size_error += k * abs(actual_normalized - desired)
+        # Squared error
+        error = preferred_normalized - actual_normalized
+        squared_error = error * error
+        size_mismatch_sum += squared_error
     
-    # Compute coverage term
-    total_photo_area = sum(leaf.width * leaf.height for leaf in leaves)
-    coverage = total_photo_area / canvas_area
+    # Convert to percentage-squared and apply λ
+    size_mismatch_pct_sq = size_mismatch_sum * (100.0 * 100.0)
+    size_mismatch_cost = lambda_param * size_mismatch_pct_sq
     
-    # Combined cost
-    cost = lambda_param * size_error + (1 - lambda_param) * (1 - coverage)
+    # Total cost: Empty% + λ × SizeMismatch%-sq
+    cost = empty_space_percent + size_mismatch_cost
     
     return cost
 
@@ -441,7 +453,7 @@ class FanLayoutAlgorithm(LayoutAlgorithm):
     
     def __init__(self, population_size=50, generations=100,
                  mutation_rate=0.2, crossover_rate=0.8,
-                 lambda_param=0.5, elite_size=2):
+                 size_importance=100.0, elite_size=2):
         """
         Initialize Fan's layout algorithm.
         
@@ -450,14 +462,14 @@ class FanLayoutAlgorithm(LayoutAlgorithm):
             generations: Number of generations to evolve
             mutation_rate: Probability of mutation
             crossover_rate: Probability of crossover
-            lambda_param: Cost function trade-off (0=coverage, 1=size match)
+            size_importance: Size mismatch importance (λ parameter, default 100.0)
             elite_size: Number of best individuals to preserve
         """
         self.population_size = population_size
         self.generations = generations
         self.mutation_rate = mutation_rate
         self.crossover_rate = crossover_rate
-        self.lambda_param = lambda_param
+        self.size_importance = size_importance
         self.elite_size = elite_size
     
     def generate_layout(
@@ -508,7 +520,7 @@ class FanLayoutAlgorithm(LayoutAlgorithm):
                     _compute_layout(tree, 0, 0)
                     
                     cost = _evaluate_cost(tree, page_width, page_height, 
-                                        rectangles, self.lambda_param)
+                                        rectangles, self.size_importance)
                     fitness_scores.append(cost)
                     
                     if cost < best_cost:
