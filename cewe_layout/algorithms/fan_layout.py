@@ -21,7 +21,7 @@ import random
 from typing import List, Tuple, Optional
 
 from .base import LayoutAlgorithm
-from .evaluator import compute_layout_cost
+from .evaluator import evaluate_layout
 
 
 class TreeNode:
@@ -261,7 +261,7 @@ def _evaluate_cost(tree: TreeNode, canvas_width: float, canvas_height: float,
     """Evaluate cost function using centralized evaluator.
     
     This creates temporary LayoutRectangle objects from the tree's leaf nodes
-    and delegates to compute_layout_cost() for consistency.
+    and delegates to evaluate_layout() for consistency.
     
     Args:
         tree: Layout tree (with positioned leaf nodes)
@@ -304,13 +304,14 @@ def _evaluate_cost(tree: TreeNode, canvas_width: float, canvas_height: float,
         )
         temp_rects.append(temp_rect)
     
-    # Use centralized cost computation
-    return compute_layout_cost(
+    # Use centralized cost computation (detailed=False for efficiency)
+    return evaluate_layout(
         canvas_width, canvas_height, temp_rects,
         size_importance=size_importance,
         acceptable_empty_fraction=0.05,
         undersized_threshold=undersized_threshold,
-        undersized_penalty=undersized_penalty
+        undersized_penalty=undersized_penalty,
+        detailed=False
     )
 
 

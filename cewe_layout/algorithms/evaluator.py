@@ -198,37 +198,3 @@ def evaluate_layout(
         size_mismatch_normal_cost=size_mismatch_normal_cost,
         size_mismatch_undersized_cost=size_mismatch_undersized_cost
     )
-
-
-def compute_layout_cost(
-    page_width: float,
-    page_height: float,
-    rectangles: List[LayoutRectangle],
-    size_importance: float = 10.0,
-    acceptable_empty_fraction: float = 0.05,
-    undersized_threshold: float = 0.5,
-    undersized_penalty: float = 5.0,
-) -> float:
-    """Compute layout cost efficiently (returns only total cost as float).
-    
-    This is a convenience wrapper around evaluate_layout(detailed=False).
-    Use this in layout algorithms during optimization for efficiency.
-    
-    Args:
-        page_width: Page width in algorithm coordinates.
-        page_height: Page height in algorithm coordinates.
-        rectangles: Positioned `LayoutRectangle` objects with x, y, width, height.
-        size_importance: λ factor for size mismatch importance (default 10.0).
-        acceptable_empty_fraction: Fraction of page that can be empty without penalty (default 0.05 = 5%).
-        undersized_threshold: Ratio threshold for undersizing (default 0.5 = 50%).
-        undersized_penalty: Additional multiplier k for undersized photos (default 5.0).
-    
-    Returns:
-        Total cost as float (lower is better).
-    """
-    return evaluate_layout(
-        page_width, page_height, rectangles,
-        size_importance, acceptable_empty_fraction,
-        undersized_threshold, undersized_penalty,
-        detailed=False
-    )
