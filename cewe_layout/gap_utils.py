@@ -2,7 +2,7 @@
 Gap estimation and handling utilities.
 
 Handles uniform spacing (gaps) between photos and page edges.
-Separates edge gaps (margins) from inter-photo gaps.
+Separates edge gaps (margins) from internal gaps.
 """
 
 from typing import List, Dict, Any, Tuple, NamedTuple
@@ -11,17 +11,17 @@ from typing import List, Dict, Any, Tuple, NamedTuple
 class GapAnalysis(NamedTuple):
     """Result of gap analysis."""
     edge_gap: float  # Average positive edge gap (margin) in MCF units
-    inter_photo_gap: float  # Average inter-photo gap in MCF units
+    internal_gap: float  # Average internal gap in MCF units
     bleed: float  # Maximum negative edge margin (bleed beyond page) in MCF units, always >= 0
     edge_gaps: List[float]  # All detected positive edge gaps
-    inter_photo_gaps: List[float]  # All detected inter-photo gaps
+    internal_gaps: List[float]  # All detected internal gaps
     bleed_margins: List[float]  # All negative edge margins (absolute values)
 
 
 def estimate_gaps(photos: List[Dict[str, Any]], page_width: float, page_height: float, 
                   origin_left: float = 0.0) -> Tuple[float, float]:
     """
-    Estimate edge gap and inter-photo gap separately.
+    Estimate edge gap and internal gap separately.
     
     Args:
         photos: List of photo dicts with area_left, area_top, area_width, area_height.
@@ -30,11 +30,11 @@ def estimate_gaps(photos: List[Dict[str, Any]], page_width: float, page_height: 
         origin_left: For right-hand pages, the absolute X offset of this page (default 0.0).
     
     Returns:
-        Tuple (edge_gap, inter_photo_gap) in MCF units (0.1mm).
+        Tuple (edge_gap, internal_gap) in MCF units (0.1mm).
         Returns (0.0, 0.0) if gaps cannot be reliably estimated.
     """
     analysis = analyze_gaps(photos, page_width, page_height, origin_left)
-    return analysis.edge_gap, analysis.inter_photo_gap
+    return analysis.edge_gap, analysis.internal_gap
 
 
 def analyze_gaps(photos: List[Dict[str, Any]], page_width: float, page_height: float,
@@ -49,7 +49,7 @@ def analyze_gaps(photos: List[Dict[str, Any]], page_width: float, page_height: f
         origin_left: For right-hand pages, the absolute X offset of this page (default 0.0).
     
     Returns:
-        GapAnalysis with edge_gap, inter_photo_gap, bleed, and all detected gaps.
+        GapAnalysis with edge_gap, internal_gap, bleed, and all detected gaps.
     """
     if not photos:
         return GapAnalysis(0.0, 0.0, 0.0, [], [], [])
@@ -62,7 +62,7 @@ def analyze_gaps(photos: List[Dict[str, Any]], page_width: float, page_height: f
     
     edge_gaps = []
     bleed_margins = []
-    inter_photo_gaps = []
+    internal_gaps = []
     
     # Collect all edge gaps (margins from page boundaries)
     for p in photos:
@@ -102,7 +102,7 @@ def analyze_gaps(photos: List[Dict[str, Any]], page_width: float, page_height: f
         elif 10 < bottom_margin < page_height * 0.05:
             edge_gaps.append(bottom_margin)
     
-    # Collect inter-photo gaps (spacing between adjacent photos)
+    # Collect internal gaps (spacing between adjacent photos)
     # For each photo, find the closest photo to the right and below
     min_overlap = 200.0  # Minimum 20mm overlap to consider photos adjacent
     
@@ -141,7 +141,7 @@ def analyze_gaps(photos: List[Dict[str, Any]], page_width: float, page_height: f
         
         # Record the gap if it's positive and significant (>1mm)
         if closest_right_gap is not None and closest_right_gap > 10:
-            inter_photo_gaps.append(closest_right_gap)
+            internal_gaps.append(closest_right_gap)
         
         # Find closest photo below (with sufficient X-overlap)
         closest_below_gap = None
@@ -170,34 +170,34 @@ def analyze_gaps(photos: List[Dict[str, Any]], page_width: float, page_height: f
         
         # Record the gap if it's positive and significant (>1mm)
         if closest_below_gap is not None and closest_below_gap > 10:
-            inter_photo_gaps.append(closest_below_gap)
+            internal_gaps.append(closest_below_gap)
     
     # Calculate average edge gap
     edge_gap = sum(edge_gaps) / len(edge_gaps) if edge_gaps else 0.0
     
-    # Calculate average inter-photo gap, removing outliers
-    if len(inter_photo_gaps) > 3:
+    # Calculate average internal gap, removing outliers
+    if len(internal_gaps) > 3:
         # Remove outliers beyond 1 standard deviation
         import statistics
-        mean = statistics.mean(inter_photo_gaps)
-        stdev = statistics.stdev(inter_photo_gaps)
+        mean = statistics.mean(internal_gaps)
+        stdev = statistics.stdev(internal_gaps)
         # Filter out values more than 1 stdev away
-        filtered_gaps = [g for g in inter_photo_gaps if abs(g - mean) <= stdev]
+        filtered_gaps = [g for g in internal_gaps if abs(g - mean) <= stdev]
         inter_gap = sum(filtered_gaps) / len(filtered_gaps) if filtered_gaps else 0.0
     else:
         # Too few samples for outlier detection
-        inter_gap = sum(inter_photo_gaps) / len(inter_photo_gaps) if inter_photo_gaps else 0.0
+        inter_gap = sum(internal_gaps) / len(internal_gaps) if internal_gaps else 0.0
     
     # Maximum bleed (largest negative margin)
     bleed = max(bleed_margins) if bleed_margins else 0.0
     
-    return GapAnalysis(edge_gap, inter_gap, bleed, edge_gaps, inter_photo_gaps, bleed_margins)
+    return GapAnalysis(edge_gap, inter_gap, bleed, edge_gaps, internal_gaps, bleed_margins)
 
 
 def estimate_gap(photos: List[Dict[str, Any]], page_width: float, page_height: float) -> float:
     """
     Legacy function for backward compatibility.
-    Returns the inter-photo gap (or edge gap if no inter-photo gaps found).
+    Returns the internal gap (or edge gap if no internal gaps found).
     
     Args:
         photos: List of photo dicts with area_left, area_top, area_width, area_height.
@@ -208,7 +208,7 @@ def estimate_gap(photos: List[Dict[str, Any]], page_width: float, page_height: f
         Estimated gap in MCF units (0.1mm).
     """
     edge_gap, inter_gap = estimate_gaps(photos, page_width, page_height)
-    # Prefer inter-photo gap; fall back to edge gap
+    # Prefer internal gap; fall back to edge gap
     return inter_gap if inter_gap > 0 else edge_gap
 
 

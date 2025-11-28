@@ -160,8 +160,8 @@ class LayoutViewer:
         edge_gap_entry = ttk.Entry(param_frame, textvariable=self.edge_gap_var, width=8, state='readonly')
         edge_gap_entry.grid(row=0, column=1, sticky='w', padx=4, pady=2)
         
-        # Inter-photo gap parameter (editable)
-        ttk.Label(param_frame, text='Inter-photo gap (mm):').grid(row=1, column=0, sticky='w', pady=2)
+        # Internal gap parameter (editable)
+        ttk.Label(param_frame, text='Internal gap (mm):').grid(row=1, column=0, sticky='w', pady=2)
         self.gap_var = tk.StringVar(value='0.0')
         self.gap_entry = ttk.Entry(param_frame, textvariable=self.gap_var, width=8)
         self.gap_entry.grid(row=1, column=1, sticky='w', padx=4, pady=2)
@@ -332,8 +332,8 @@ class LayoutViewer:
         current_gap = self.layout_mgr.get_gap(pageno)
         if current_gap == 0.0 and all_items:
             analysis = analyze_gaps(all_items, page_w, page_h, origin_left)
-            # Prefer inter-photo gap; fall back to edge gap
-            estimated_gap = analysis.inter_photo_gap if analysis.inter_photo_gap > 0 else analysis.edge_gap
+            # Prefer internal gap; fall back to edge gap
+            estimated_gap = analysis.internal_gap if analysis.internal_gap > 0 else analysis.edge_gap
             if estimated_gap > 0:
                 self.layout_mgr.set_gap(pageno, estimated_gap)
                 current_gap = estimated_gap
@@ -355,7 +355,7 @@ class LayoutViewer:
             else:
                 self.edge_gap_var.set('0.0')
         
-        # Update inter-photo gap display (convert MCF units to mm: 1 MCF unit = 0.1mm)
+        # Update internal gap display (convert MCF units to mm: 1 MCF unit = 0.1mm)
         gap_mm = current_gap / 10.0
         self.gap_var.set(f'{gap_mm:.1f}')
         
