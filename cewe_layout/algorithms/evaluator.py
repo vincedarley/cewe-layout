@@ -18,101 +18,6 @@ from typing import List, Dict, Tuple, Optional, Union
 from .base import LayoutRectangle
 
 
-def compute_layout_cost(
-    page_width: float,
-    page_height: float,
-    rectangles: List[LayoutRectangle],
-    size_importance: float = 10.0,
-    acceptable_empty_fraction: float = 0.05,
-    undersized_threshold: float = 0.5,
-    undersized_penalty: float = 5.0,
-) -> float:
-    """Compute layout cost efficiently (returns only total cost as float).
-    
-    This is the core cost computation used by layout algorithms during optimization.
-    For detailed breakdowns, use evaluate_layout() instead.
-    
-    Cost = empty_space_percent + λ × size_mismatch_normal + λ × k × size_mismatch_undersized
-    
-    Args:
-        page_width: Page width in algorithm coordinates.
-        page_height: Page height in algorithm coordinates.
-        rectangles: Positioned `LayoutRectangle` objects with x, y, width, height.
-        size_importance: λ factor for size mismatch importance (default 10.0).
-        acceptable_empty_fraction: Fraction of page that can be empty without penalty (default 0.05 = 5%).
-        undersized_threshold: Ratio threshold for undersizing (default 0.5 = 50%).
-        undersized_penalty: Additional multiplier k for undersized photos (default 5.0).
-    
-    Returns:
-        Total cost as float (lower is better).
-    """
-    if not rectangles:
-        # No rectangles: entire page is empty
-        empty_fraction = 1.0
-        excess_empty = max(0.0, empty_fraction - acceptable_empty_fraction)
-        return excess_empty * 100.0
-    
-    page_area = page_width * page_height
-    
-    if page_area <= 0:
-        return float('inf')
-    
-    # (a) Compute empty space cost (percent above acceptable threshold)
-    total_rect_area = sum(r.width * r.height for r in rectangles if r.x is not None and r.width and r.height)
-    used_fraction = total_rect_area / page_area if page_area > 0 else 0.0
-    empty_fraction = 1.0 - used_fraction
-    
-    # Only penalize empty space above acceptable threshold, convert to percent
-    excess_empty = max(0.0, empty_fraction - acceptable_empty_fraction)
-    empty_space_percent = excess_empty * 100.0
-    
-    # (b) Compute size mismatch cost (split into normal and undersized)
-    # Normalize desired sizes to sum to 1.0
-    total_preferred_size = sum(r.preferred_size for r in rectangles)
-    if total_preferred_size <= 0:
-        total_preferred_size = float(len(rectangles))  # Fallback: uniform sizes
-    
-    size_mismatch_normal_sum = 0.0
-    size_mismatch_undersized_sum = 0.0
-    
-    for rect in rectangles:
-        if rect.x is None or rect.y is None or not rect.width or not rect.height:
-            # Skip unpositioned rectangles
-            continue
-        
-        # Desired weight normalized to [0, 1] summing to 1.0 across all rectangles
-        preferred_normalized = rect.preferred_size / total_preferred_size
-        
-        # Actual weight = fraction of page area used by this rectangle
-        rect_area = rect.width * rect.height
-        actual_normalized = rect_area / page_area if page_area > 0 else 0.0
-        
-        # Check if undersized: actual < threshold × preferred
-        is_undersized = (actual_normalized < undersized_threshold * preferred_normalized)
-        
-        # Squared error
-        error = preferred_normalized - actual_normalized
-        squared_error = error * error
-        
-        if is_undersized:
-            size_mismatch_undersized_sum += squared_error
-        else:
-            size_mismatch_normal_sum += squared_error
-    
-    # Convert mismatch sums from fractions to percentage-squared, then apply λ
-    size_mismatch_normal_pct_sq = size_mismatch_normal_sum * (100.0 * 100.0)
-    size_mismatch_normal_cost = size_importance * size_mismatch_normal_pct_sq
-    
-    # Undersized: apply λ and additional penalty k
-    size_mismatch_undersized_pct_sq = size_mismatch_undersized_sum * (100.0 * 100.0)
-    size_mismatch_undersized_cost = size_importance * undersized_penalty * size_mismatch_undersized_pct_sq
-    
-    # Total cost: Empty% + λ × SizeMismatch (normal) + λ × k × SizeMismatch (undersized)
-    total_cost = empty_space_percent + size_mismatch_normal_cost + size_mismatch_undersized_cost
-    
-    return total_cost
-
-
 class LayoutCost:
     """Container for layout cost components and overall cost.
     
@@ -184,21 +89,16 @@ def evaluate_layout(
     Returns:
         LayoutCost object with detailed breakdown if detailed=True, otherwise float cost.
     """
-    # For simple cost-only queries, use the efficient helper
-    if not detailed:
-        return compute_layout_cost(
-            page_width, page_height, rectangles,
-            size_importance, acceptable_empty_fraction,
-            undersized_threshold, undersized_penalty
-        )
-    
-    # For detailed breakdown, compute with full tracking
+    # Handle empty rectangles
     if not rectangles:
-        # No rectangles: entire page is empty
         empty_fraction = 1.0
         excess_empty = max(0.0, empty_fraction - acceptable_empty_fraction)
         empty_space_percent = excess_empty * 100.0
         total_cost = empty_space_percent
+        
+        if not detailed:
+            return total_cost
+        
         return LayoutCost(
             empty_space_cost=empty_space_percent,
             size_mismatch_cost=0.0,
@@ -212,6 +112,9 @@ def evaluate_layout(
     page_area = page_width * page_height
     
     if page_area <= 0:
+        if not detailed:
+            return float('inf')
+        
         return LayoutCost(
             empty_space_cost=float('inf'),
             size_mismatch_cost=float('inf'),
@@ -231,13 +134,13 @@ def evaluate_layout(
     excess_empty = max(0.0, empty_fraction - acceptable_empty_fraction)
     empty_space_percent = excess_empty * 100.0
     
-    # (b) Compute weight mismatch cost (split into normal and undersized)
-    # Normalize desired weights to sum to 1.0
+    # (b) Compute size mismatch cost (split into normal and undersized)
+    # Normalize desired sizes to sum to 1.0
     total_preferred_size = sum(r.preferred_size for r in rectangles)
     if total_preferred_size <= 0:
         total_preferred_size = float(len(rectangles))  # Fallback: uniform sizes
     
-    size_errors = []
+    size_errors = [] if detailed else None  # Only track if detailed output requested
     size_mismatch_normal_sum = 0.0
     size_mismatch_undersized_sum = 0.0
     
@@ -265,7 +168,8 @@ def evaluate_layout(
         else:
             size_mismatch_normal_sum += squared_error
         
-        size_errors.append((rect.item_id, preferred_normalized, actual_normalized, squared_error, is_undersized))
+        if detailed:
+            size_errors.append((rect.item_id, preferred_normalized, actual_normalized, squared_error, is_undersized))
     
     # Convert mismatch sums from fractions to percentage-squared, then apply λ
     size_mismatch_normal_pct_sq = size_mismatch_normal_sum * (100.0 * 100.0)
@@ -281,6 +185,10 @@ def evaluate_layout(
     # Total cost: Empty% + λ × SizeMismatch%-sq (normal) + λ × k × SizeMismatch%-sq (undersized)
     total_cost = empty_space_percent + size_mismatch_cost
     
+    # Return appropriate format
+    if not detailed:
+        return total_cost
+    
     return LayoutCost(
         empty_space_cost=empty_space_percent,
         size_mismatch_cost=size_mismatch_cost,
@@ -289,4 +197,38 @@ def evaluate_layout(
         size_errors=size_errors,
         size_mismatch_normal_cost=size_mismatch_normal_cost,
         size_mismatch_undersized_cost=size_mismatch_undersized_cost
+    )
+
+
+def compute_layout_cost(
+    page_width: float,
+    page_height: float,
+    rectangles: List[LayoutRectangle],
+    size_importance: float = 10.0,
+    acceptable_empty_fraction: float = 0.05,
+    undersized_threshold: float = 0.5,
+    undersized_penalty: float = 5.0,
+) -> float:
+    """Compute layout cost efficiently (returns only total cost as float).
+    
+    This is a convenience wrapper around evaluate_layout(detailed=False).
+    Use this in layout algorithms during optimization for efficiency.
+    
+    Args:
+        page_width: Page width in algorithm coordinates.
+        page_height: Page height in algorithm coordinates.
+        rectangles: Positioned `LayoutRectangle` objects with x, y, width, height.
+        size_importance: λ factor for size mismatch importance (default 10.0).
+        acceptable_empty_fraction: Fraction of page that can be empty without penalty (default 0.05 = 5%).
+        undersized_threshold: Ratio threshold for undersizing (default 0.5 = 50%).
+        undersized_penalty: Additional multiplier k for undersized photos (default 5.0).
+    
+    Returns:
+        Total cost as float (lower is better).
+    """
+    return evaluate_layout(
+        page_width, page_height, rectangles,
+        size_importance, acceptable_empty_fraction,
+        undersized_threshold, undersized_penalty,
+        detailed=False
     )
