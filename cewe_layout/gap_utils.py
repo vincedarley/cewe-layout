@@ -5,7 +5,17 @@ Handles uniform spacing (gaps) between photos and page edges.
 Separates edge gaps (margins) from inter-photo gaps.
 """
 
-from typing import List, Dict, Any, Tuple
+from typing import List, Dict, Any, Tuple, NamedTuple
+
+
+class GapAnalysis(NamedTuple):
+    """Result of gap analysis."""
+    edge_gap: float  # Average positive edge gap (margin) in MCF units
+    inter_photo_gap: float  # Average inter-photo gap in MCF units
+    bleed: float  # Maximum negative edge margin (bleed beyond page) in MCF units, always >= 0
+    edge_gaps: List[float]  # All detected positive edge gaps
+    inter_photo_gaps: List[float]  # All detected inter-photo gaps
+    bleed_margins: List[float]  # All negative edge margins (absolute values)
 
 
 def estimate_gaps(photos: List[Dict[str, Any]], page_width: float, page_height: float, 
@@ -23,8 +33,26 @@ def estimate_gaps(photos: List[Dict[str, Any]], page_width: float, page_height: 
         Tuple (edge_gap, inter_photo_gap) in MCF units (0.1mm).
         Returns (0.0, 0.0) if gaps cannot be reliably estimated.
     """
+    analysis = analyze_gaps(photos, page_width, page_height, origin_left)
+    return analysis.edge_gap, analysis.inter_photo_gap
+
+
+def analyze_gaps(photos: List[Dict[str, Any]], page_width: float, page_height: float,
+                 origin_left: float = 0.0) -> GapAnalysis:
+    """
+    Analyze gaps in detail, including bleed (negative margins).
+    
+    Args:
+        photos: List of photo dicts with area_left, area_top, area_width, area_height.
+        page_width: Page width in MCF units.
+        page_height: Page height in MCF units.
+        origin_left: For right-hand pages, the absolute X offset of this page (default 0.0).
+    
+    Returns:
+        GapAnalysis with edge_gap, inter_photo_gap, bleed, and all detected gaps.
+    """
     if not photos:
-        return 0.0, 0.0
+        return GapAnalysis(0.0, 0.0, 0.0, [], [], [])
     
     # Calculate page bounds in absolute coordinates
     page_left = origin_left
@@ -33,6 +61,7 @@ def estimate_gaps(photos: List[Dict[str, Any]], page_width: float, page_height: 
     page_bottom = page_height
     
     edge_gaps = []
+    bleed_margins = []
     inter_photo_gaps = []
     
     # Collect all edge gaps (margins from page boundaries)
@@ -46,22 +75,31 @@ def estimate_gaps(photos: List[Dict[str, Any]], page_width: float, page_height: 
         
         # Left edge (distance from page left boundary)
         left_margin = left - page_left
-        if 0 < left_margin < page_width * 0.2:  # Within 20% of page width
+        if left_margin < 0:
+            # Negative margin = bleed beyond page edge
+            bleed_margins.append(abs(left_margin))
+        elif 10 < left_margin < page_width * 0.2:  # Between 1mm and 20% of page width
             edge_gaps.append(left_margin)
         
         # Right edge (distance from page right boundary)
         right_margin = page_right - right
-        if 0 < right_margin < page_width * 0.2:
+        if right_margin < 0:
+            bleed_margins.append(abs(right_margin))
+        elif 10 < right_margin < page_width * 0.2:
             edge_gaps.append(right_margin)
         
         # Top edge (distance from page top)
         top_margin = top - page_top
-        if 0 < top_margin < page_height * 0.2:
+        if top_margin < 0:
+            bleed_margins.append(abs(top_margin))
+        elif 10 < top_margin < page_height * 0.2:
             edge_gaps.append(top_margin)
         
         # Bottom edge (distance from page bottom)
         bottom_margin = page_bottom - bottom
-        if 0 < bottom_margin < page_height * 0.2:
+        if bottom_margin < 0:
+            bleed_margins.append(abs(bottom_margin))
+        elif 10 < bottom_margin < page_height * 0.2:
             edge_gaps.append(bottom_margin)
     
     # Collect inter-photo gaps (spacing between adjacent photos)
@@ -85,26 +123,27 @@ def estimate_gaps(photos: List[Dict[str, Any]], page_width: float, page_height: 
             vertical_overlap = not (bottom1 <= top2 or bottom2 <= top1)
             if vertical_overlap and left2 > right1:
                 gap = left2 - right1
-                if 0 < gap < page_width * 0.1:  # Reasonable gap
+                # Require minimum gap of 10 MCF units (1mm) to avoid spurious near-zero alignments
+                if 10 < gap < page_width * 0.1:  # Reasonable gap (1mm to 10% of page)
                     inter_photo_gaps.append(gap)
             
             # Check horizontal adjacency (p1 to the right of p2)
             if vertical_overlap and left1 > right2:
                 gap = left1 - right2
-                if 0 < gap < page_width * 0.1:
+                if 10 < gap < page_width * 0.1:
                     inter_photo_gaps.append(gap)
             
             # Check vertical adjacency (p2 below p1)
             horizontal_overlap = not (right1 <= left2 or right2 <= left1)
             if horizontal_overlap and top2 > bottom1:
                 gap = top2 - bottom1
-                if 0 < gap < page_height * 0.1:
+                if 10 < gap < page_height * 0.1:
                     inter_photo_gaps.append(gap)
             
             # Check vertical adjacency (p1 below p2)
             if horizontal_overlap and top1 > bottom2:
                 gap = top1 - bottom2
-                if 0 < gap < page_height * 0.1:
+                if 10 < gap < page_height * 0.1:
                     inter_photo_gaps.append(gap)
     
     # Calculate average edge gap
@@ -113,7 +152,10 @@ def estimate_gaps(photos: List[Dict[str, Any]], page_width: float, page_height: 
     # Calculate average inter-photo gap
     inter_gap = sum(inter_photo_gaps) / len(inter_photo_gaps) if inter_photo_gaps else 0.0
     
-    return edge_gap, inter_gap
+    # Maximum bleed (largest negative margin)
+    bleed = max(bleed_margins) if bleed_margins else 0.0
+    
+    return GapAnalysis(edge_gap, inter_gap, bleed, edge_gaps, inter_photo_gaps, bleed_margins)
 
 
 def estimate_gap(photos: List[Dict[str, Any]], page_width: float, page_height: float) -> float:
