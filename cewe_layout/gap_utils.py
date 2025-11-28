@@ -78,28 +78,28 @@ def analyze_gaps(photos: List[Dict[str, Any]], page_width: float, page_height: f
         if left_margin < 0:
             # Negative margin = bleed beyond page edge
             bleed_margins.append(abs(left_margin))
-        elif 10 < left_margin < page_width * 0.2:  # Between 1mm and 20% of page width
+        elif 10 < left_margin < page_width * 0.05:  # Between 1mm and 5% of page width
             edge_gaps.append(left_margin)
         
         # Right edge (distance from page right boundary)
         right_margin = page_right - right
         if right_margin < 0:
             bleed_margins.append(abs(right_margin))
-        elif 10 < right_margin < page_width * 0.2:
+        elif 10 < right_margin < page_width * 0.05:
             edge_gaps.append(right_margin)
         
         # Top edge (distance from page top)
         top_margin = top - page_top
         if top_margin < 0:
             bleed_margins.append(abs(top_margin))
-        elif 10 < top_margin < page_height * 0.2:
+        elif 10 < top_margin < page_height * 0.05:
             edge_gaps.append(top_margin)
         
         # Bottom edge (distance from page bottom)
         bottom_margin = page_bottom - bottom
         if bottom_margin < 0:
             bleed_margins.append(abs(bottom_margin))
-        elif 10 < bottom_margin < page_height * 0.2:
+        elif 10 < bottom_margin < page_height * 0.05:
             edge_gaps.append(bottom_margin)
     
     # Collect inter-photo gaps (spacing between adjacent photos)

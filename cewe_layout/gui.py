@@ -13,7 +13,7 @@ from .parser import extract_pages_info, parse_mcf_from_path
 from .layout_ops import LayoutManager
 from .collage_wrapper import generate_layout_for_page
 from .algorithms.evaluator import evaluate_layout
-from .gap_utils import estimate_gap, estimate_gaps
+from .gap_utils import estimate_gap, estimate_gaps, analyze_gaps
 
 
 class LayoutViewer:
@@ -213,16 +213,17 @@ class LayoutViewer:
         origin_left = info.get('origin_left', 0.0)
 
         margin = 20
+        header_offset = 50  # Extra space below header to prevent overlap with page number
         # scale to fit width (maintain aspect ratio)
         scale_x = (self.canvas_w - 2*margin) / page_w
-        scale_y = (self.canvas_h - 2*margin) / page_h
+        scale_y = (self.canvas_h - 2*margin - header_offset) / page_h
         scale = min(scale_x, scale_y)
 
         # draw a frame representing the actual page
         frame_w = page_w * scale
         frame_h = page_h * scale
         frame_x = margin
-        frame_y = margin
+        frame_y = margin + header_offset
         draw.rectangle([frame_x, frame_y, frame_x+frame_w, frame_y+frame_h], outline='black', width=2)
 
         for i, p in enumerate(photos, start=1):
@@ -292,21 +293,27 @@ class LayoutViewer:
         # Estimate gap from current layout if not already set
         current_gap = self.layout_mgr.get_gap(pageno)
         if current_gap == 0.0 and photos:
-            edge_gap, inter_gap = estimate_gaps(photos, page_w, page_h, origin_left)
+            analysis = analyze_gaps(photos, page_w, page_h, origin_left)
             # Prefer inter-photo gap; fall back to edge gap
-            estimated_gap = inter_gap if inter_gap > 0 else edge_gap
+            estimated_gap = analysis.inter_photo_gap if analysis.inter_photo_gap > 0 else analysis.edge_gap
             if estimated_gap > 0:
                 self.layout_mgr.set_gap(pageno, estimated_gap)
                 current_gap = estimated_gap
-            # Display both gaps
-            edge_gap_mm = edge_gap / 10.0
-            self.edge_gap_var.set(f'{edge_gap_mm:.1f}')
+            # Display edge gap (or negative for bleed)
+            if analysis.bleed > 0:
+                # Show bleed as negative edge gap
+                self.edge_gap_var.set(f'-{analysis.bleed / 10.0:.1f}')
+            else:
+                self.edge_gap_var.set(f'{analysis.edge_gap / 10.0:.1f}')
         else:
-            # If gap already set, re-estimate to show edge gap
+            # If gap already set, re-estimate to show edge gap and bleed
             if photos:
-                edge_gap, inter_gap = estimate_gaps(photos, page_w, page_h, origin_left)
-                edge_gap_mm = edge_gap / 10.0
-                self.edge_gap_var.set(f'{edge_gap_mm:.1f}')
+                analysis = analyze_gaps(photos, page_w, page_h, origin_left)
+                if analysis.bleed > 0:
+                    # Show bleed as negative edge gap
+                    self.edge_gap_var.set(f'-{analysis.bleed / 10.0:.1f}')
+                else:
+                    self.edge_gap_var.set(f'{analysis.edge_gap / 10.0:.1f}')
             else:
                 self.edge_gap_var.set('0.0')
         
