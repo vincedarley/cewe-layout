@@ -1,6 +1,6 @@
 """Simple Tkinter UI to browse pages and display layout rectangles."""
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk
 from PIL import Image, ImageDraw, ImageTk, ImageOps
 import math
 import os
@@ -131,6 +131,10 @@ class LayoutViewer:
         
         quit_btn = ttk.Button(self.ctrl, text='Quit (q)', command=self.quit)
         quit_btn.grid(row=3, column=1, padx=8)
+        
+        # Status message label
+        self.status_label = ttk.Label(self.ctrl, text='', foreground='blue', font=('TkDefaultFont', 9))
+        self.status_label.grid(row=3, column=2, columnspan=3, padx=4, pady=4, sticky='w')
         
         # Weights and cost display frame
         self.info_frame = ttk.LabelFrame(self.ctrl, text='Layout Info', padding=8)
@@ -642,6 +646,18 @@ class LayoutViewer:
 
     def quit(self):
         self.root.quit()
+    
+    def show_status(self, message, error=False):
+        """Display a status message in the UI.
+        
+        Args:
+            message: Message to display
+            error: If True, show in red; otherwise blue
+        """
+        color = 'red' if error else 'blue'
+        self.status_label.config(text=message, foreground=color)
+        # Clear message after 5 seconds
+        self.root.after(5000, lambda: self.status_label.config(text=''))
 
     def generate_layout(self):
         """Run collage-generator on current page photos in a background thread.
@@ -730,8 +746,10 @@ class LayoutViewer:
                     pass
 
                 if not success:
-                    messagebox.showerror('Layout Generation Failed', error_msg)
+                    self.show_status(f'Layout generation failed: {error_msg}', error=True)
                     return
+                
+                self.show_status(f'Layout generated successfully using {self.algorithm_var.get()}')
 
                 # Push new layout (both photos and texts) to manager and refresh view
                 self.layout_mgr.push_layout(pageno, updated_photos, updated_texts)
@@ -746,15 +764,16 @@ class LayoutViewer:
         """Revert to previous layout variant."""
         pageno, info = self.pages[self.index]
         if self.layout_mgr.undo_layout(pageno):
+            self.show_status(f'Reverted to previous layout for page {pageno}')
             self.render_page()
         else:
-            messagebox.showinfo('Back', 'No more layouts to go back to.')
+            self.show_status('No more layouts to go back to.')
 
     def save_layout(self):
         """Accept current layout and clear in-memory variants."""
         pageno, info = self.pages[self.index]
         self.layout_mgr.clear_layouts(pageno)
-        messagebox.showinfo('Save', f'Layout for page {pageno} saved. Memory cleared.')
+        self.show_status(f'Layout for page {pageno} saved. Memory cleared.')
         self.render_page()
 
     def adjust_sizes(self):
@@ -764,7 +783,7 @@ class LayoutViewer:
         photos = current_layout.photos if current_layout else info.get('photos', [])
         
         if not photos:
-            messagebox.showinfo('Adjust Sizes', 'No photos on this page.')
+            self.show_status('No photos on this page.')
             return
         
         # Create top-level weight dialog
@@ -819,7 +838,8 @@ class LayoutViewer:
             for fn, var in size_vars.items():
                 self.layout_mgr.set_size(pageno, fn, var.get())
             dialog.destroy()
-            messagebox.showinfo('Sizes Updated', 'Photo preferred sizes updated. Use them in next layout generation.')
+            self.show_status('Photo preferred sizes updated. Use them in next layout generation.')
+            self.render_page()
         
         ttk.Button(button_frame, text='OK', command=apply_sizes).pack(side='left', padx=5)
         ttk.Button(button_frame, text='Cancel', command=dialog.destroy).pack(side='left', padx=5)
@@ -865,7 +885,7 @@ class LayoutViewer:
         """Discard current layout and revert to original from file."""
         pageno, info = self.pages[self.index]
         self.layout_mgr.clear_layouts(pageno)
-        messagebox.showinfo('Use Original', f'Reverted page {pageno} to original layout.')
+        self.show_status(f'Reverted page {pageno} to original layout.')
         self.render_page()
 
 
