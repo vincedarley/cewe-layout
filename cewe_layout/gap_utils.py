@@ -103,6 +103,9 @@ def analyze_gaps(photos: List[Dict[str, Any]], page_width: float, page_height: f
             edge_gaps.append(bottom_margin)
     
     # Collect inter-photo gaps (spacing between adjacent photos)
+    # For each photo, find the closest photo to the right and below
+    min_overlap = 200.0  # Minimum 20mm overlap to consider photos adjacent
+    
     for i, p1 in enumerate(photos):
         left1 = p1.get('area_left', 0)
         top1 = p1.get('area_top', 0)
@@ -111,7 +114,11 @@ def analyze_gaps(photos: List[Dict[str, Any]], page_width: float, page_height: f
         right1 = left1 + width1
         bottom1 = top1 + height1
         
-        for p2 in photos[i+1:]:
+        # Find closest photo to the right (with sufficient Y-overlap)
+        closest_right_gap = None
+        for j, p2 in enumerate(photos):
+            if i == j:
+                continue
             left2 = p2.get('area_left', 0)
             top2 = p2.get('area_top', 0)
             width2 = p2.get('area_width', 0)
@@ -119,32 +126,51 @@ def analyze_gaps(photos: List[Dict[str, Any]], page_width: float, page_height: f
             right2 = left2 + width2
             bottom2 = top2 + height2
             
-            # Check horizontal adjacency (p2 to the right of p1)
-            vertical_overlap = not (bottom1 <= top2 or bottom2 <= top1)
-            if vertical_overlap and left2 > right1:
+            # Check Y-overlap (at least 20mm)
+            y_overlap_start = max(top1, top2)
+            y_overlap_end = min(bottom1, bottom2)
+            y_overlap = max(0, y_overlap_end - y_overlap_start)
+            
+            if y_overlap >= min_overlap:
+                # Photo has sufficient Y-overlap, check if it's to the right
                 gap = left2 - right1
-                # Require minimum gap of 10 MCF units (1mm) to avoid spurious near-zero alignments
-                if 10 < gap < page_width * 0.1:  # Reasonable gap (1mm to 10% of page)
-                    inter_photo_gaps.append(gap)
+                # Allow mild overlap (negative gap up to -10mm) or positive gap
+                if -100 < gap:  # -10mm to infinity
+                    if closest_right_gap is None or abs(gap) < abs(closest_right_gap):
+                        closest_right_gap = gap
+        
+        # Record the gap if it's positive and significant (>1mm)
+        if closest_right_gap is not None and closest_right_gap > 10:
+            inter_photo_gaps.append(closest_right_gap)
+        
+        # Find closest photo below (with sufficient X-overlap)
+        closest_below_gap = None
+        for j, p2 in enumerate(photos):
+            if i == j:
+                continue
+            left2 = p2.get('area_left', 0)
+            top2 = p2.get('area_top', 0)
+            width2 = p2.get('area_width', 0)
+            height2 = p2.get('area_height', 0)
+            right2 = left2 + width2
+            bottom2 = top2 + height2
             
-            # Check horizontal adjacency (p1 to the right of p2)
-            if vertical_overlap and left1 > right2:
-                gap = left1 - right2
-                if 10 < gap < page_width * 0.1:
-                    inter_photo_gaps.append(gap)
+            # Check X-overlap (at least 20mm)
+            x_overlap_start = max(left1, left2)
+            x_overlap_end = min(right1, right2)
+            x_overlap = max(0, x_overlap_end - x_overlap_start)
             
-            # Check vertical adjacency (p2 below p1)
-            horizontal_overlap = not (right1 <= left2 or right2 <= left1)
-            if horizontal_overlap and top2 > bottom1:
+            if x_overlap >= min_overlap:
+                # Photo has sufficient X-overlap, check if it's below
                 gap = top2 - bottom1
-                if 10 < gap < page_height * 0.1:
-                    inter_photo_gaps.append(gap)
-            
-            # Check vertical adjacency (p1 below p2)
-            if horizontal_overlap and top1 > bottom2:
-                gap = top1 - bottom2
-                if 10 < gap < page_height * 0.1:
-                    inter_photo_gaps.append(gap)
+                # Allow mild overlap (negative gap up to -10mm) or positive gap
+                if -100 < gap:  # -10mm to infinity
+                    if closest_below_gap is None or abs(gap) < abs(closest_below_gap):
+                        closest_below_gap = gap
+        
+        # Record the gap if it's positive and significant (>1mm)
+        if closest_below_gap is not None and closest_below_gap > 10:
+            inter_photo_gaps.append(closest_below_gap)
     
     # Calculate average edge gap
     edge_gap = sum(edge_gaps) / len(edge_gaps) if edge_gaps else 0.0
