@@ -118,11 +118,11 @@ class LayoutViewer:
         photo_frame = ttk.Frame(self.info_frame)
         photo_frame.grid(row=0, column=0, sticky='nw', padx=(0, 20))
         
-        ttk.Label(photo_frame, text='Photo', font=('TkDefaultFont', 9, 'bold')).grid(row=0, column=0, padx=2, pady=2, sticky='w')
+        ttk.Label(photo_frame, text='Item', font=('TkDefaultFont', 9, 'bold')).grid(row=0, column=0, padx=2, pady=2, sticky='w')
         ttk.Label(photo_frame, text='Preferred', font=('TkDefaultFont', 9, 'bold')).grid(row=0, column=1, padx=2, pady=2, sticky='w')
         ttk.Label(photo_frame, text='Actual', font=('TkDefaultFont', 9, 'bold')).grid(row=0, column=2, padx=2, pady=2, sticky='w')
         
-        # Photo weight rows will be added dynamically to photo_frame
+        # Item (photo/text) weight rows will be added dynamically to photo_frame
         self.photo_frame = photo_frame
         
         # RIGHT COLUMN: Cost info (top) and Parameters (bottom)
@@ -185,7 +185,7 @@ class LayoutViewer:
         stored_btn.grid(row=4, column=0, columnspan=2, sticky='ew', pady=2)
         
         # Photo weight rows (will be populated dynamically)
-        self.weight_widgets = []  # List of (photo_label, desired_entry, actual_label)
+        self.weight_widgets = []  # List of (item_label, desired_entry, actual_label) for photos and texts
 
         # keyboard bindings
         self.root.bind('<Left>', lambda e: self.prev_page())
@@ -365,16 +365,19 @@ class LayoutViewer:
                 w.destroy()
         self.weight_widgets.clear()
         
-        if not photos:
+        if not photos and not texts:
             self.cost_total_label.config(text='--')
-            self.cost_empty_label.config(text='No photos')
+            self.cost_empty_label.config(text='No items')
             self.cost_size_label.config(text='--')
             return
         
-        # Build LayoutRectangle list from photos
+        # Build LayoutRectangle list from photos and texts
         # Transform to gap-free coordinate space (same as algorithm uses)
         from .algorithms.base import LayoutRectangle
         rectangles = []
+        item_identifiers = []  # Track (type, index, filename_or_id) for each rectangle
+        
+        # Add photos
         for i, p in enumerate(photos):
             left = p.get('area_left', 0)
             top = p.get('area_top', 0)
@@ -385,17 +388,42 @@ class LayoutViewer:
             preferred_size = self.layout_mgr.get_size(pageno, fn)
             
             # Transform to gap-free space: subtract gap from position, add gap to dimensions
-            # This reverses the transformation applied in collage_wrapper._rectangles_to_photos
             rect = LayoutRectangle(
                 item_id=str(i),
                 width=w + current_gap,
                 height=h + current_gap,
                 preferred_size=preferred_size,
+                preserve_aspect_ratio=True,
                 x=left - current_gap,
                 y=top - current_gap
             )
             rect.actual_size = preferred_size  # Placeholder; evaluator will compute
             rectangles.append(rect)
+            item_identifiers.append(('photo', i, fn))
+        
+        # Add texts
+        for i, t in enumerate(texts):
+            left = t.get('area_left', 0)
+            top = t.get('area_top', 0)
+            w = t.get('area_width', 0)
+            h = t.get('area_height', 0)
+            
+            text_id = f'TEXT_{i}'
+            preferred_size = self.layout_mgr.get_size(pageno, text_id)
+            
+            # Transform to gap-free space
+            rect = LayoutRectangle(
+                item_id=text_id,
+                width=w + current_gap,
+                height=h + current_gap,
+                preferred_size=preferred_size,
+                preserve_aspect_ratio=False,
+                x=left - current_gap,
+                y=top - current_gap
+            )
+            rect.actual_size = preferred_size
+            rectangles.append(rect)
+            item_identifiers.append(('text', i, text_id))
         
         # Evaluate in gap-free coordinate space (page dimensions reduced by gap)
         eval_page_w = page_w - current_gap if current_gap > 0 else page_w
@@ -432,13 +460,16 @@ class LayoutViewer:
             text=f'{cost.total_cost:.1f} = {empty_cost_pct:.1f}% + λ×{size_pct_sq:.2f} %-sq'
         )
         
-        # Create weight display rows for each photo
-        for i, (rect, p) in enumerate(zip(rectangles, photos)):
+        # Create weight display rows for each item (photos and texts)
+        for i, (rect, item_info) in enumerate(zip(rectangles, item_identifiers)):
             row = 1 + i  # Row 0 has headers, data starts at row 1
             
-            # Photo number label
-            photo_label = ttk.Label(self.photo_frame, text=f'{i+1}', font=('TkDefaultFont', 9))
-            photo_label.grid(row=row, column=0, padx=2, pady=1)
+            item_type, item_idx, item_id = item_info
+            
+            # Item label with type indicator: P1, P2, ... for photos, T1, T2, ... for texts
+            type_prefix = 'P' if item_type == 'photo' else 'T'
+            item_label = ttk.Label(self.photo_frame, text=f'{type_prefix}{item_idx+1}', font=('TkDefaultFont', 9))
+            item_label.grid(row=row, column=0, padx=2, pady=1)
             
             # Desired weight entry (editable)
             desired_var = tk.StringVar(value=f'{rect.preferred_size:.1f}')
@@ -446,40 +477,34 @@ class LayoutViewer:
             desired_entry.grid(row=row, column=1, padx=2, pady=1)
             
             # Bind entry changes to update weights in layout manager
-            fn = p.get('filename', '')
-            desired_entry.bind('<Return>', lambda e, pg=pageno, f=fn, var=desired_var: self.on_size_changed(pg, f, var))
-            desired_entry.bind('<FocusOut>', lambda e, pg=pageno, f=fn, var=desired_var: self.on_size_changed(pg, f, var))
+            desired_entry.bind('<Return>', lambda e, pg=pageno, iid=item_id, var=desired_var: self.on_size_changed(pg, iid, var))
+            desired_entry.bind('<FocusOut>', lambda e, pg=pageno, iid=item_id, var=desired_var: self.on_size_changed(pg, iid, var))
             
             # Actual weight label (computed from area)
             # Use the same coordinate space as evaluation
             total_area = (eval_page_w * eval_page_h)
-            photo_area = rect.width * rect.height
-            actual_fraction = photo_area / total_area if total_area > 0 else 0.0
-            
-            # Normalize to show relative to sum of all desired weights
-            total_desired = sum(r.preferred_size for r in rectangles)
-            if total_desired > 0:
-                actual_weight = (actual_fraction / (photo_area / total_area if photo_area > 0 else 1.0)) * rect.preferred_size
-                # Actually, let's compute the proper achieved weight from cost evaluation
-                # The evaluator normalizes weights, so actual_weight is the normalized area fraction
-                normalized_desired = rect.preferred_size / total_desired
-                actual_weight_display = actual_fraction / normalized_desired if normalized_desired > 0 else 0.0
-            else:
-                actual_weight_display = 1.0
+            item_area = rect.width * rect.height
+            actual_fraction = item_area / total_area if total_area > 0 else 0.0
             
             # Simpler: just show the area fraction as percentage of page
             actual_pct = actual_fraction * 100
             actual_label = ttk.Label(self.photo_frame, text=f'{actual_pct:.1f}%', font=('TkDefaultFont', 9))
             actual_label.grid(row=row, column=2, padx=2, pady=1)
             
-            self.weight_widgets.append((photo_label, desired_entry, actual_label))
+            self.weight_widgets.append((item_label, desired_entry, actual_label))
     
-    def on_size_changed(self, pageno, filename, var):
-        """Handle preferred size entry change."""
+    def on_size_changed(self, pageno, item_id, var):
+        """Handle preferred size entry change.
+        
+        Args:
+            pageno: Page number
+            item_id: Filename for photos, TEXT_N for text blocks
+            var: StringVar containing the new size
+        """
         try:
             new_size = float(var.get())
             if 0.0 <= new_size <= 50.0:  # Reasonable bounds (scaled by 10×)
-                self.layout_mgr.set_size(pageno, filename, new_size)
+                self.layout_mgr.set_size(pageno, item_id, new_size)
                 self.update_weights_display()  # Refresh display
         except ValueError:
             pass  # Ignore invalid input
@@ -744,15 +769,24 @@ class LayoutViewer:
         ttk.Button(button_frame, text='Cancel', command=dialog.destroy).pack(side='left', padx=5)
 
     def equal_sizes(self):
-        """Set all photos to equal preferred size (10.0)."""
+        """Set all photos and texts to equal preferred size (10.0)."""
         if not self.pages:
             return
         pageno, info = self.pages[self.index]
         current_layout = self.layout_mgr.get_current(pageno)
         photos = current_layout.photos if current_layout else info.get('photos', [])
+        texts = current_layout.texts if current_layout else info.get('texts', [])
+        
+        # Set equal size for all photos
         for p in photos:
             fn = p.get('filename', '')
             self.layout_mgr.set_size(pageno, fn, 10.0)
+        
+        # Set equal size for all texts
+        for i, t in enumerate(texts):
+            text_id = f'TEXT_{i}'
+            self.layout_mgr.set_size(pageno, text_id, 10.0)
+        
         self.update_weights_display()
     
     def stored_sizes(self):
@@ -766,8 +800,9 @@ class LayoutViewer:
         stored = self.layout_mgr.get_stored_sizes_for_page(pageno, page_w, page_h, origin_left)
         if not stored:
             return
-        for fn, size in stored.items():
-            self.layout_mgr.set_size(pageno, fn, size)
+        # stored dict contains both filenames (for photos) and TEXT_N (for texts)
+        for item_id, size in stored.items():
+            self.layout_mgr.set_size(pageno, item_id, size)
         self.update_weights_display()
 
     def use_original(self):
