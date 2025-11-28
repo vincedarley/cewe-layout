@@ -326,7 +326,11 @@ def _mutate_tree(tree: TreeNode) -> TreeNode:
 
 
 def _crossover_trees(tree1: TreeNode, tree2: TreeNode) -> Tuple[TreeNode, TreeNode]:
-    """Crossover operator: swap subtrees with same number of leaves.
+    """Crossover operator: swap subtree structures while preserving leaf labels.
+    
+    Per Fan (2012): "the labels of the leaf nodes remain in the original tree
+    and are assigned to new I nodes." This means we swap the internal node
+    structure (topology) but keep each tree's original photo assignments.
     
     Args:
         tree1: First parent tree
@@ -339,9 +343,9 @@ def _crossover_trees(tree1: TreeNode, tree2: TreeNode) -> Tuple[TreeNode, TreeNo
     offspring1 = copy.deepcopy(tree1)
     offspring2 = copy.deepcopy(tree2)
     
-    # Find all subtrees with >= 3 leaves
-    subtrees1 = offspring1.collect_subtrees(min_leaves=3)
-    subtrees2 = offspring2.collect_subtrees(min_leaves=3)
+    # Find all subtrees with >= 3 leaves (excluding the root to avoid issues)
+    subtrees1 = [st for st in offspring1.collect_subtrees(min_leaves=3) if st.parent is not None]
+    subtrees2 = [st for st in offspring2.collect_subtrees(min_leaves=3) if st.parent is not None]
     
     if not subtrees1 or not subtrees2:
         return offspring1, offspring2
@@ -358,35 +362,56 @@ def _crossover_trees(tree1: TreeNode, tree2: TreeNode) -> Tuple[TreeNode, TreeNo
     if not pairs:
         return offspring1, offspring2
     
-    # Randomly select a pair and swap
+    # Randomly select a pair to crossover
     st1, st2 = random.choice(pairs)
     
-    # Swap subtrees by replacing in parents
-    if st1.parent and st2.parent:
-        # Determine which child each subtree is
-        if st1.parent.left == st1:
-            st1_is_left = True
+    # Collect leaf labels from each subtree (to preserve them)
+    def collect_leaf_labels(node):
+        if node.is_leaf:
+            return [node.photo_idx]
+        labels = []
+        if node.left:
+            labels.extend(collect_leaf_labels(node.left))
+        if node.right:
+            labels.extend(collect_leaf_labels(node.right))
+        return labels
+    
+    labels1 = collect_leaf_labels(st1)
+    labels2 = collect_leaf_labels(st2)
+    
+    # Create deep copies of the subtrees to swap their structure
+    st1_structure = copy.deepcopy(st1)
+    st2_structure = copy.deepcopy(st2)
+    
+    # Reassign leaf labels: st1's structure gets st2's labels, st2's structure gets st1's labels
+    def reassign_labels(node, labels, idx=[0]):
+        if node.is_leaf:
+            node.label = labels[idx[0]]
+            node.photo_idx = labels[idx[0]]
+            idx[0] += 1
         else:
-            st1_is_left = False
-        
-        if st2.parent.left == st2:
-            st2_is_left = True
-        else:
-            st2_is_left = False
-        
-        # Swap
-        if st1_is_left:
-            st1.parent.left = st2
-        else:
-            st1.parent.right = st2
-        
-        if st2_is_left:
-            st2.parent.left = st1
-        else:
-            st2.parent.right = st1
-        
-        # Update parent pointers
-        st1.parent, st2.parent = st2.parent, st1.parent
+            if node.left:
+                reassign_labels(node.left, labels, idx)
+            if node.right:
+                reassign_labels(node.right, labels, idx)
+    
+    reassign_labels(st1_structure, labels2, [0])  # st1's structure gets st2's labels
+    reassign_labels(st2_structure, labels1, [0])  # st2's structure gets st1's labels
+    
+    # Replace subtrees in offspring
+    # st1_structure (with labels2) replaces st1 in offspring1
+    # st2_structure (with labels1) replaces st2 in offspring2
+    st1_structure.parent = st1.parent
+    if st1.parent.left == st1:
+        st1.parent.left = st1_structure
+    else:
+        st1.parent.right = st1_structure
+    
+    st2_structure.parent = st2.parent
+    if st2.parent.left == st2:
+        st2.parent.left = st2_structure
+    else:
+        st2.parent.right = st2_structure
     
     return offspring1, offspring2
 
