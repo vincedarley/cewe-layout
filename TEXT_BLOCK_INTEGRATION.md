@@ -52,7 +52,18 @@
 
 ## Pending ⚠️
 
-### 1. Layout Algorithm Integration
+### 1. MCF Writing
+**Current state**: Can read text blocks, but cannot write them back.
+
+**Required changes**:
+- Create `write_layout_to_mcf()` function to update MCF XML
+- Update text block positions: `area_left`, `area_top`, `area_width`, `area_height`
+- Preserve other text attributes (content, font, rotation, etc.)
+- Test round-trip: read → modify → write → read
+
+**Impact**: Cannot persist layout changes to disk yet. Users can generate and view layouts but changes are lost when closing the application.
+
+### 2. Layout Algorithm Integration (Future Enhancement)
 **Current state**: Collage wrapper creates `LayoutRectangle` objects with `preserve_aspect_ratio=False` for texts, but the collage-generator algorithm doesn't yet respect this attribute. Text blocks are positioned in the layout but maintain their original aspect ratio like photos.
 
 **Why this is complex**:
@@ -93,29 +104,27 @@ For text blocks with flexible aspect ratios, we have several options:
 
 **Future enhancement priority**: Medium - texts work but could be better optimized.
 
-### 2. GUI Buttons for Mixed Layouts
-**Current state**: Buttons work for photos only.
+## Recently Completed ✅
 
-**Required changes**:
-- "Equal sizes" button: Should work for both photos and texts
-- "Stored sizes" button: Should restore sizes for `TEXT_<index>` identifiers
-- Weights UI: Display sizes for text blocks alongside photos
+### GUI Buttons for Mixed Layouts
+**Completed**: All buttons and displays now work for both photos and texts.
 
-**Impact**: Minor usability - users can't easily adjust text block weights.
+**Completed changes**:
+- ✅ "Equal sizes" button: Sets equal sizes (10.0) for both photos and texts
+- ✅ "Stored sizes" button: Restores sizes for both filenames and `TEXT_<index>` identifiers
+- ✅ Weights UI: Displays both photos (P1, P2, ...) and texts (T1, T2, ...) with preferred/actual sizes
+- ✅ Item identifier handling: Filenames for photos, TEXT_N for texts
+- ✅ Combined cost calculation: All items participate in empty space and size mismatch costs
 
-### 3. MCF Writing
-**Current state**: Can read text blocks, but cannot write them back.
+**Implementation details**:
+- Header changed from "Photo" to "Item"
+- Display labels use type prefix: P1-PN for photos, T1-TN for texts
+- `on_size_changed()` handles both filenames and TEXT_N identifiers
+- `update_weights_display()` builds combined list of photos and texts
+- Test coverage: [tests/test_gui_items.py](tests/test_gui_items.py)
 
-**Required changes**:
-- Create `write_layout_to_mcf()` function to update MCF XML
-- Update text block positions: `area_left`, `area_top`, `area_width`, `area_height`
-- Preserve other text attributes (content, font, rotation, etc.)
-- Test round-trip: read → modify → write → read
-
-**Impact**: Cannot persist layout changes to disk yet.
-
-### 4. Cost Function for Text Blocks
-**Current state**: Evaluator treats all items uniformly - calculates size mismatch based on preferred sizes and actual area fractions. This is actually appropriate for text blocks too.
+### Cost Function for Text Blocks
+**Completed**: Evaluator already handles text blocks correctly - no changes needed.
 
 **Why current approach works**:
 - Size mismatch cost = sum of (preferred_area_fraction - actual_area_fraction)²
