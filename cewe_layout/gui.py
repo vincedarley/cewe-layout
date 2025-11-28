@@ -30,19 +30,19 @@ class LayoutViewer:
         # initialize layout manager with originals from file
         for pageno, info in self.pages:
             self.layout_mgr.set_original(pageno, info.get('photos', []))
-            # Initialize default preferred sizes from current layout areas
+            # Initialize default preferred sizes from current layout areas (scaled by 10× for readability)
             photos = info.get('photos', [])
             total_area = sum((p.get('area_width', 0) or 0) * (p.get('area_height', 0) or 0) for p in photos)
             if total_area > 0:
                 for p in photos:
                     fn = p.get('filename', '')
                     area = (p.get('area_width', 0) or 0) * (p.get('area_height', 0) or 0)
-                    preferred = (area / total_area) if total_area > 0 else 1.0
+                    preferred = (area / total_area) * 10.0
                     self.layout_mgr.set_size(pageno, fn, preferred)
             else:
-                # Fallback to uniform sizes
+                # Fallback to uniform sizes (10.0 for 10× scaling)
                 for p in photos:
-                    self.layout_mgr.set_size(pageno, p.get('filename', ''), 1.0)
+                    self.layout_mgr.set_size(pageno, p.get('filename', ''), 10.0)
 
         # Main window for page display
         self.root = root
