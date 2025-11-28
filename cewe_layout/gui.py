@@ -231,12 +231,11 @@ class LayoutViewer:
         scale_y = (self.canvas_h - 2*margin - header_offset) / page_h
         scale = min(scale_x, scale_y)
 
-        # draw a frame representing the actual page
+        # Calculate frame position (draw it after photos/texts so it's on top in bleed situations)
         frame_w = page_w * scale
         frame_h = page_h * scale
         frame_x = margin
         frame_y = margin + header_offset
-        draw.rectangle([frame_x, frame_y, frame_x+frame_w, frame_y+frame_h], outline='black', width=2)
 
         for i, p in enumerate(photos, start=1):
             left = p.get('area_left') or 0
@@ -303,6 +302,9 @@ class LayoutViewer:
             draw.rectangle([x0, y0, x1, y1], outline='green', width=2)
             # label
             draw.text((x0+4, y0+4), f'T{i}', fill='green')
+
+        # Draw page frame LAST so it's on top of photos/texts in bleed situations
+        draw.rectangle([frame_x, frame_y, frame_x+frame_w, frame_y+frame_h], outline='black', width=2)
 
         self._show_image(img)
         self.update_weights_display()
