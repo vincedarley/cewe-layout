@@ -172,25 +172,25 @@ class LayoutViewer:
         cost_frame = ttk.Frame(right_col, padding=6)
         cost_frame.grid(row=0, column=0, sticky='ew', pady=(0, 10))
         
-        ttk.Label(cost_frame, text='Total cost:', font=('TkDefaultFont', 9, 'bold')).grid(row=0, column=0, sticky='w', pady=1)
-        self.cost_total_label = ttk.Label(cost_frame, text='--', font=('TkDefaultFont', 9))
+        ttk.Label(cost_frame, text='Total cost:', font=('TkDefaultFont', 11, 'bold')).grid(row=0, column=0, sticky='w', pady=1)
+        self.cost_total_label = ttk.Label(cost_frame, text='--', font=('TkDefaultFont', 11))
         self.cost_total_label.grid(row=0, column=1, sticky='w', padx=4, pady=1)
         
-        ttk.Label(cost_frame, text='Empty space:', font=('TkDefaultFont', 8)).grid(row=1, column=0, sticky='w', pady=1)
-        self.cost_empty_label = ttk.Label(cost_frame, text='--', font=('TkDefaultFont', 8))
+        ttk.Label(cost_frame, text='Empty space:', font=('TkDefaultFont', 10)).grid(row=1, column=0, sticky='w', pady=1)
+        self.cost_empty_label = ttk.Label(cost_frame, text='--', font=('TkDefaultFont', 10))
         self.cost_empty_label.grid(row=1, column=1, sticky='w', padx=4, pady=1)
         
-        ttk.Label(cost_frame, text='Size mismatch:', font=('TkDefaultFont', 8)).grid(row=2, column=0, sticky='w', pady=1)
-        self.cost_size_label = ttk.Label(cost_frame, text='--', font=('TkDefaultFont', 8))
+        ttk.Label(cost_frame, text='Size mismatch:', font=('TkDefaultFont', 10)).grid(row=2, column=0, sticky='w', pady=1)
+        self.cost_size_label = ttk.Label(cost_frame, text='--', font=('TkDefaultFont', 10))
         self.cost_size_label.grid(row=2, column=1, sticky='w', padx=4, pady=1)
         
         # Indented sub-components of size mismatch
-        ttk.Label(cost_frame, text='  Normal:', font=('TkDefaultFont', 7)).grid(row=3, column=0, sticky='w', pady=1)
-        self.cost_size_normal_label = ttk.Label(cost_frame, text='--', font=('TkDefaultFont', 7))
+        ttk.Label(cost_frame, text='  Normal:', font=('TkDefaultFont', 9)).grid(row=3, column=0, sticky='w', pady=1)
+        self.cost_size_normal_label = ttk.Label(cost_frame, text='--', font=('TkDefaultFont', 9))
         self.cost_size_normal_label.grid(row=3, column=1, sticky='w', padx=4, pady=1)
         
-        ttk.Label(cost_frame, text='  Undersized:', font=('TkDefaultFont', 7)).grid(row=4, column=0, sticky='w', pady=1)
-        self.cost_size_undersized_label = ttk.Label(cost_frame, text='--', font=('TkDefaultFont', 7))
+        ttk.Label(cost_frame, text='  Undersized:', font=('TkDefaultFont', 9)).grid(row=4, column=0, sticky='w', pady=1)
+        self.cost_size_undersized_label = ttk.Label(cost_frame, text='--', font=('TkDefaultFont', 9))
         self.cost_size_undersized_label.grid(row=4, column=1, sticky='w', padx=4, pady=1)
 
         # Formula display: Total = Empty% + λ × SizeMismatch%-sq (normal) + λ × k × SizeMismatch%-sq (undersized)
@@ -534,6 +534,10 @@ class LayoutViewer:
         # Undersized size mismatch component (includes penalty)
         size_undersized_pct_sq = cost.size_mismatch_undersized_cost / (self.size_importance * self.undersized_penalty) if (self.size_importance > 0 and self.undersized_penalty > 0) else 0.0
         self.cost_size_undersized_label.config(text=f'{size_undersized_pct_sq:.2f} %-sq')
+        
+        # Undersized count
+        total_items = len(rectangles)
+        self.undersized_count_label.config(text=f'{cost.undersized_count}/{total_items}')
 
         # Show formula: Total = Empty% + λ × SizeMismatch%-sq
         # This is for readability; units are mixed intentionally as requested

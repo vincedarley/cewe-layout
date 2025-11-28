@@ -29,13 +29,15 @@ class LayoutCost:
         total_cost: Weighted sum of all cost components.
         empty_space_fraction: Fraction of page that is empty (0.0 to 1.0).
         size_errors: List of (item_id, preferred_norm, actual_norm, squared_error, is_undersized) for each rectangle.
+        undersized_count: Number of rectangles that are undersized.
     """
     
     def __init__(self, empty_space_cost: float, size_mismatch_cost: float,
                  total_cost: float, empty_space_fraction: float,
                  size_errors: List[Tuple[str, float, float, float, bool]],
                  size_mismatch_normal_cost: float = 0.0,
-                 size_mismatch_undersized_cost: float = 0.0):
+                 size_mismatch_undersized_cost: float = 0.0,
+                 undersized_count: int = 0):
         self.empty_space_cost = empty_space_cost
         self.size_mismatch_cost = size_mismatch_cost
         self.size_mismatch_normal_cost = size_mismatch_normal_cost
@@ -43,6 +45,7 @@ class LayoutCost:
         self.total_cost = total_cost
         self.empty_space_fraction = empty_space_fraction
         self.size_errors = size_errors
+        self.undersized_count = undersized_count
     
     def __repr__(self):
         return (f"LayoutCost(total={self.total_cost:.4f}, "
@@ -106,7 +109,8 @@ def evaluate_layout(
             empty_space_fraction=empty_fraction,
             size_errors=[],
             size_mismatch_normal_cost=0.0,
-            size_mismatch_undersized_cost=0.0
+            size_mismatch_undersized_cost=0.0,
+            undersized_count=0
         )
     
     page_area = page_width * page_height
@@ -122,7 +126,8 @@ def evaluate_layout(
             empty_space_fraction=1.0,
             size_errors=[],
             size_mismatch_normal_cost=float('inf'),
-            size_mismatch_undersized_cost=float('inf')
+            size_mismatch_undersized_cost=float('inf'),
+            undersized_count=0
         )
     
     # (a) Compute empty space cost (percent above acceptable threshold)
@@ -189,6 +194,9 @@ def evaluate_layout(
     if not detailed:
         return total_cost
     
+    # Count undersized rectangles (only if detailed)
+    undersized_count = sum(1 for _, _, _, _, is_undersized in size_errors if is_undersized) if size_errors else 0
+    
     return LayoutCost(
         empty_space_cost=empty_space_percent,
         size_mismatch_cost=size_mismatch_cost,
@@ -196,5 +204,6 @@ def evaluate_layout(
         empty_space_fraction=empty_fraction,
         size_errors=size_errors,
         size_mismatch_normal_cost=size_mismatch_normal_cost,
-        size_mismatch_undersized_cost=size_mismatch_undersized_cost
+        size_mismatch_undersized_cost=size_mismatch_undersized_cost,
+        undersized_count=undersized_count
     )
