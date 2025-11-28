@@ -88,7 +88,10 @@ class LayoutManager:
             del self.page_sizes[pageno]
     
     def get_stored_sizes_for_page(self, pageno):
-        """Get dict of filename -> area-based size from original layout."""
+        """Get dict of filename -> area-based size from original layout.
+        
+        Returns sizes scaled by 10× for human readability (e.g., 1.2, 3.5).
+        """
         orig = self.get_original(pageno)
         if not orig or not orig.photos:
             return {}
@@ -99,7 +102,7 @@ class LayoutManager:
         for p in orig.photos:
             fn = p.get('filename', '')
             area = (p.get('area_width', 0) or 0) * (p.get('area_height', 0) or 0)
-            result[fn] = area / total_area
+            result[fn] = (area / total_area) * 10.0
         return result
 
     def set_gap(self, pageno, gap):

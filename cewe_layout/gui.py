@@ -402,7 +402,7 @@ class LayoutViewer:
         """Handle preferred size entry change."""
         try:
             new_size = float(var.get())
-            if 0.0 <= new_size <= 5.0:  # Reasonable bounds
+            if 0.0 <= new_size <= 50.0:  # Reasonable bounds (scaled by 10×)
                 self.layout_mgr.set_size(pageno, filename, new_size)
                 self.update_weights_display()  # Refresh display
         except ValueError:
@@ -635,7 +635,7 @@ class LayoutViewer:
             var = tk.DoubleVar(value=current_size)
             size_vars[photo.get('filename', '')] = var
             
-            spinbox = ttk.Spinbox(frame, from_=0.0, to=5.0, increment=0.05, 
+            spinbox = ttk.Spinbox(frame, from_=0.0, to=50.0, increment=0.5, 
                                  textvariable=var, width=6)
             spinbox.pack(side='right', padx=5)
         
@@ -656,7 +656,7 @@ class LayoutViewer:
         ttk.Button(button_frame, text='Cancel', command=dialog.destroy).pack(side='left', padx=5)
 
     def equal_sizes(self):
-        """Set all photos to equal preferred size (1.0)."""
+        """Set all photos to equal preferred size (10.0)."""
         if not self.pages:
             return
         pageno, info = self.pages[self.index]
@@ -664,7 +664,7 @@ class LayoutViewer:
         photos = current_layout.photos if current_layout else info.get('photos', [])
         for p in photos:
             fn = p.get('filename', '')
-            self.layout_mgr.set_size(pageno, fn, 1.0)
+            self.layout_mgr.set_size(pageno, fn, 10.0)
         self.update_weights_display()
     
     def stored_sizes(self):
