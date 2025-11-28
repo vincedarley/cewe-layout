@@ -87,6 +87,15 @@ def generate_layout_for_page(photos, page_width_mcf, page_height_mcf, mcf_base_f
     if not success:
         return False, [], [], error_msg
     
+    # CRITICAL: Validate that algorithm positioned ALL items (no silent photo losses)
+    if len(positioned_rects) != len(all_rectangles):
+        return False, [], [], f"Algorithm error: {len(all_rectangles)} items given, only {len(positioned_rects)} positioned. Items were lost!"
+    
+    # Validate all rectangles have positions
+    for rect in positioned_rects:
+        if rect.x is None or rect.y is None:
+            return False, [], [], f"Algorithm error: Item {rect.item_id} was not positioned (x={rect.x}, y={rect.y})"
+    
     # Step 3: Translate results back to MCF coordinates (apply gaps)
     # Split by item_id prefix: numeric = photo, TEXT_ = text
     photo_positioned = [r for r in positioned_rects if r.item_id.isdigit()]
@@ -221,11 +230,18 @@ def _rectangles_to_photos(photos, rectangles, edge_gap=0.0, internal_gap=0.0):
     """
     updated_photos = []
     
+    # Build a map of preferred sizes from original photos (MUST be preserved)
+    original_preferred_sizes = {}
+    for photo_idx, photo in enumerate(photos):
+        fn = photo.get('filename', '')
+        if preferred_sizes and fn in preferred_sizes:
+            original_preferred_sizes[photo_idx] = preferred_sizes[fn]
+    
     for rect in rectangles:
         item_id = rect.item_id
         photo_idx = int(item_id)
         
-        if photo_idx < len(photos) and rect.x is not None and rect.y is not None:
+        if photo_idx < len(photos):
             photo = photos[photo_idx].copy()
             # Transform from gap-free space back to MCF space
             left, top, width, height = transform_item_from_gapfree(
@@ -236,6 +252,9 @@ def _rectangles_to_photos(photos, rectangles, edge_gap=0.0, internal_gap=0.0):
             photo['area_top'] = top
             photo['area_width'] = width
             photo['area_height'] = height
+            # CRITICAL: Preserve original preferred_size - do NOT use rect.preferred_size
+            # which may have been modified by the algorithm
+            # Preferred sizes can only be changed by user, never by algorithm
             updated_photos.append(photo)
     
     return updated_photos
@@ -265,7 +284,7 @@ def _rectangles_to_texts(texts, rectangles, edge_gap=0.0, internal_gap=0.0):
         
         text_idx = int(item_id.split('_')[1])
         
-        if text_idx < len(texts) and rect.x is not None and rect.y is not None:
+        if text_idx < len(texts):
             text = texts[text_idx].copy()
             # Transform from gap-free space back to MCF space
             left, top, width, height = transform_item_from_gapfree(
