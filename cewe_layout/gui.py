@@ -818,12 +818,15 @@ class LayoutViewer:
             # Get texts for this page
             texts = info.get('texts', [])
 
-            # Get gap analysis for this page
+            # Get gap analysis for this page from ORIGINAL layout
             all_items = info.get('photos', []) + info.get('texts', [])
             if all_items:
                 analysis = analyze_gaps(all_items, page_w, page_h, info.get('origin_left', 0.0))
                 edge_gap = analysis.edge_gap
                 internal_gap = analysis.internal_gap
+                # If there's bleed, edge_gap should be negative (photos extend beyond page)
+                if analysis.bleed > 0:
+                    edge_gap = -analysis.bleed
             else:
                 edge_gap = 0.0
                 internal_gap = 0.0
