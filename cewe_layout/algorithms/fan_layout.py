@@ -443,6 +443,11 @@ class FanLayoutAlgorithm(LayoutAlgorithm):
             if not rectangles:
                 return False, [], "No rectangles to layout"
             
+            # Validate input rectangles
+            for i, rect in enumerate(rectangles):
+                if rect.width <= 0 or rect.height <= 0:
+                    return False, [], f"Invalid rectangle {i}: width={rect.width}, height={rect.height}"
+            
             n_photos = len(rectangles)
             photo_indices = list(range(n_photos))
             
@@ -505,6 +510,10 @@ class FanLayoutAlgorithm(LayoutAlgorithm):
                 
                 population = new_population
             
+            # Validate that we found a valid tree
+            if best_tree is None:
+                return False, [], "Failed to generate valid layout tree"
+            
             # Extract final layout from best tree
             _compute_aspect_ratios(best_tree, rectangles)
             _compute_dimensions(best_tree, page_width, page_height, rectangles)
@@ -527,6 +536,11 @@ class FanLayoutAlgorithm(LayoutAlgorithm):
                         update_rectangles(node.right)
             
             update_rectangles(best_tree)
+            
+            # Validate all rectangles were positioned
+            for i, rect in enumerate(rectangles):
+                if rect.x is None or rect.y is None:
+                    return False, [], f"Failed to position rectangle {i} (item_id={rect.item_id}). Tree structure issue."
             
             return True, rectangles, ""
         
