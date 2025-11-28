@@ -24,7 +24,7 @@ from .gap_utils import (
 def generate_layout_for_page(photos, page_width_mcf, page_height_mcf, mcf_base_folder, 
                            algorithm=None, temperature=1.0, preferred_sizes=None, gap=None,
                            edge_gap=0.0, internal_gap=0.0,
-                           texts=None, use_slot_aspect=None, **kwargs):
+                           texts=None, use_slot_aspect=None, original_photos=None, **kwargs):
     """
     High-level function to generate a new layout for a page.
     
@@ -44,6 +44,7 @@ def generate_layout_for_page(photos, page_width_mcf, page_height_mcf, mcf_base_f
         internal_gap: Internal gap (spacing between items) in MCF units. Default 0.0.
         texts: Optional list of MCF text block dicts (with 'area_width', 'area_height').
         use_slot_aspect: Optional dict mapping photo_idx -> bool. If True, use slot aspect ratio instead of image aspect ratio.
+        original_photos: Optional list of original MCF photo dicts (for slot dimensions when use_slot_aspect=True).
         **kwargs: Additional algorithm-specific parameters.
     
     Returns:
@@ -70,7 +71,7 @@ def generate_layout_for_page(photos, page_width_mcf, page_height_mcf, mcf_base_f
     
     # Step 1: Translate MCF photos and texts to abstract layout rectangles
     photo_rects, error = _photos_to_rectangles(
-        photos, mcf_base_folder, preferred_sizes, edge_gap, internal_gap, use_slot_aspect
+        photos, mcf_base_folder, preferred_sizes, edge_gap, internal_gap, use_slot_aspect, original_photos
     )
     if error:
         return False, [], [], error
@@ -111,7 +112,7 @@ def generate_layout_for_page(photos, page_width_mcf, page_height_mcf, mcf_base_f
     return True, updated_photos, updated_texts, ""
 
 
-def _photos_to_rectangles(photos, mcf_base_folder, preferred_sizes=None, edge_gap=0.0, internal_gap=0.0, use_slot_aspect=None):
+def _photos_to_rectangles(photos, mcf_base_folder, preferred_sizes=None, edge_gap=0.0, internal_gap=0.0, use_slot_aspect=None, original_photos=None):
     """
     Convert MCF photo list to abstract LayoutRectangle objects in gap-free space.
     
@@ -125,6 +126,7 @@ def _photos_to_rectangles(photos, mcf_base_folder, preferred_sizes=None, edge_ga
         edge_gap: Edge gap (margin) in MCF units.
         internal_gap: Internal gap (spacing between items) in MCF units.
         use_slot_aspect: Optional dict mapping photo_idx -> bool. If True, use slot dimensions instead of image dimensions.
+        original_photos: Optional list of original MCF photo dicts (used for slot dimensions when use_slot_aspect=True).
     
     Returns:
         Tuple (rectangles: list, error: str).
@@ -148,9 +150,11 @@ def _photos_to_rectangles(photos, mcf_base_folder, preferred_sizes=None, edge_ga
         rect_height = None
         
         if use_slot:
-            # Try to use slot dimensions from MCF
-            slot_width = photo.get('area_width', 0)
-            slot_height = photo.get('area_height', 0)
+            # Use ORIGINAL slot dimensions to preserve aspect ratio across iterations
+            # (current photo dimensions may have been modified by previous layout runs)
+            source_photo = original_photos[photo_idx] if original_photos and photo_idx < len(original_photos) else photo
+            slot_width = source_photo.get('area_width', 0)
+            slot_height = source_photo.get('area_height', 0)
             if slot_width > 0 and slot_height > 0:
                 rect_width = float(slot_width)
                 rect_height = float(slot_height)

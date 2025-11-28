@@ -192,10 +192,14 @@ class LayoutViewer:
         ttk.Label(cost_frame, text='  Undersized:', font=('TkDefaultFont', 9)).grid(row=4, column=0, sticky='w', pady=1)
         self.cost_size_undersized_label = ttk.Label(cost_frame, text='--', font=('TkDefaultFont', 9))
         self.cost_size_undersized_label.grid(row=4, column=1, sticky='w', padx=4, pady=1)
+        
+        ttk.Label(cost_frame, text='  Count:', font=('TkDefaultFont', 9)).grid(row=5, column=0, sticky='w', pady=1)
+        self.undersized_count_label = ttk.Label(cost_frame, text='--', font=('TkDefaultFont', 9))
+        self.undersized_count_label.grid(row=5, column=1, sticky='w', padx=4, pady=1)
 
         # Formula display: Total = Empty% + λ × SizeMismatch%-sq (normal) + λ × k × SizeMismatch%-sq (undersized)
-        self.cost_formula_label = ttk.Label(cost_frame, text='', font=('TkDefaultFont', 8, 'italic'))
-        self.cost_formula_label.grid(row=5, column=0, columnspan=2, sticky='w', pady=(4,0))
+        self.cost_formula_label = ttk.Label(cost_frame, text='', font=('TkDefaultFont', 10, 'italic'))
+        self.cost_formula_label.grid(row=6, column=0, columnspan=2, sticky='w', pady=(4,0))
         
         # Parameters frame (bottom of right column)
         param_frame = ttk.LabelFrame(right_col, text='Parameters', padding=6)
@@ -391,18 +395,20 @@ class LayoutViewer:
         photos = current_layout.photos if current_layout else info.get('photos', [])
         texts = current_layout.texts if current_layout else info.get('texts', [])
         
-        # Combine photos and texts for gap analysis
-        all_items = photos + texts
-        
         page_w = info.get('page_width', 2100.0)
         page_h = info.get('page_height', 2970.0)
         origin_left = info.get('origin_left', 0.0)
         
-        # Analyze gaps to get both edge_gap and internal_gap
+        # Analyze gaps from ORIGINAL layout only (never from algorithm output)
+        # This ensures gap is a fixed parameter that algorithms don't modify
+        original_photos = info.get('photos', [])
+        original_texts = info.get('texts', [])
+        original_items = original_photos + original_texts
+        
         edge_gap = 0.0
         internal_gap = 0.0
-        if all_items:
-            analysis = analyze_gaps(all_items, page_w, page_h, origin_left)
+        if original_items:
+            analysis = analyze_gaps(original_items, page_w, page_h, origin_left)
             edge_gap = analysis.edge_gap
             internal_gap = analysis.internal_gap
             
@@ -414,7 +420,7 @@ class LayoutViewer:
         else:
             self.edge_gap_var.set('0.0')
         
-        # Get or estimate internal gap for layout generation
+        # Initialize gap from original layout once, then never change it
         current_gap = self.layout_mgr.get_gap(pageno)
         if current_gap == 0.0 and internal_gap > 0:
             self.layout_mgr.set_gap(pageno, internal_gap)
@@ -441,7 +447,9 @@ class LayoutViewer:
             self.cost_size_undersized_label.config(text='--')
             return
         
-        # Build LayoutRectangle list from photos and texts
+        # Build LayoutRectangle list from CURRENT layout (photos and texts)
+        # This is what we evaluate (algorithm output or original)
+        # But we use gaps from ORIGINAL layout (above) as fixed parameters
         # Transform to gap-free coordinate space (same as algorithm uses)
         from .algorithms.base import LayoutRectangle
         rectangles = []
@@ -842,10 +850,14 @@ class LayoutViewer:
                 if checkbox_key in self.use_slot_aspect:
                     use_slot_aspect_for_photos[photo_idx] = self.use_slot_aspect[checkbox_key].get()
 
+            # Get original photos for slot aspect ratio preservation
+            original_layout = self.layout_mgr.get_original(pageno)
+            original_photos = original_layout.photos if original_layout else None
+            
             success, updated_photos, updated_texts, error_msg = generate_layout_for_page(
                 photos, page_w, page_h, Path(self.mcf_base_folder), 
                 algorithm=algorithm, edge_gap=edge_gap, internal_gap=internal_gap, texts=texts,
-                use_slot_aspect=use_slot_aspect_for_photos
+                use_slot_aspect=use_slot_aspect_for_photos, original_photos=original_photos
             )
 
             # If this page has an origin_left (right-hand page), the parser
