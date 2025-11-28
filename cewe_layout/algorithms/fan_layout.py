@@ -384,30 +384,44 @@ def _crossover_trees(tree1: TreeNode, tree2: TreeNode) -> Tuple[TreeNode, TreeNo
     st2_structure = copy.deepcopy(st2)
     
     # Reassign leaf labels: st1's structure gets st2's labels, st2's structure gets st1's labels
-    def reassign_labels(node, labels, idx=[0]):
-        if node.is_leaf:
-            node.label = labels[idx[0]]
-            node.photo_idx = labels[idx[0]]
-            idx[0] += 1
-        else:
-            if node.left:
-                reassign_labels(node.left, labels, idx)
-            if node.right:
-                reassign_labels(node.right, labels, idx)
+    def reassign_labels(node, labels):
+        """Reassign labels to leaf nodes in pre-order traversal."""
+        idx = [0]  # Use list to allow modification in nested function
+        def _reassign(n):
+            if n.is_leaf:
+                n.label = labels[idx[0]]
+                n.photo_idx = labels[idx[0]]
+                idx[0] += 1
+            else:
+                if n.left:
+                    _reassign(n.left)
+                if n.right:
+                    _reassign(n.right)
+        _reassign(node)
     
-    reassign_labels(st1_structure, labels2, [0])  # st1's structure gets st2's labels
-    reassign_labels(st2_structure, labels1, [0])  # st2's structure gets st1's labels
+    # Fix parent pointers in deep-copied subtrees (deepcopy breaks parent links)
+    def fix_parent_pointers(node, parent=None):
+        node.parent = parent
+        if node.left:
+            fix_parent_pointers(node.left, node)
+        if node.right:
+            fix_parent_pointers(node.right, node)
+    
+    reassign_labels(st1_structure, labels1)  # st1's structure keeps st1's labels  
+    reassign_labels(st2_structure, labels2)  # st2's structure keeps st2's labels
     
     # Replace subtrees in offspring
     # st1_structure (with labels2) replaces st1 in offspring1
     # st2_structure (with labels1) replaces st2 in offspring2
-    st1_structure.parent = st1.parent
+    
+    # First fix parent pointers with the correct parent
+    fix_parent_pointers(st1_structure, st1.parent)
     if st1.parent.left == st1:
         st1.parent.left = st1_structure
     else:
         st1.parent.right = st1_structure
     
-    st2_structure.parent = st2.parent
+    fix_parent_pointers(st2_structure, st2.parent)
     if st2.parent.left == st2:
         st2.parent.left = st2_structure
     else:
@@ -543,6 +557,26 @@ class FanLayoutAlgorithm(LayoutAlgorithm):
             _compute_aspect_ratios(best_tree, rectangles)
             _compute_dimensions(best_tree, page_width, page_height, rectangles)
             _compute_layout(best_tree, 0, 0)
+            
+            # Validate tree has all photos before updating
+            def collect_photo_indices(node):
+                if node.is_leaf:
+                    return [node.photo_idx]
+                indices = []
+                if node.left:
+                    indices.extend(collect_photo_indices(node.left))
+                if node.right:
+                    indices.extend(collect_photo_indices(node.right))
+                return indices
+            
+            photo_indices_in_tree = collect_photo_indices(best_tree)
+            expected_indices = set(range(n_photos))
+            actual_indices = set(photo_indices_in_tree)
+            
+            if actual_indices != expected_indices:
+                missing = expected_indices - actual_indices
+                extra = actual_indices - expected_indices
+                return False, [], f"Tree corruption: missing photos {missing}, extra photos {extra}"
             
             # Update rectangles in-place
             def update_rectangles(node):

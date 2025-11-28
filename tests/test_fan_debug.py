@@ -106,7 +106,20 @@ if __name__ == "__main__":
     
     print()
     print("=" * 60)
-    if success1 and success2 and success3:
+    
+    # Test with 10 photos
+    print("\nTesting Fan with 10 photos...")
+    rects = [LayoutRectangle(item_id=str(i), width=100+i*5, height=100+i*3, preferred_size=1.0) for i in range(10)]
+    algo = FanLayoutAlgorithm(population_size=20, generations=10)
+    success4, result, msg = algo.generate_layout(3000, 2000, rects)
+    if not success4:
+        print(f"  ❌ Failed: {msg}")
+    else:
+        print("  ✅ Success")
+        for i, rect in enumerate(result):
+            print(f"    Rectangle {i}: x={rect.x:.1f}, y={rect.y:.1f}, w={rect.width:.1f}, h={rect.height:.1f}")
+    
+    if success1 and success2 and success3 and success4:
         print("✅ All tests passed!")
     else:
         print("❌ Some tests failed!")
