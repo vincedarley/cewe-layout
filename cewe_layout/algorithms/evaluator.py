@@ -45,10 +45,6 @@ class LayoutCost:
                 f"empty_frac={self.empty_space_fraction:.2%})")
 
 
-# Legacy alias for backward compatibility
-LayoutEvaluationResult = LayoutCost
-
-
 def _page_area(page_width: float, page_height: float) -> float:
     return max(0.0, float(page_width) * float(page_height))
 
@@ -221,49 +217,3 @@ def evaluate_layout(
         empty_space_fraction=empty_fraction,
         size_errors=size_errors
     )
-
-
-def evaluate_mcf_page(
-    photos: List[dict],
-    page_width: float,
-    page_height: float,
-    preferred_sizes: Optional[dict] = None,
-    **eval_kwargs
-) -> LayoutCost:
-    """Quick helper to evaluate cost of an MCF page layout without running an algorithm.
-    
-    Converts MCF photo dicts to LayoutRectangle objects and evaluates the layout cost.
-    
-    Args:
-        photos: List of MCF photo dicts with 'area_left', 'area_top', 'area_width', 'area_height', 'filename'.
-        page_width: Page width in MCF units.
-        page_height: Page height in MCF units.
-        preferred_sizes: Optional dict mapping filename -> preferred_size (default 1.0 for all).
-        **eval_kwargs: Additional arguments for evaluate_layout (size_importance, etc.).
-    
-    Returns:
-        LayoutCost object.
-    """
-    rectangles = []
-    
-    for idx, photo in enumerate(photos):
-        filename = photo.get('filename', '')
-        preferred_size = 1.0
-        if preferred_sizes and filename in preferred_sizes:
-            preferred_size = preferred_sizes[filename]
-        
-        rect = LayoutRectangle(
-            item_id=str(idx),
-            width=photo.get('area_width', 0),
-            height=photo.get('area_height', 0),
-            preferred_size=preferred_size,
-            x=photo.get('area_left', 0),
-            y=photo.get('area_top', 0)
-        )
-        rectangles.append(rect)
-    
-    return evaluate_layout(page_width, page_height, rectangles, **eval_kwargs)
-
-
-# Legacy alias
-evaluate_photos_page = evaluate_mcf_page

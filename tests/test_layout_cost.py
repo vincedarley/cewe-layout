@@ -15,7 +15,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from cewe_layout.algorithms.base import LayoutRectangle
-from cewe_layout.algorithms.evaluator import evaluate_layout, evaluate_mcf_page
+from cewe_layout.algorithms.evaluator import evaluate_layout
 
 
 def test_empty_page():
@@ -130,9 +130,10 @@ def test_partial_coverage():
 
 
 def test_mcf_helper():
-    """Test the MCF page helper function."""
-    print("Test: MCF page evaluation helper")
+    """Test evaluating MCF page using the main code path (direct LayoutRectangle construction)."""
+    print("Test: MCF page evaluation via LayoutRectangles")
     
+    # Simulate MCF photos as they would be converted to rectangles
     photos = [
         {'filename': 'photo1.jpg', 'area_left': 0, 'area_top': 0, 'area_width': 1485, 'area_height': 2100},
         {'filename': 'photo2.jpg', 'area_left': 1485, 'area_top': 0, 'area_width': 1485, 'area_height': 2100},
@@ -141,13 +142,39 @@ def test_mcf_helper():
     page_w, page_h = 2970.0, 4200.0
     
     # Without preferred sizes: uniform (each preferred = 1.0)
-    cost1 = evaluate_mcf_page(photos, page_w, page_h)
+    rectangles1 = [
+        LayoutRectangle(
+            item_id=str(i),
+            width=p['area_width'],
+            height=p['area_height'],
+            preferred_size=1.0,
+            preserve_aspect_ratio=True,
+            x=p['area_left'],
+            y=p['area_top']
+        )
+        for i, p in enumerate(photos)
+    ]
+    
+    cost1 = evaluate_layout(page_w, page_h, rectangles1)
     print(f"  Uniform sizes: {cost1}")
     print(f"    Empty fraction: {cost1.empty_space_fraction:.2%}")
     
     # With custom preferred sizes
     preferred = {'photo1.jpg': 2.0, 'photo2.jpg': 1.0}
-    cost2 = evaluate_mcf_page(photos, page_w, page_h, preferred_sizes=preferred)
+    rectangles2 = [
+        LayoutRectangle(
+            item_id=str(i),
+            width=p['area_width'],
+            height=p['area_height'],
+            preferred_size=preferred.get(p['filename'], 1.0),
+            preserve_aspect_ratio=True,
+            x=p['area_left'],
+            y=p['area_top']
+        )
+        for i, p in enumerate(photos)
+    ]
+    
+    cost2 = evaluate_layout(page_w, page_h, rectangles2)
     print(f"  Custom preferred sizes (2.0, 1.0): {cost2}")
     print(f"    Empty fraction: {cost2.empty_space_fraction:.2%}")
     
