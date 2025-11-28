@@ -21,6 +21,7 @@ import random
 from typing import List, Tuple, Optional
 
 from .base import LayoutAlgorithm
+from .evaluator import compute_layout_cost
 
 
 class TreeNode:
@@ -257,27 +258,24 @@ def _evaluate_cost(tree: TreeNode, canvas_width: float, canvas_height: float,
                   rectangles, size_importance: float = 100.0,
                   undersized_threshold: float = 0.5,
                   undersized_penalty: float = 5.0) -> float:
-    """Evaluate cost function matching our standard evaluator.
+    """Evaluate cost function using centralized evaluator.
     
-    Cost = empty_space_percent + λ × size_mismatch_normal + λ × k × size_mismatch_undersized
-    
-    This matches the evaluator in evaluator.py for consistency across algorithms.
+    This creates temporary LayoutRectangle objects from the tree's leaf nodes
+    and delegates to compute_layout_cost() for consistency.
     
     Args:
-        tree: Layout tree
+        tree: Layout tree (with positioned leaf nodes)
         canvas_width: Canvas width
         canvas_height: Canvas height
-        rectangles: List of LayoutRectangle objects
-        size_importance: Size importance parameter (λ, default 100.0 to match UI)
+        rectangles: List of LayoutRectangle objects (provides preferred_size)
+        size_importance: Size importance parameter (λ, default 100.0)
         undersized_threshold: Ratio threshold for undersizing (default 0.5)
         undersized_penalty: Additional multiplier k for undersized photos (default 5.0)
         
     Returns:
         Cost value (lower is better)
     """
-    canvas_area = canvas_width * canvas_height
-    
-    # Collect all leaf nodes
+    # Collect leaf nodes from tree
     leaves = []
     def collect_leaves(node):
         if node.is_leaf:
@@ -289,56 +287,31 @@ def _evaluate_cost(tree: TreeNode, canvas_width: float, canvas_height: float,
                 collect_leaves(node.right)
     collect_leaves(tree)
     
-    # Compute total photo area for coverage
-    total_photo_area = sum(leaf.width * leaf.height for leaf in leaves)
-    used_fraction = total_photo_area / canvas_area if canvas_area > 0 else 0.0
-    empty_fraction = 1.0 - used_fraction
-    
-    # Empty space cost: only penalize above 5% threshold, convert to percent
-    acceptable_empty_fraction = 0.05
-    excess_empty = max(0.0, empty_fraction - acceptable_empty_fraction)
-    empty_space_percent = excess_empty * 100.0
-    
-    # Size mismatch cost: squared errors in percentage space, split into normal and undersized
-    # Normalize desired sizes to sum to 1.0
-    total_preferred_size = sum(rect.preferred_size for rect in rectangles)
-    if total_preferred_size <= 0:
-        total_preferred_size = float(len(rectangles))
-    
-    size_mismatch_normal_sum = 0.0
-    size_mismatch_undersized_sum = 0.0
-    
+    # Create temporary rectangles from tree leaf nodes (with positioning from tree)
+    # The original rectangles list has the preferred_size we need
+    from .base import LayoutRectangle
+    temp_rects = []
     for leaf in leaves:
-        actual_area = leaf.width * leaf.height
-        actual_normalized = actual_area / canvas_area if canvas_area > 0 else 0.0
-        
-        rect = rectangles[leaf.photo_idx]
-        preferred_normalized = rect.preferred_size / total_preferred_size
-        
-        # Check if undersized: actual < threshold × preferred
-        is_undersized = (actual_normalized < undersized_threshold * preferred_normalized)
-        
-        # Squared error
-        error = preferred_normalized - actual_normalized
-        squared_error = error * error
-        
-        if is_undersized:
-            size_mismatch_undersized_sum += squared_error
-        else:
-            size_mismatch_normal_sum += squared_error
+        original_rect = rectangles[leaf.photo_idx]
+        temp_rect = LayoutRectangle(
+            item_id=original_rect.item_id,
+            width=leaf.width,
+            height=leaf.height,
+            preferred_size=original_rect.preferred_size,
+            preserve_aspect_ratio=original_rect.preserve_aspect_ratio,
+            x=leaf.x,
+            y=leaf.y
+        )
+        temp_rects.append(temp_rect)
     
-    # Convert to percentage-squared and apply λ
-    size_mismatch_normal_pct_sq = size_mismatch_normal_sum * (100.0 * 100.0)
-    size_mismatch_normal_cost = size_importance * size_mismatch_normal_pct_sq
-    
-    # Undersized: apply λ and additional penalty k
-    size_mismatch_undersized_pct_sq = size_mismatch_undersized_sum * (100.0 * 100.0)
-    size_mismatch_undersized_cost = size_importance * undersized_penalty * size_mismatch_undersized_pct_sq
-    
-    # Total cost: Empty% + λ × SizeMismatch (normal) + λ × k × SizeMismatch (undersized)
-    cost = empty_space_percent + size_mismatch_normal_cost + size_mismatch_undersized_cost
-    
-    return cost
+    # Use centralized cost computation
+    return compute_layout_cost(
+        canvas_width, canvas_height, temp_rects,
+        size_importance=size_importance,
+        acceptable_empty_fraction=0.05,
+        undersized_threshold=undersized_threshold,
+        undersized_penalty=undersized_penalty
+    )
 
 
 def _mutate_tree(tree: TreeNode) -> TreeNode:

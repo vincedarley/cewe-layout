@@ -58,8 +58,8 @@ def test_perfect_layout():
     print(f"  {cost}")
     print(f"  Empty fraction: {cost.empty_space_fraction:.2%}")
     print(f"  Size errors:")
-    for item_id, preferred, actual, sq_err in cost.size_errors:
-        print(f"    Item {item_id}: preferred={preferred:.4f}, actual={actual:.4f}, error²={sq_err:.6f}")
+    for item_id, preferred, actual, sq_err, is_undersized in cost.size_errors:
+        print(f"    Item {item_id}: preferred={preferred:.4f}, actual={actual:.4f}, error²={sq_err:.6f}, undersized={is_undersized}")
     
     assert cost.empty_space_fraction == 0.0, "Perfect layout should have 0% empty"
     assert cost.size_mismatch_cost < 0.01, f"Perfect uniform layout should have near-zero size mismatch (got {cost.size_mismatch_cost})"
@@ -85,8 +85,8 @@ def test_weight_mismatch():
     
     print(f"  {cost}")
     print(f"  Size errors:")
-    for item_id, preferred, actual, sq_err in cost.size_errors:
-        print(f"    Item {item_id}: preferred={preferred:.4f}, actual={actual:.4f}, error²={sq_err:.6f}")
+    for item_id, preferred, actual, sq_err, is_undersized in cost.size_errors:
+        print(f"    Item {item_id}: preferred={preferred:.4f}, actual={actual:.4f}, error²={sq_err:.6f}, undersized={is_undersized}")
     
     # Check weight mismatch is calculated correctly
     expected_mismatch_sum = (2.0/3.0 - 0.5)**2 + (1.0/3.0 - 0.5)**2
