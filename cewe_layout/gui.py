@@ -38,6 +38,9 @@ class LayoutViewer:
         
         # Algorithm selection
         self.algorithm_var = tk.StringVar(value='Collage-Gen')
+        
+        # Track which photos should use slot aspect ratio (dict: {(pageno, photo_idx): BooleanVar})
+        self.use_slot_aspect = {}
 
         # initialize layout manager with originals from file
         for pageno, info in self.pages:
@@ -153,8 +156,9 @@ class LayoutViewer:
         photo_frame.grid(row=0, column=0, sticky='nw', padx=(0, 20))
         
         ttk.Label(photo_frame, text='Item', font=('TkDefaultFont', 9, 'bold')).grid(row=0, column=0, padx=2, pady=2, sticky='w')
-        ttk.Label(photo_frame, text='Preferred', font=('TkDefaultFont', 9, 'bold')).grid(row=0, column=1, padx=2, pady=2, sticky='w')
-        ttk.Label(photo_frame, text='Actual', font=('TkDefaultFont', 9, 'bold')).grid(row=0, column=2, padx=2, pady=2, sticky='w')
+        ttk.Label(photo_frame, text='Slot AR', font=('TkDefaultFont', 9, 'bold')).grid(row=0, column=1, padx=2, pady=2, sticky='w')
+        ttk.Label(photo_frame, text='Preferred', font=('TkDefaultFont', 9, 'bold')).grid(row=0, column=2, padx=2, pady=2, sticky='w')
+        ttk.Label(photo_frame, text='Actual', font=('TkDefaultFont', 9, 'bold')).grid(row=0, column=3, padx=2, pady=2, sticky='w')
         
         # Item (photo/text) weight rows will be added dynamically to photo_frame
         self.photo_frame = photo_frame
@@ -517,10 +521,50 @@ class LayoutViewer:
             item_label = ttk.Label(self.photo_frame, text=f'{type_prefix}{item_idx+1}', font=('TkDefaultFont', 9))
             item_label.grid(row=row, column=0, padx=2, pady=1)
             
+            # Checkbox for using slot aspect ratio (photos only)
+            if item_type == 'photo':
+                # Get or create checkbox state
+                checkbox_key = (pageno, item_idx)
+                if checkbox_key not in self.use_slot_aspect:
+                    # Auto-check if photo aspect ratio differs significantly from slot
+                    should_auto_check = False
+                    photo = photos[item_idx]
+                    slot_width = photo.get('area_width', 0)
+                    slot_height = photo.get('area_height', 0)
+                    
+                    if slot_width > 0 and slot_height > 0:
+                        # Load image to get its actual aspect ratio
+                        fn = photo.get('filename', '')
+                        if fn:
+                            safefn = fn.replace('safecontainer:/', '').lstrip('/')
+                            img_path = Path(self.mcf_base_folder) / safefn
+                            if img_path.exists():
+                                try:
+                                    arr = cv2.imread(str(img_path), cv2.IMREAD_COLOR)
+                                    if arr is not None:
+                                        img_h, img_w = arr.shape[:2]
+                                        if img_h > 0 and img_w > 0:
+                                            img_aspect = img_w / img_h
+                                            slot_aspect = slot_width / slot_height
+                                            # Auto-check if aspect ratios differ by more than 20%
+                                            aspect_diff = abs(img_aspect - slot_aspect) / slot_aspect
+                                            if aspect_diff > 0.20:
+                                                should_auto_check = True
+                                except Exception:
+                                    pass
+                    
+                    self.use_slot_aspect[checkbox_key] = tk.BooleanVar(value=should_auto_check)
+                
+                checkbox = ttk.Checkbutton(self.photo_frame, variable=self.use_slot_aspect[checkbox_key])
+                checkbox.grid(row=row, column=1, padx=2, pady=1)
+            else:
+                # Placeholder for text blocks (no checkbox needed)
+                ttk.Label(self.photo_frame, text='', font=('TkDefaultFont', 9)).grid(row=row, column=1, padx=2, pady=1)
+            
             # Desired weight entry (editable)
             desired_var = tk.StringVar(value=f'{rect.preferred_size:.1f}')
             desired_entry = ttk.Entry(self.photo_frame, textvariable=desired_var, width=6)
-            desired_entry.grid(row=row, column=1, padx=2, pady=1)
+            desired_entry.grid(row=row, column=2, padx=2, pady=1)
             
             # Bind entry changes to update weights in layout manager
             desired_entry.bind('<Return>', lambda e, pg=pageno, iid=item_id, var=desired_var: self.on_size_changed(pg, iid, var))
@@ -535,7 +579,7 @@ class LayoutViewer:
             # Simpler: just show the area fraction as percentage of page
             actual_pct = actual_fraction * 100
             actual_label = ttk.Label(self.photo_frame, text=f'{actual_pct:.1f}%', font=('TkDefaultFont', 9))
-            actual_label.grid(row=row, column=2, padx=2, pady=1)
+            actual_label.grid(row=row, column=3, padx=2, pady=1)
             
             self.weight_widgets.append((item_label, desired_entry, actual_label))
     
@@ -679,6 +723,9 @@ class LayoutViewer:
             self.gen_btn.config(state='disabled')
         except Exception:
             pass
+        
+        # Show "Running..." status
+        self.show_status('Running...')
 
         def worker():
             pageno, info = self.pages[self.index]
@@ -719,10 +766,18 @@ class LayoutViewer:
                 algorithm = FanLayoutAlgorithm()
             else:
                 algorithm = CollageGeneratorAlgorithm(temperature=1.0)  # fallback
+            
+            # Collect checkbox states for photos on this page
+            use_slot_aspect_for_photos = {}
+            for photo_idx in range(len(photos)):
+                checkbox_key = (pageno, photo_idx)
+                if checkbox_key in self.use_slot_aspect:
+                    use_slot_aspect_for_photos[photo_idx] = self.use_slot_aspect[checkbox_key].get()
 
             success, updated_photos, updated_texts, error_msg = generate_layout_for_page(
                 photos, page_w, page_h, Path(self.mcf_base_folder), 
-                algorithm=algorithm, edge_gap=edge_gap, internal_gap=internal_gap, texts=texts
+                algorithm=algorithm, edge_gap=edge_gap, internal_gap=internal_gap, texts=texts,
+                use_slot_aspect=use_slot_aspect_for_photos
             )
 
             # If this page has an origin_left (right-hand page), the parser

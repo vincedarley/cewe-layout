@@ -24,7 +24,7 @@ from .gap_utils import (
 def generate_layout_for_page(photos, page_width_mcf, page_height_mcf, mcf_base_folder, 
                            algorithm=None, temperature=1.0, preferred_sizes=None, gap=None,
                            edge_gap=0.0, internal_gap=0.0,
-                           texts=None, **kwargs):
+                           texts=None, use_slot_aspect=None, **kwargs):
     """
     High-level function to generate a new layout for a page.
     
@@ -43,6 +43,7 @@ def generate_layout_for_page(photos, page_width_mcf, page_height_mcf, mcf_base_f
         edge_gap: Edge gap (margin) in MCF units. Default 0.0.
         internal_gap: Internal gap (spacing between items) in MCF units. Default 0.0.
         texts: Optional list of MCF text block dicts (with 'area_width', 'area_height').
+        use_slot_aspect: Optional dict mapping photo_idx -> bool. If True, use slot aspect ratio instead of image aspect ratio.
         **kwargs: Additional algorithm-specific parameters.
     
     Returns:
@@ -53,6 +54,9 @@ def generate_layout_for_page(photos, page_width_mcf, page_height_mcf, mcf_base_f
     
     if texts is None:
         texts = []
+    
+    if use_slot_aspect is None:
+        use_slot_aspect = {}
     
     # Handle deprecated gap parameter
     if gap is not None:
@@ -66,7 +70,7 @@ def generate_layout_for_page(photos, page_width_mcf, page_height_mcf, mcf_base_f
     
     # Step 1: Translate MCF photos and texts to abstract layout rectangles
     photo_rects, error = _photos_to_rectangles(
-        photos, mcf_base_folder, preferred_sizes, edge_gap, internal_gap
+        photos, mcf_base_folder, preferred_sizes, edge_gap, internal_gap, use_slot_aspect
     )
     if error:
         return False, [], [], error
@@ -107,7 +111,7 @@ def generate_layout_for_page(photos, page_width_mcf, page_height_mcf, mcf_base_f
     return True, updated_photos, updated_texts, ""
 
 
-def _photos_to_rectangles(photos, mcf_base_folder, preferred_sizes=None, edge_gap=0.0, internal_gap=0.0):
+def _photos_to_rectangles(photos, mcf_base_folder, preferred_sizes=None, edge_gap=0.0, internal_gap=0.0, use_slot_aspect=None):
     """
     Convert MCF photo list to abstract LayoutRectangle objects in gap-free space.
     
@@ -120,6 +124,7 @@ def _photos_to_rectangles(photos, mcf_base_folder, preferred_sizes=None, edge_ga
         preferred_sizes: Optional dict mapping filename -> preferred_size.
         edge_gap: Edge gap (margin) in MCF units.
         internal_gap: Internal gap (spacing between items) in MCF units.
+        use_slot_aspect: Optional dict mapping photo_idx -> bool. If True, use slot dimensions instead of image dimensions.
     
     Returns:
         Tuple (rectangles: list, error: str).
@@ -127,40 +132,59 @@ def _photos_to_rectangles(photos, mcf_base_folder, preferred_sizes=None, edge_ga
     rectangles = []
     mcf_base = Path(mcf_base_folder)
     
+    if use_slot_aspect is None:
+        use_slot_aspect = {}
+    
     for photo_idx, photo in enumerate(photos):
         fn = photo.get('filename', '')
         if not fn:
             return [], f"Photo {photo_idx} has no filename"
         
-        # Resolve image path
-        safefn = fn.replace('safecontainer:/', '').lstrip('/')
-        img_path = mcf_base / safefn
+        # Determine if we should use slot aspect ratio for this photo
+        use_slot = use_slot_aspect.get(photo_idx, False)
         
-        if not img_path.exists():
-            return [], f"Image not found: {img_path}"
+        if use_slot:
+            # Use slot dimensions from MCF
+            slot_width = photo.get('area_width', 0)
+            slot_height = photo.get('area_height', 0)
+            if slot_width <= 0 or slot_height <= 0:
+                return [], f"Photo {photo_idx} has invalid slot dimensions: {slot_width}x{slot_height}"
+            
+            rect_width = float(slot_width)
+            rect_height = float(slot_height)
+        else:
+            # Use image file dimensions (original behavior)
+            # Resolve image path
+            safefn = fn.replace('safecontainer:/', '').lstrip('/')
+            img_path = mcf_base / safefn
+            
+            if not img_path.exists():
+                return [], f"Image not found: {img_path}"
+            
+            # Load image to get its dimensions
+            arr = cv2.imread(str(img_path), cv2.IMREAD_COLOR)
+            if arr is None:
+                return [], f"Failed to load image: {img_path}"
+            
+            # Image dimensions (height, width in OpenCV)
+            img_height, img_width = arr.shape[:2]
+            if img_height <= 0 or img_width <= 0:
+                return [], f"Invalid image dimensions: {img_path}"
+            
+            rect_width = float(img_width)
+            rect_height = float(img_height)
         
-        # Load image to get its dimensions
-        arr = cv2.imread(str(img_path), cv2.IMREAD_COLOR)
-        if arr is None:
-            return [], f"Failed to load image: {img_path}"
-        
-        # Image dimensions (height, width in OpenCV)
-        img_height, img_width = arr.shape[:2]
-        if img_height <= 0 or img_width <= 0:
-            return [], f"Invalid image dimensions: {img_path}"
-        
-        # Create LayoutRectangle with image dimensions (in pixels)
-        # The algorithm will scale these to fit the page while preserving aspect ratio
+        # Create LayoutRectangle
         item_id = str(photo_idx)
         preferred_size = 1.0
         if preferred_sizes and fn in preferred_sizes:
             preferred_size = preferred_sizes[fn]
         
-        # Use image dimensions directly (algorithm works in abstract space)
+        # Use determined dimensions (either image or slot)
         rect = LayoutRectangle(
             item_id=item_id,
-            width=float(img_width),
-            height=float(img_height),
+            width=rect_width,
+            height=rect_height,
             preferred_size=preferred_size,
             preserve_aspect_ratio=True  # Photos must preserve aspect ratio
         )
