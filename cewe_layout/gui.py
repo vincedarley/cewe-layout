@@ -39,7 +39,7 @@ class LayoutViewer:
             origin_left = info.get('origin_left', 0.0)
             
             # Estimate gap to compute gap-free areas (matching evaluation coordinate space)
-            # Use inter-photo gap preferentially
+            # Use internal gap preferentially
             edge_gap, inter_gap = estimate_gaps(all_items, page_w, page_h, origin_left) if all_items else (0.0, 0.0)
             gap = inter_gap if inter_gap > 0 else edge_gap
             
