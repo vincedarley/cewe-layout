@@ -143,17 +143,21 @@ def _photos_to_rectangles(photos, mcf_base_folder, preferred_sizes=None, edge_ga
         # Determine if we should use slot aspect ratio for this photo
         use_slot = use_slot_aspect.get(photo_idx, False)
         
+        # Try to use slot dimensions if requested, but fall back to image if invalid
+        rect_width = None
+        rect_height = None
+        
         if use_slot:
-            # Use slot dimensions from MCF
+            # Try to use slot dimensions from MCF
             slot_width = photo.get('area_width', 0)
             slot_height = photo.get('area_height', 0)
-            if slot_width <= 0 or slot_height <= 0:
-                return [], f"Photo {photo_idx} has invalid slot dimensions: {slot_width}x{slot_height}"
-            
-            rect_width = float(slot_width)
-            rect_height = float(slot_height)
-        else:
-            # Use image file dimensions (original behavior)
+            if slot_width > 0 and slot_height > 0:
+                rect_width = float(slot_width)
+                rect_height = float(slot_height)
+            # else: fall through to use image dimensions
+        
+        # If not using slot, or slot dimensions were invalid, use image file dimensions
+        if rect_width is None or rect_height is None:
             # Resolve image path
             safefn = fn.replace('safecontainer:/', '').lstrip('/')
             img_path = mcf_base / safefn

@@ -181,11 +181,26 @@ def _compute_dimensions(node: TreeNode, width: float, height: float, rectangles)
     a1 = node.left.aspect_ratio
     a2 = node.right.aspect_ratio
     
+    # Minimum dimension to prevent degenerate layouts (1% of canvas dimension)
+    min_width = width * 0.01
+    min_height = height * 0.01
+    
     if node.label == 'V':
         # Vertical cut: divide width
         # Both children get full height
-        w1 = width * (a1 / (a1 + a2))
-        w2 = width * (a2 / (a1 + a2))
+        w1_ideal = width * (a1 / (a1 + a2))
+        w2_ideal = width * (a2 / (a1 + a2))
+        
+        # Enforce minimum widths
+        w1 = max(min_width, w1_ideal)
+        w2 = max(min_width, w2_ideal)
+        
+        # If both needed adjustment, scale proportionally to fit
+        if w1 + w2 > width:
+            scale = width / (w1 + w2)
+            w1 *= scale
+            w2 *= scale
+        
         _compute_dimensions(node.left, w1, height, rectangles)
         _compute_dimensions(node.right, w2, height, rectangles)
         # Set this node's dimensions
@@ -194,8 +209,19 @@ def _compute_dimensions(node: TreeNode, width: float, height: float, rectangles)
     else:  # 'H'
         # Horizontal cut: divide height
         # Both children get full width
-        h1 = height * (a2 / (a1 + a2))
-        h2 = height * (a1 / (a1 + a2))
+        h1_ideal = height * (a2 / (a1 + a2))
+        h2_ideal = height * (a1 / (a1 + a2))
+        
+        # Enforce minimum heights
+        h1 = max(min_height, h1_ideal)
+        h2 = max(min_height, h2_ideal)
+        
+        # If both needed adjustment, scale proportionally to fit
+        if h1 + h2 > height:
+            scale = height / (h1 + h2)
+            h1 *= scale
+            h2 *= scale
+        
         _compute_dimensions(node.left, width, h1, rectangles)
         _compute_dimensions(node.right, width, h2, rectangles)
         # Set this node's dimensions
@@ -228,10 +254,12 @@ def _compute_layout(node: TreeNode, x: float, y: float):
 
 
 def _evaluate_cost(tree: TreeNode, canvas_width: float, canvas_height: float,
-                  rectangles, lambda_param: float = 100.0) -> float:
+                  rectangles, size_importance: float = 100.0,
+                  undersized_threshold: float = 0.5,
+                  undersized_penalty: float = 5.0) -> float:
     """Evaluate cost function matching our standard evaluator.
     
-    Cost = empty_space_percent + λ × size_mismatch_percent_squared
+    Cost = empty_space_percent + λ × size_mismatch_normal + λ × k × size_mismatch_undersized
     
     This matches the evaluator in evaluator.py for consistency across algorithms.
     
@@ -240,7 +268,9 @@ def _evaluate_cost(tree: TreeNode, canvas_width: float, canvas_height: float,
         canvas_width: Canvas width
         canvas_height: Canvas height
         rectangles: List of LayoutRectangle objects
-        lambda_param: Size importance parameter (default 100.0 to match UI)
+        size_importance: Size importance parameter (λ, default 100.0 to match UI)
+        undersized_threshold: Ratio threshold for undersizing (default 0.5)
+        undersized_penalty: Additional multiplier k for undersized photos (default 5.0)
         
     Returns:
         Cost value (lower is better)
@@ -269,13 +299,15 @@ def _evaluate_cost(tree: TreeNode, canvas_width: float, canvas_height: float,
     excess_empty = max(0.0, empty_fraction - acceptable_empty_fraction)
     empty_space_percent = excess_empty * 100.0
     
-    # Size mismatch cost: squared errors in percentage space
+    # Size mismatch cost: squared errors in percentage space, split into normal and undersized
     # Normalize desired sizes to sum to 1.0
     total_preferred_size = sum(rect.preferred_size for rect in rectangles)
     if total_preferred_size <= 0:
         total_preferred_size = float(len(rectangles))
     
-    size_mismatch_sum = 0.0
+    size_mismatch_normal_sum = 0.0
+    size_mismatch_undersized_sum = 0.0
+    
     for leaf in leaves:
         actual_area = leaf.width * leaf.height
         actual_normalized = actual_area / canvas_area if canvas_area > 0 else 0.0
@@ -283,17 +315,28 @@ def _evaluate_cost(tree: TreeNode, canvas_width: float, canvas_height: float,
         rect = rectangles[leaf.photo_idx]
         preferred_normalized = rect.preferred_size / total_preferred_size
         
+        # Check if undersized: actual < threshold × preferred
+        is_undersized = (actual_normalized < undersized_threshold * preferred_normalized)
+        
         # Squared error
         error = preferred_normalized - actual_normalized
         squared_error = error * error
-        size_mismatch_sum += squared_error
+        
+        if is_undersized:
+            size_mismatch_undersized_sum += squared_error
+        else:
+            size_mismatch_normal_sum += squared_error
     
     # Convert to percentage-squared and apply λ
-    size_mismatch_pct_sq = size_mismatch_sum * (100.0 * 100.0)
-    size_mismatch_cost = lambda_param * size_mismatch_pct_sq
+    size_mismatch_normal_pct_sq = size_mismatch_normal_sum * (100.0 * 100.0)
+    size_mismatch_normal_cost = size_importance * size_mismatch_normal_pct_sq
     
-    # Total cost: Empty% + λ × SizeMismatch%-sq
-    cost = empty_space_percent + size_mismatch_cost
+    # Undersized: apply λ and additional penalty k
+    size_mismatch_undersized_pct_sq = size_mismatch_undersized_sum * (100.0 * 100.0)
+    size_mismatch_undersized_cost = size_importance * undersized_penalty * size_mismatch_undersized_pct_sq
+    
+    # Total cost: Empty% + λ × SizeMismatch (normal) + λ × k × SizeMismatch (undersized)
+    cost = empty_space_percent + size_mismatch_normal_cost + size_mismatch_undersized_cost
     
     return cost
 
@@ -453,7 +496,8 @@ class FanLayoutAlgorithm(LayoutAlgorithm):
     
     def __init__(self, population_size=50, generations=100,
                  mutation_rate=0.2, crossover_rate=0.8,
-                 size_importance=100.0, elite_size=2):
+                 size_importance=100.0, elite_size=2,
+                 undersized_threshold=0.5, undersized_penalty=5.0):
         """
         Initialize Fan's layout algorithm.
         
@@ -464,6 +508,8 @@ class FanLayoutAlgorithm(LayoutAlgorithm):
             crossover_rate: Probability of crossover
             size_importance: Size mismatch importance (λ parameter, default 100.0)
             elite_size: Number of best individuals to preserve
+            undersized_threshold: Ratio threshold for undersizing (default 0.5)
+            undersized_penalty: Additional multiplier k for undersized photos (default 5.0)
         """
         self.population_size = population_size
         self.generations = generations
@@ -471,6 +517,8 @@ class FanLayoutAlgorithm(LayoutAlgorithm):
         self.crossover_rate = crossover_rate
         self.size_importance = size_importance
         self.elite_size = elite_size
+        self.undersized_threshold = undersized_threshold
+        self.undersized_penalty = undersized_penalty
     
     def generate_layout(
         self,
@@ -520,7 +568,9 @@ class FanLayoutAlgorithm(LayoutAlgorithm):
                     _compute_layout(tree, 0, 0)
                     
                     cost = _evaluate_cost(tree, page_width, page_height, 
-                                        rectangles, self.size_importance)
+                                        rectangles, self.size_importance,
+                                        self.undersized_threshold,
+                                        self.undersized_penalty)
                     fitness_scores.append(cost)
                     
                     if cost < best_cost:

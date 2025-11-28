@@ -183,10 +183,19 @@ class LayoutViewer:
         ttk.Label(cost_frame, text='Size mismatch:', font=('TkDefaultFont', 8)).grid(row=2, column=0, sticky='w', pady=1)
         self.cost_size_label = ttk.Label(cost_frame, text='--', font=('TkDefaultFont', 8))
         self.cost_size_label.grid(row=2, column=1, sticky='w', padx=4, pady=1)
+        
+        # Indented sub-components of size mismatch
+        ttk.Label(cost_frame, text='  Normal:', font=('TkDefaultFont', 7)).grid(row=3, column=0, sticky='w', pady=1)
+        self.cost_size_normal_label = ttk.Label(cost_frame, text='--', font=('TkDefaultFont', 7))
+        self.cost_size_normal_label.grid(row=3, column=1, sticky='w', padx=4, pady=1)
+        
+        ttk.Label(cost_frame, text='  Undersized:', font=('TkDefaultFont', 7)).grid(row=4, column=0, sticky='w', pady=1)
+        self.cost_size_undersized_label = ttk.Label(cost_frame, text='--', font=('TkDefaultFont', 7))
+        self.cost_size_undersized_label.grid(row=4, column=1, sticky='w', padx=4, pady=1)
 
-        # Formula display: Total = Empty% + λ × SizeMismatch%-sq
+        # Formula display: Total = Empty% + λ × SizeMismatch%-sq (normal) + λ × k × SizeMismatch%-sq (undersized)
         self.cost_formula_label = ttk.Label(cost_frame, text='', font=('TkDefaultFont', 8, 'italic'))
-        self.cost_formula_label.grid(row=3, column=0, columnspan=2, sticky='w', pady=(4,0))
+        self.cost_formula_label.grid(row=5, column=0, columnspan=2, sticky='w', pady=(4,0))
         
         # Parameters frame (bottom of right column)
         param_frame = ttk.LabelFrame(right_col, text='Parameters', padding=6)
@@ -213,14 +222,30 @@ class LayoutViewer:
         self.size_importance_entry.grid(row=2, column=1, sticky='w', padx=4, pady=2)
         self.size_importance_entry.bind('<Return>', lambda e: self.on_size_importance_changed())
         self.size_importance_entry.bind('<FocusOut>', lambda e: self.on_size_importance_changed())
+        
+        # Undersized threshold parameter
+        ttk.Label(param_frame, text='Undersized threshold:').grid(row=3, column=0, sticky='w', pady=2)
+        self.undersized_threshold_var = tk.StringVar(value='0.5')
+        self.undersized_threshold_entry = ttk.Entry(param_frame, textvariable=self.undersized_threshold_var, width=8)
+        self.undersized_threshold_entry.grid(row=3, column=1, sticky='w', padx=4, pady=2)
+        self.undersized_threshold_entry.bind('<Return>', lambda e: self.on_undersized_threshold_changed())
+        self.undersized_threshold_entry.bind('<FocusOut>', lambda e: self.on_undersized_threshold_changed())
+        
+        # Undersized penalty parameter
+        ttk.Label(param_frame, text='Undersized penalty (k):').grid(row=4, column=0, sticky='w', pady=2)
+        self.undersized_penalty_var = tk.StringVar(value='5.0')
+        self.undersized_penalty_entry = ttk.Entry(param_frame, textvariable=self.undersized_penalty_var, width=8)
+        self.undersized_penalty_entry.grid(row=4, column=1, sticky='w', padx=4, pady=2)
+        self.undersized_penalty_entry.bind('<Return>', lambda e: self.on_undersized_penalty_changed())
+        self.undersized_penalty_entry.bind('<FocusOut>', lambda e: self.on_undersized_penalty_changed())
 
         # Equal sizes button
         equal_btn = ttk.Button(param_frame, text='Equal sizes', command=self.equal_sizes)
-        equal_btn.grid(row=3, column=0, columnspan=2, sticky='ew', pady=(6,2))
+        equal_btn.grid(row=5, column=0, columnspan=2, sticky='ew', pady=(6,2))
         
         # Stored sizes button
         stored_btn = ttk.Button(param_frame, text='Stored sizes', command=self.stored_sizes)
-        stored_btn.grid(row=4, column=0, columnspan=2, sticky='ew', pady=2)
+        stored_btn.grid(row=6, column=0, columnspan=2, sticky='ew', pady=2)
         
         # Photo weight rows (will be populated dynamically)
         self.weight_widgets = []  # List of (item_label, desired_entry, actual_label) for photos and texts
@@ -234,6 +259,8 @@ class LayoutViewer:
         self.photo_image = None
         self.thumb_cache = {}  # filename -> PIL.Image (thumbnail)
         self.size_importance = 100.0  # Default size importance factor
+        self.undersized_threshold = 0.5  # Default undersized threshold (50%)
+        self.undersized_penalty = 5.0  # Default undersized penalty factor
         self.render_page()
 
     def render_page(self):
@@ -410,6 +437,8 @@ class LayoutViewer:
             self.cost_total_label.config(text='--')
             self.cost_empty_label.config(text='No items')
             self.cost_size_label.config(text='--')
+            self.cost_size_normal_label.config(text='--')
+            self.cost_size_undersized_label.config(text='--')
             return
         
         # Build LayoutRectangle list from photos and texts
@@ -482,7 +511,9 @@ class LayoutViewer:
         cost = evaluate_layout(
             eval_page_w, eval_page_h, rectangles,
             size_importance=self.size_importance,
-            acceptable_empty_fraction=0.05
+            acceptable_empty_fraction=0.05,
+            undersized_threshold=self.undersized_threshold,
+            undersized_penalty=self.undersized_penalty
         )
         
         # Update cost labels with human-readable format
@@ -492,10 +523,17 @@ class LayoutViewer:
         empty_pct = cost.empty_space_fraction * 100
         self.cost_empty_label.config(text=f'{empty_pct:.1f}%')
         
-        # Size mismatch: show %-squared as returned from evaluator (divide λ)
-        # Evaluator computes: size_mismatch_cost = λ × (sum of squared percentage errors)
+        # Total size mismatch
         size_pct_sq = cost.size_mismatch_cost / self.size_importance if self.size_importance > 0 else 0.0
         self.cost_size_label.config(text=f'{size_pct_sq:.2f} %-sq')
+        
+        # Normal size mismatch component
+        size_normal_pct_sq = cost.size_mismatch_normal_cost / self.size_importance if self.size_importance > 0 else 0.0
+        self.cost_size_normal_label.config(text=f'{size_normal_pct_sq:.2f} %-sq')
+        
+        # Undersized size mismatch component (includes penalty)
+        size_undersized_pct_sq = cost.size_mismatch_undersized_cost / (self.size_importance * self.undersized_penalty) if (self.size_importance > 0 and self.undersized_penalty > 0) else 0.0
+        self.cost_size_undersized_label.config(text=f'{size_undersized_pct_sq:.2f} %-sq')
 
         # Show formula: Total = Empty% + λ × SizeMismatch%-sq
         # This is for readability; units are mixed intentionally as requested
@@ -620,8 +658,28 @@ class LayoutViewer:
         """Handle size importance parameter change."""
         try:
             new_importance = float(self.size_importance_var.get())
-            if 0.1 <= new_importance <= 100.0:  # Reasonable bounds
+            if 0.1 <= new_importance <= 1000.0:  # Reasonable bounds
                 self.size_importance = new_importance
+                self.update_weights_display()  # Refresh cost display
+        except ValueError:
+            pass  # Ignore invalid input
+    
+    def on_undersized_threshold_changed(self):
+        """Handle undersized threshold parameter change."""
+        try:
+            new_threshold = float(self.undersized_threshold_var.get())
+            if 0.1 <= new_threshold <= 1.0:  # Reasonable bounds (10% to 100%)
+                self.undersized_threshold = new_threshold
+                self.update_weights_display()  # Refresh cost display
+        except ValueError:
+            pass  # Ignore invalid input
+    
+    def on_undersized_penalty_changed(self):
+        """Handle undersized penalty parameter change."""
+        try:
+            new_penalty = float(self.undersized_penalty_var.get())
+            if 0.1 <= new_penalty <= 100.0:  # Reasonable bounds
+                self.undersized_penalty = new_penalty
                 self.update_weights_display()  # Refresh cost display
         except ValueError:
             pass  # Ignore invalid input
@@ -765,7 +823,11 @@ class LayoutViewer:
             elif algo_name == 'Generic-GA':
                 algorithm = GeneticPhotoLayoutAlgorithm()
             elif algo_name == 'Fan-GA':
-                algorithm = FanLayoutAlgorithm(size_importance=self.size_importance)
+                algorithm = FanLayoutAlgorithm(
+                    size_importance=self.size_importance,
+                    undersized_threshold=self.undersized_threshold,
+                    undersized_penalty=self.undersized_penalty
+                )
             else:
                 algorithm = CollageGeneratorAlgorithm(temperature=1.0)  # fallback
             
