@@ -175,8 +175,18 @@ def analyze_gaps(photos: List[Dict[str, Any]], page_width: float, page_height: f
     # Calculate average edge gap
     edge_gap = sum(edge_gaps) / len(edge_gaps) if edge_gaps else 0.0
     
-    # Calculate average inter-photo gap
-    inter_gap = sum(inter_photo_gaps) / len(inter_photo_gaps) if inter_photo_gaps else 0.0
+    # Calculate average inter-photo gap, removing outliers
+    if len(inter_photo_gaps) > 3:
+        # Remove outliers beyond 1 standard deviation
+        import statistics
+        mean = statistics.mean(inter_photo_gaps)
+        stdev = statistics.stdev(inter_photo_gaps)
+        # Filter out values more than 1 stdev away
+        filtered_gaps = [g for g in inter_photo_gaps if abs(g - mean) <= stdev]
+        inter_gap = sum(filtered_gaps) / len(filtered_gaps) if filtered_gaps else 0.0
+    else:
+        # Too few samples for outlier detection
+        inter_gap = sum(inter_photo_gaps) / len(inter_photo_gaps) if inter_photo_gaps else 0.0
     
     # Maximum bleed (largest negative margin)
     bleed = max(bleed_margins) if bleed_margins else 0.0

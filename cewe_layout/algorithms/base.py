@@ -32,24 +32,28 @@ class LayoutRectangle:
         height: Item height in page coordinates (input) or final height (output).
         preferred_size: Requested relative importance (0.5 to 2.0).
         actual_size: Actual size achieved by layout (output).
+        preserve_aspect_ratio: True for photos, False for text blocks that can stretch.
         x: Top-left corner x-coordinate (optional input, required output).
         y: Top-left corner y-coordinate (optional input, required output).
     """
     
     def __init__(self, item_id: str, width: float, height: float, 
-                 preferred_size: float = 1.0, x: float = None, y: float = None):
+                 preferred_size: float = 1.0, preserve_aspect_ratio: bool = True,
+                 x: float = None, y: float = None):
         self.item_id = item_id
         self.width = width
         self.height = height
         self.preferred_size = preferred_size
+        self.preserve_aspect_ratio = preserve_aspect_ratio
         self.actual_size = 0.0
         self.x = x
         self.y = y
     
     def __repr__(self):
+        aspect_str = "photo" if self.preserve_aspect_ratio else "text"
         return (f"LayoutRectangle(id={self.item_id}, x={self.x}, y={self.y}, "
                 f"w={self.width:.1f}, h={self.height:.1f}, "
-                f"preferred={self.preferred_size:.1f}, actual={self.actual_size:.1f})")
+                f"preferred={self.preferred_size:.1f}, actual={self.actual_size:.1f}, type={aspect_str})")
 
 
 class LayoutAlgorithm(ABC):

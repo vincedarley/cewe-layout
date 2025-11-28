@@ -103,30 +103,46 @@ def extract_pages_info(fotobook_root):
             # origin_left is 0 for left pages, half for right pages
             origin_left = 0.0 if owner == left_owner else half
             if owner not in pages_map:
-                pages_map[owner] = {'photos': [], 'page_width': half, 'page_height': spread_h, 'origin_left': origin_left}
+                pages_map[owner] = {'photos': [], 'texts': [], 'page_width': half, 'page_height': spread_h, 'origin_left': origin_left}
 
-            for imageTag in list(area.findall('image')) + list(area.findall('imagebackground')):
-                info = {
-                    'filename': imageTag.get('filename'),
+            # Check area type
+            areatype = area.get('areatype', 'imagearea')
+            
+            if areatype == 'textarea':
+                # Text block - just store position/size, don't need content
+                text_info = {
                     'area_left': area_left,
                     'area_top': area_top,
                     'area_width': area_width,
                     'area_height': area_height,
                     'area_rot': area_rot,
                 }
-                cut = imageTag.find('cutout')
-                if cut is not None:
-                    try:
-                        cleft = cut.get('left')
-                        ctop = cut.get('top')
-                        cscale = cut.get('scale')
-                        info['cutout'] = {'left': cleft, 'top': ctop, 'scale': cscale}
-                    except Exception:
+                pages_map[owner]['texts'].append(text_info)
+            else:
+                # Image area (photos)
+                    # Image area (photos)
+                for imageTag in list(area.findall('image')) + list(area.findall('imagebackground')):
+                    info = {
+                        'filename': imageTag.get('filename'),
+                        'area_left': area_left,
+                        'area_top': area_top,
+                        'area_width': area_width,
+                        'area_height': area_height,
+                        'area_rot': area_rot,
+                    }
+                    cut = imageTag.find('cutout')
+                    if cut is not None:
+                        try:
+                            cleft = cut.get('left')
+                            ctop = cut.get('top')
+                            cscale = cut.get('scale')
+                            info['cutout'] = {'left': cleft, 'top': ctop, 'scale': cscale}
+                        except Exception:
+                            info['cutout'] = None
+                    else:
                         info['cutout'] = None
-                else:
-                    info['cutout'] = None
 
-                pages_map[owner]['photos'].append(info)
+                    pages_map[owner]['photos'].append(info)
 
     pages = []
     for k in sorted(pages_map.keys()):
