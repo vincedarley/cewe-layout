@@ -612,8 +612,12 @@ class LayoutViewer:
             # Get current gap for this page
             gap = self.layout_mgr.get_gap(pageno)
 
-            success, updated_photos, error_msg = generate_layout_for_page(
-                photos, page_w, page_h, Path(self.mcf_base_folder), temperature=1.0, gap=gap
+            # Get texts for this page
+            texts = info.get('texts', [])
+
+            success, updated_photos, updated_texts, error_msg = generate_layout_for_page(
+                photos, page_w, page_h, Path(self.mcf_base_folder), 
+                temperature=1.0, gap=gap, texts=texts
             )
 
             # If this page has an origin_left (right-hand page), the parser
@@ -628,6 +632,14 @@ class LayoutViewer:
                         # Some items may lack area_left; guard the addition
                         if 'area_left' in up and up['area_left'] is not None:
                             up['area_left'] = up['area_left'] + origin_left
+            
+            # Apply origin_left to updated_texts as well
+            if success and updated_texts:
+                origin_left = info.get('origin_left', 0.0)
+                if origin_left:
+                    for ut in updated_texts:
+                        if 'area_left' in ut and ut['area_left'] is not None:
+                            ut['area_left'] = ut['area_left'] + origin_left
 
             def on_done():
                 # re-enable button
@@ -640,8 +652,8 @@ class LayoutViewer:
                     messagebox.showerror('Layout Generation Failed', error_msg)
                     return
 
-                # Push new layout to manager and refresh view
-                self.layout_mgr.push_layout(pageno, updated_photos)
+                # Push new layout (both photos and texts) to manager and refresh view
+                self.layout_mgr.push_layout(pageno, updated_photos, updated_texts)
                 self.render_page()
 
             self.root.after(0, on_done)
