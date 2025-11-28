@@ -132,9 +132,13 @@ class LayoutViewer:
         quit_btn = ttk.Button(self.ctrl, text='Quit (q)', command=self.quit)
         quit_btn.grid(row=3, column=1, padx=8)
         
-        # Status message label
-        self.status_label = ttk.Label(self.ctrl, text='', foreground='blue', font=('TkDefaultFont', 9))
-        self.status_label.grid(row=3, column=2, columnspan=3, padx=4, pady=4, sticky='w')
+        # Status message entry (read-only but selectable for copying)
+        self.status_var = tk.StringVar(value='')
+        self.status_entry = ttk.Entry(self.ctrl, textvariable=self.status_var, 
+                                      state='readonly', font=('TkDefaultFont', 9))
+        self.status_entry.grid(row=3, column=2, columnspan=3, padx=4, pady=4, sticky='ew')
+        # Store the style for color changes
+        self.status_style = ttk.Style()
         
         # Weights and cost display frame
         self.info_frame = ttk.LabelFrame(self.ctrl, text='Layout Info', padding=8)
@@ -229,6 +233,9 @@ class LayoutViewer:
         self.render_page()
 
     def render_page(self):
+        # Clear status message when changing pages
+        self.status_var.set('')
+        
         if not self.pages:
             img = Image.new('RGB', (self.canvas_w, self.canvas_h), 'white')
             draw = ImageDraw.Draw(img)
@@ -655,9 +662,10 @@ class LayoutViewer:
             error: If True, show in red; otherwise blue
         """
         color = 'red' if error else 'blue'
-        self.status_label.config(text=message, foreground=color)
-        # Clear message after 5 seconds
-        self.root.after(5000, lambda: self.status_label.config(text=''))
+        self.status_var.set(message)
+        # Update Entry foreground color
+        self.status_entry.config(foreground=color)
+        # Message persists until page change or new message
 
     def generate_layout(self):
         """Run collage-generator on current page photos in a background thread.
