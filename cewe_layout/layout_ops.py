@@ -9,14 +9,16 @@ import copy
 
 class PageLayout:
     """In-memory representation of a page layout."""
-    def __init__(self, pageno, photos_with_areas, gap=0.0):
+    def __init__(self, pageno, photos_with_areas, texts_with_areas=None, gap=0.0):
         self.pageno = pageno
         # photos_with_areas: list of photo dicts with area info
         self.photos = copy.deepcopy(photos_with_areas)
+        # texts_with_areas: list of text block dicts with area info
+        self.texts = copy.deepcopy(texts_with_areas) if texts_with_areas else []
         self.gap = gap  # Uniform spacing in MCF units (0.1mm)
 
     def clone(self):
-        return PageLayout(self.pageno, self.photos, self.gap)
+        return PageLayout(self.pageno, self.photos, self.texts, self.gap)
 
 
 class LayoutManager:
@@ -27,9 +29,9 @@ class LayoutManager:
         self.page_gaps = {}  # pageno -> gap (MCF units, 0.1mm)
         self.page_original = {}  # pageno -> PageLayout (read from file)
 
-    def set_original(self, pageno, photos):
+    def set_original(self, pageno, photos, texts=None):
         """Store the original layout read from the file."""
-        self.page_original[pageno] = PageLayout(pageno, photos)
+        self.page_original[pageno] = PageLayout(pageno, photos, texts)
 
     def get_original(self, pageno):
         """Return the original layout for a page."""
@@ -47,9 +49,9 @@ class LayoutManager:
         """Return all stored layouts for a page (list of PageLayout)."""
         return [p.clone() for p in self.page_layouts[pageno]]
 
-    def push_layout(self, pageno, photos):
+    def push_layout(self, pageno, photos, texts=None):
         """Store a new layout variant for a page."""
-        self.page_layouts[pageno].append(PageLayout(pageno, photos))
+        self.page_layouts[pageno].append(PageLayout(pageno, photos, texts))
 
     def undo_layout(self, pageno):
         """Remove the most recent layout, reverting to previous."""

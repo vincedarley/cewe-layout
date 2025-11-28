@@ -29,20 +29,22 @@ class LayoutViewer:
 
         # initialize layout manager with originals from file
         for pageno, info in self.pages:
-            self.layout_mgr.set_original(pageno, info.get('photos', []))
+            self.layout_mgr.set_original(pageno, info.get('photos', []), info.get('texts', []))
             # Initialize default preferred sizes from current layout areas (scaled by 10× for readability)
             photos = info.get('photos', [])
+            texts = info.get('texts', [])
+            all_items = photos + texts
             page_w = info.get('page_width', 2100.0)
             page_h = info.get('page_height', 2970.0)
             origin_left = info.get('origin_left', 0.0)
             
             # Estimate gap to compute gap-free areas (matching evaluation coordinate space)
             # Use inter-photo gap preferentially
-            edge_gap, inter_gap = estimate_gaps(photos, page_w, page_h, origin_left) if photos else (0.0, 0.0)
+            edge_gap, inter_gap = estimate_gaps(all_items, page_w, page_h, origin_left) if all_items else (0.0, 0.0)
             gap = inter_gap if inter_gap > 0 else edge_gap
             
             # Compute total area in gap-free space (add gap to each photo dimension)
-            total_area = sum(((p.get('area_width', 0) or 0) + gap) * ((p.get('area_height', 0) or 0) + gap) for p in photos)
+            total_area = sum(((p.get('area_width', 0) or 0) + gap) * ((p.get('area_height', 0) or 0) + gap) for p in all_items)
             if total_area > 0:
                 for p in photos:
                     fn = p.get('filename', '')
@@ -50,10 +52,18 @@ class LayoutViewer:
                     area = ((p.get('area_width', 0) or 0) + gap) * ((p.get('area_height', 0) or 0) + gap)
                     preferred = (area / total_area) * 10.0
                     self.layout_mgr.set_size(pageno, fn, preferred)
+                for i, t in enumerate(texts):
+                    # Text blocks use identifier TEXT_<index>
+                    text_id = f"TEXT_{i}"
+                    area = ((t.get('area_width', 0) or 0) + gap) * ((t.get('area_height', 0) or 0) + gap)
+                    preferred = (area / total_area) * 10.0
+                    self.layout_mgr.set_size(pageno, text_id, preferred)
             else:
                 # Fallback to uniform sizes (10.0 for 10× scaling)
                 for p in photos:
                     self.layout_mgr.set_size(pageno, p.get('filename', ''), 10.0)
+                for i, t in enumerate(texts):
+                    self.layout_mgr.set_size(pageno, f"TEXT_{i}", 10.0)
 
         # Main window for page display
         self.root = root
@@ -200,12 +210,14 @@ class LayoutViewer:
         # Fetch current layout from layout manager (may be modified or original)
         current_layout = self.layout_mgr.get_current(pageno)
         photos = current_layout.photos if current_layout else info.get('photos', [])
+        texts = current_layout.texts if current_layout else info.get('texts', [])
 
         img = Image.new('RGB', (self.canvas_w, self.canvas_h), 'white')
         draw = ImageDraw.Draw(img)
 
         # Draw header
-        draw.text((8,8), f'Page {pageno} — {len(photos)} photos', fill='black')
+        text_info = f', {len(texts)} text blocks' if texts else ''
+        draw.text((8,8), f'Page {pageno} — {len(photos)} photos{text_info}', fill='black')
 
         # Use page meta to map coordinates. page_width/height are in MCF units (0.1mm)
         page_w = info.get('page_width', 2100.0)
@@ -269,6 +281,28 @@ class LayoutViewer:
             # filename text
             shortfn = (fn or '').split('/')[-1]
             draw.text((x0+4, y0+4), f'{i}: {shortfn}', fill='black')
+        
+        # Draw text blocks
+        for i, t in enumerate(texts, start=1):
+            left = t.get('area_left') or 0
+            top = t.get('area_top') or 0
+            w = t.get('area_width') or 0
+            h = t.get('area_height') or 0
+
+            # subtract origin_left so right-page areas are positioned relative to their page
+            local_left = left - origin_left
+
+            x0 = frame_x + local_left * scale
+            y0 = frame_y + top * scale
+            x1 = frame_x + (local_left + w) * scale
+            y1 = frame_y + (top + h) * scale
+
+            # draw text block background
+            draw.rectangle([x0, y0, x1, y1], fill='#ffffcc')  # Light yellow background
+            # wireframe overlay in green
+            draw.rectangle([x0, y0, x1, y1], outline='green', width=2)
+            # label
+            draw.text((x0+4, y0+4), f'T{i}', fill='green')
 
         self._show_image(img)
         self.update_weights_display()
@@ -285,6 +319,10 @@ class LayoutViewer:
         pageno, info = self.pages[self.index]
         current_layout = self.layout_mgr.get_current(pageno)
         photos = current_layout.photos if current_layout else info.get('photos', [])
+        texts = current_layout.texts if current_layout else info.get('texts', [])
+        
+        # Combine photos and texts for gap analysis
+        all_items = photos + texts
         
         page_w = info.get('page_width', 2100.0)
         page_h = info.get('page_height', 2970.0)
@@ -292,8 +330,8 @@ class LayoutViewer:
         
         # Estimate gap from current layout if not already set
         current_gap = self.layout_mgr.get_gap(pageno)
-        if current_gap == 0.0 and photos:
-            analysis = analyze_gaps(photos, page_w, page_h, origin_left)
+        if current_gap == 0.0 and all_items:
+            analysis = analyze_gaps(all_items, page_w, page_h, origin_left)
             # Prefer inter-photo gap; fall back to edge gap
             estimated_gap = analysis.inter_photo_gap if analysis.inter_photo_gap > 0 else analysis.edge_gap
             if estimated_gap > 0:
@@ -307,8 +345,8 @@ class LayoutViewer:
                 self.edge_gap_var.set(f'{analysis.edge_gap / 10.0:.1f}')
         else:
             # If gap already set, re-estimate to show edge gap and bleed
-            if photos:
-                analysis = analyze_gaps(photos, page_w, page_h, origin_left)
+            if all_items:
+                analysis = analyze_gaps(all_items, page_w, page_h, origin_left)
                 if analysis.bleed > 0:
                     # Show bleed as negative edge gap
                     self.edge_gap_var.set(f'-{analysis.bleed / 10.0:.1f}')
