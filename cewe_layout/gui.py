@@ -13,6 +13,9 @@ from .parser import extract_pages_info, parse_mcf_from_path
 from .layout_ops import LayoutManager
 from .collage_wrapper import generate_layout_for_page
 from .algorithms.evaluator import evaluate_layout
+from .algorithms.collage_generator import CollageGeneratorAlgorithm
+from .algorithms.genetic_photo_layout import GeneticPhotoLayoutAlgorithm
+from .algorithms.fan_layout import FanLayoutAlgorithm
 from .gap_utils import (
     estimate_gap,
     estimate_gaps,
@@ -32,6 +35,9 @@ class LayoutViewer:
         self.mcf_base_folder = '' if mcf_file_path is None else os.path.dirname(mcf_file_path)
         self.index = 0
         self.layout_mgr = LayoutManager()
+        
+        # Algorithm selection
+        self.algorithm_var = tk.StringVar(value='Collage-Gen')
 
         # initialize layout manager with originals from file
         for pageno, info in self.pages:
@@ -86,6 +92,7 @@ class LayoutViewer:
         self.ctrl.title('Controls')
         self.ctrl.geometry('+50+50')
 
+        # Row 0: Navigation
         prev_btn = ttk.Button(self.ctrl, text='Prev (←)', command=self.prev_page)
         prev_btn.grid(row=0, column=0, padx=4, pady=4)
         next_btn = ttk.Button(self.ctrl, text='Next (→)', command=self.next_page)
@@ -97,24 +104,37 @@ class LayoutViewer:
         goto_btn = ttk.Button(self.ctrl, text='Go', command=self.goto_page)
         goto_btn.grid(row=0, column=4, padx=4)
         
-        self.gen_btn = ttk.Button(self.ctrl, text='Generate Layout', command=self.generate_layout)
-        self.gen_btn.grid(row=1, column=0, padx=4, pady=4)
-        undo_btn = ttk.Button(self.ctrl, text='Back', command=self.undo_layout)
-        undo_btn.grid(row=1, column=1, padx=4, pady=4)
-        save_btn = ttk.Button(self.ctrl, text='Save', command=self.save_layout)
-        save_btn.grid(row=1, column=2, padx=4, pady=4)
-        orig_btn = ttk.Button(self.ctrl, text='Use Original', command=self.use_original)
-        orig_btn.grid(row=1, column=3, padx=4, pady=4)
+        # Row 1: Algorithm selection and Generate button
+        ttk.Label(self.ctrl, text='Algorithm:').grid(row=1, column=0, padx=(4, 2), pady=4, sticky='e')
+        algo_menu = ttk.OptionMenu(
+            self.ctrl, self.algorithm_var,
+            'Collage-Gen',  # default
+            'Collage-Gen', 'Generic-GA', 'Fan-GA'
+        )
+        algo_menu.grid(row=1, column=1, padx=(0, 8), pady=4, sticky='ew')
         
+        # Generate button (uses selected algorithm)
+        self.gen_btn = ttk.Button(self.ctrl, text='Generate Layout', command=self.generate_layout)
+        self.gen_btn.grid(row=1, column=2, columnspan=2, padx=4, pady=4, sticky='ew')
+        
+        # Row 2: Actions
+        undo_btn = ttk.Button(self.ctrl, text='Back', command=self.undo_layout)
+        undo_btn.grid(row=2, column=0, padx=4, pady=4)
+        save_btn = ttk.Button(self.ctrl, text='Save', command=self.save_layout)
+        save_btn.grid(row=2, column=1, padx=4, pady=4)
+        orig_btn = ttk.Button(self.ctrl, text='Use Original', command=self.use_original)
+        orig_btn.grid(row=2, column=2, padx=4, pady=4)
+        
+        # Row 3: Additional options
         weights_btn = ttk.Button(self.ctrl, text='Adjust Sizes', command=self.adjust_sizes)
-        weights_btn.grid(row=2, column=0, padx=4, pady=4)
+        weights_btn.grid(row=3, column=0, padx=4, pady=4)
         
         quit_btn = ttk.Button(self.ctrl, text='Quit (q)', command=self.quit)
-        quit_btn.grid(row=2, column=1, padx=8)
+        quit_btn.grid(row=3, column=1, padx=8)
         
         # Weights and cost display frame
         self.info_frame = ttk.LabelFrame(self.ctrl, text='Layout Info', padding=8)
-        self.info_frame.grid(row=3, column=0, columnspan=5, padx=4, pady=8, sticky='ew')
+        self.info_frame.grid(row=4, column=0, columnspan=5, padx=4, pady=8, sticky='ew')
         
         # Configure columns: left column (0) for photos, right column (1) for cost/params
         self.info_frame.columnconfigure(0, weight=1)
@@ -664,10 +684,21 @@ class LayoutViewer:
             else:
                 edge_gap = 0.0
                 internal_gap = 0.0
+            
+            # Create algorithm instance based on selection
+            algo_name = self.algorithm_var.get()
+            if algo_name == 'Collage-Gen':
+                algorithm = CollageGeneratorAlgorithm(temperature=1.0)
+            elif algo_name == 'Generic-GA':
+                algorithm = GeneticPhotoLayoutAlgorithm()
+            elif algo_name == 'Fan-GA':
+                algorithm = FanLayoutAlgorithm()
+            else:
+                algorithm = CollageGeneratorAlgorithm(temperature=1.0)  # fallback
 
             success, updated_photos, updated_texts, error_msg = generate_layout_for_page(
                 photos, page_w, page_h, Path(self.mcf_base_folder), 
-                temperature=1.0, edge_gap=edge_gap, internal_gap=internal_gap, texts=texts
+                algorithm=algorithm, edge_gap=edge_gap, internal_gap=internal_gap, texts=texts
             )
 
             # If this page has an origin_left (right-hand page), the parser

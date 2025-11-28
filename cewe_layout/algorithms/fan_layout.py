@@ -188,6 +188,9 @@ def _compute_dimensions(node: TreeNode, width: float, height: float, rectangles)
         w2 = width * (a2 / (a1 + a2))
         _compute_dimensions(node.left, w1, height, rectangles)
         _compute_dimensions(node.right, w2, height, rectangles)
+        # Set this node's dimensions
+        node.width = node.left.width + node.right.width
+        node.height = height
     else:  # 'H'
         # Horizontal cut: divide height
         # Both children get full width
@@ -195,6 +198,9 @@ def _compute_dimensions(node: TreeNode, width: float, height: float, rectangles)
         h2 = height * (a1 / (a1 + a2))
         _compute_dimensions(node.left, width, h1, rectangles)
         _compute_dimensions(node.right, width, h2, rectangles)
+        # Set this node's dimensions
+        node.width = width
+        node.height = node.left.height + node.right.height
 
 
 def _compute_layout(node: TreeNode, x: float, y: float):
