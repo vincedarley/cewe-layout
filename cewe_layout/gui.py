@@ -522,6 +522,7 @@ class LayoutViewer:
             item_label.grid(row=row, column=0, padx=2, pady=1)
             
             # Checkbox for using slot aspect ratio (photos only)
+            checkbox_widget = None
             if item_type == 'photo':
                 # Get or create checkbox state
                 checkbox_key = (pageno, item_idx)
@@ -546,20 +547,21 @@ class LayoutViewer:
                                         if img_h > 0 and img_w > 0:
                                             img_aspect = img_w / img_h
                                             slot_aspect = slot_width / slot_height
-                                            # Auto-check if aspect ratios differ by more than 20%
+                                            # Auto-check if aspect ratios differ by more than 30%
                                             aspect_diff = abs(img_aspect - slot_aspect) / slot_aspect
-                                            if aspect_diff > 0.20:
+                                            if aspect_diff > 0.30:
                                                 should_auto_check = True
                                 except Exception:
                                     pass
                     
                     self.use_slot_aspect[checkbox_key] = tk.BooleanVar(value=should_auto_check)
                 
-                checkbox = ttk.Checkbutton(self.photo_frame, variable=self.use_slot_aspect[checkbox_key])
-                checkbox.grid(row=row, column=1, padx=2, pady=1)
+                checkbox_widget = ttk.Checkbutton(self.photo_frame, variable=self.use_slot_aspect[checkbox_key])
+                checkbox_widget.grid(row=row, column=1, padx=2, pady=1)
             else:
                 # Placeholder for text blocks (no checkbox needed)
-                ttk.Label(self.photo_frame, text='', font=('TkDefaultFont', 9)).grid(row=row, column=1, padx=2, pady=1)
+                checkbox_widget = ttk.Label(self.photo_frame, text='', font=('TkDefaultFont', 9))
+                checkbox_widget.grid(row=row, column=1, padx=2, pady=1)
             
             # Desired weight entry (editable)
             desired_var = tk.StringVar(value=f'{rect.preferred_size:.1f}')
@@ -581,7 +583,7 @@ class LayoutViewer:
             actual_label = ttk.Label(self.photo_frame, text=f'{actual_pct:.1f}%', font=('TkDefaultFont', 9))
             actual_label.grid(row=row, column=3, padx=2, pady=1)
             
-            self.weight_widgets.append((item_label, desired_entry, actual_label))
+            self.weight_widgets.append((item_label, checkbox_widget, desired_entry, actual_label))
     
     def on_size_changed(self, pageno, item_id, var):
         """Handle preferred size entry change.
