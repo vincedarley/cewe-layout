@@ -230,13 +230,6 @@ def _rectangles_to_photos(photos, rectangles, edge_gap=0.0, internal_gap=0.0):
     """
     updated_photos = []
     
-    # Build a map of preferred sizes from original photos (MUST be preserved)
-    original_preferred_sizes = {}
-    for photo_idx, photo in enumerate(photos):
-        fn = photo.get('filename', '')
-        if preferred_sizes and fn in preferred_sizes:
-            original_preferred_sizes[photo_idx] = preferred_sizes[fn]
-    
     for rect in rectangles:
         item_id = rect.item_id
         photo_idx = int(item_id)
