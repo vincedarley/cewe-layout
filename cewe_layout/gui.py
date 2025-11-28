@@ -32,11 +32,19 @@ class LayoutViewer:
             self.layout_mgr.set_original(pageno, info.get('photos', []))
             # Initialize default preferred sizes from current layout areas (scaled by 10× for readability)
             photos = info.get('photos', [])
-            total_area = sum((p.get('area_width', 0) or 0) * (p.get('area_height', 0) or 0) for p in photos)
+            page_w = info.get('page_width', 2100.0)
+            page_h = info.get('page_height', 2970.0)
+            
+            # Estimate gap to compute gap-free areas (matching evaluation coordinate space)
+            gap = estimate_gap(photos, page_w, page_h) if photos else 0.0
+            
+            # Compute total area in gap-free space (add gap to each photo dimension)
+            total_area = sum(((p.get('area_width', 0) or 0) + gap) * ((p.get('area_height', 0) or 0) + gap) for p in photos)
             if total_area > 0:
                 for p in photos:
                     fn = p.get('filename', '')
-                    area = (p.get('area_width', 0) or 0) * (p.get('area_height', 0) or 0)
+                    # Use gap-free area (add gap back to stored dimensions)
+                    area = ((p.get('area_width', 0) or 0) + gap) * ((p.get('area_height', 0) or 0) + gap)
                     preferred = (area / total_area) * 10.0
                     self.layout_mgr.set_size(pageno, fn, preferred)
             else:
@@ -672,7 +680,9 @@ class LayoutViewer:
         if not self.pages:
             return
         pageno, info = self.pages[self.index]
-        stored = self.layout_mgr.get_stored_sizes_for_page(pageno)
+        page_w = info.get('page_width', 2100.0)
+        page_h = info.get('page_height', 2970.0)
+        stored = self.layout_mgr.get_stored_sizes_for_page(pageno, page_w, page_h)
         if not stored:
             return
         for fn, size in stored.items():

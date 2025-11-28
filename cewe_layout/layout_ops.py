@@ -87,21 +87,38 @@ class LayoutManager:
         if pageno in self.page_sizes:
             del self.page_sizes[pageno]
     
-    def get_stored_sizes_for_page(self, pageno):
+    def get_stored_sizes_for_page(self, pageno, page_width=None, page_height=None):
         """Get dict of filename -> area-based size from original layout.
         
         Returns sizes scaled by 10× for human readability (e.g., 1.2, 3.5).
+        Uses gap-free areas to match evaluation coordinate space.
+        
+        Args:
+            pageno: Page number.
+            page_width: Page width in MCF units (for gap estimation).
+            page_height: Page height in MCF units (for gap estimation).
         """
+        from .gap_utils import estimate_gap
+        
         orig = self.get_original(pageno)
         if not orig or not orig.photos:
             return {}
-        total_area = sum((p.get('area_width', 0) or 0) * (p.get('area_height', 0) or 0) for p in orig.photos)
+        
+        # Get gap for this page (or estimate from layout)
+        gap = self.get_gap(pageno)
+        if gap == 0.0 and orig.photos and page_width and page_height:
+            # Estimate gap from original layout
+            gap = estimate_gap(orig.photos, page_width, page_height)
+        
+        # Compute total area in gap-free space (add gap to each photo dimension)
+        total_area = sum(((p.get('area_width', 0) or 0) + gap) * ((p.get('area_height', 0) or 0) + gap) for p in orig.photos)
         if total_area <= 0:
             return {}
         result = {}
         for p in orig.photos:
             fn = p.get('filename', '')
-            area = (p.get('area_width', 0) or 0) * (p.get('area_height', 0) or 0)
+            # Use gap-free area (add gap back to stored dimensions)
+            area = ((p.get('area_width', 0) or 0) + gap) * ((p.get('area_height', 0) or 0) + gap)
             result[fn] = (area / total_area) * 10.0
         return result
 
