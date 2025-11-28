@@ -22,7 +22,6 @@ import random
 from pathlib import Path
 from typing import List, Dict, Any, Tuple
 
-import cv2
 import numpy as np
 
 from .base import LayoutAlgorithm
@@ -31,12 +30,12 @@ from .base import LayoutAlgorithm
 class Node:
     """Tree node for collage layout representation."""
     
-    def __init__(self, N, alpha_t=None, parent=None, split=None, img=None, left=None, right=None):
+    def __init__(self, N, alpha_t=None, parent=None, split=None, rect=None, left=None, right=None):
         self.parent = parent
         self.left = left
         self.right = right
         self.split = split
-        self.img = img
+        self.rect = rect
         self.N = N
         self.alpha_t = alpha_t
 
@@ -49,8 +48,8 @@ class Node:
 
     @property
     def alpha(self):
-        if self.img is not None:
-            return self.img.shape[1] / self.img.shape[0]
+        if self.rect is not None:
+            return self.rect.width / self.rect.height if self.rect.height > 0 else 1.0
         alpha_left = self.left.alpha
         alpha_right = self.right.alpha
         if self.split == "V":
@@ -86,11 +85,11 @@ def _find_img_pair(alpha_t, L, temperature=1):
 
 
 def _generate_tree(L, node, temperature):
-    """Recursively generate layout tree by assigning images to nodes."""
+    """Recursively generate layout tree by assigning rectangles to nodes."""
     if node.N == 1:
         energies = np.array([abs(l.alpha - node.alpha_t) for l in L])
         best_fit = L[_sample_energies(energies, temperature)]
-        node.img = best_fit.img
+        node.rect = best_fit.rect
         L.remove(best_fit)
         return
     if node.N == 2:
@@ -115,7 +114,7 @@ def _generate_tree(L, node, temperature):
 
 def _adjust_tree(node, th):
     """Adjust tree splits to better match target aspect ratios."""
-    if node.img is not None:
+    if node.rect is not None:
         return
     if node.alpha > node.alpha_t * th:
         node.split = "H"
@@ -131,9 +130,9 @@ def _adjust_tree(node, th):
     _adjust_tree(node.right, th)
 
 
-def _generate_and_adjust_tree(imgs, ratio, th, temperature):
+def _generate_and_adjust_tree(rectangles, ratio, th, temperature):
     """Generate and iteratively adjust layout tree."""
-    L = [Node(N=1, img=img) for img in imgs]
+    L = [Node(N=1, rect=rect) for rect in rectangles]
     L.sort(key=lambda node: node.alpha)
     root = Node(N=len(L), alpha_t=ratio)
     _generate_tree(L, root, temperature)
@@ -142,13 +141,13 @@ def _generate_and_adjust_tree(imgs, ratio, th, temperature):
     return root
 
 
-def _generate_best_tree(imgs, target_ratio, threshold=1e-4, temperature=1):
+def _generate_best_tree(rectangles, target_ratio, threshold=1e-4, temperature=1):
     """Generate layout tree with best aspect ratio matching."""
     best_tree = None
     best_error = -1
     for th in np.arange(10) / 50 + 0.55:
         for _ in range(500):
-            root = _generate_and_adjust_tree(imgs, target_ratio, th, temperature)
+            root = _generate_and_adjust_tree(rectangles, target_ratio, th, temperature)
             if abs(root.alpha - target_ratio) < best_error or best_error == -1:
                 best_error = abs(root.alpha - target_ratio)
                 best_tree = root
@@ -200,19 +199,6 @@ class CollageGeneratorAlgorithm(LayoutAlgorithm):
             if not rectangles:
                 return False, [], "No rectangles to layout"
             
-            # Convert rectangles to OpenCV images (needed by collage-generator tree algorithm).
-            # Create synthetic images with the correct aspect ratios.
-            imgs = []
-            for rect in rectangles:
-                # Create a synthetic image with the correct aspect ratio
-                aspect_ratio = rect.width / rect.height if rect.height > 0 else 1.0
-                # Use a standard height and scale width accordingly
-                synth_h = 512
-                synth_w = int(synth_h * aspect_ratio)
-                # Create dummy image (just needs correct shape for collage-generator)
-                synth_img = np.zeros((synth_h, synth_w, 3), dtype=np.uint8)
-                imgs.append(synth_img)
-            
             # Compute target aspect ratio for the page
             target_ratio = page_width / page_height if page_height > 0 else 1.0
             
@@ -220,9 +206,9 @@ class CollageGeneratorAlgorithm(LayoutAlgorithm):
             canvas_height = self.canvas_height_px
             canvas_width = int(canvas_height * target_ratio)
             
-            # Generate collage tree
+            # Generate collage tree directly from rectangles
             tree = _generate_best_tree(
-                imgs, target_ratio,
+                rectangles, target_ratio,
                 threshold=self.threshold,
                 temperature=self.temperature
             )
@@ -245,14 +231,14 @@ class CollageGeneratorAlgorithm(LayoutAlgorithm):
         """Extract pixel-based layout rectangles from tree."""
         rects = []
         
-        def traverse(node, x, y, height, photo_idx):
-            if node.img is not None:
+        def traverse(node, x, y, height, rect_idx):
+            if node.rect is not None:
                 new_width = math.floor(node.alpha * height)
                 rects.append({
                     'x': x, 'y': y, 'width': new_width, 'height': height,
-                    'img_idx': photo_idx[0]
+                    'rect_idx': rect_idx[0]
                 })
-                photo_idx[0] += 1
+                rect_idx[0] += 1
                 return
             
             alpha = node.alpha
@@ -261,12 +247,12 @@ class CollageGeneratorAlgorithm(LayoutAlgorithm):
             width = alpha * height
             
             if node.split == "V":
-                traverse(node.left, x, y, height, photo_idx)
-                traverse(node.right, x + math.floor(width * l_alpha / alpha), y, height, photo_idx)
+                traverse(node.left, x, y, height, rect_idx)
+                traverse(node.right, x + math.floor(width * l_alpha / alpha), y, height, rect_idx)
             else:
                 left_height = math.floor(height * alpha / l_alpha)
-                traverse(node.left, x, y, left_height, photo_idx)
-                traverse(node.right, x, y + left_height, math.floor(height * alpha / r_alpha), photo_idx)
+                traverse(node.left, x, y, left_height, rect_idx)
+                traverse(node.right, x, y + left_height, math.floor(height * alpha / r_alpha), rect_idx)
         
         traverse(tree_node, 0, 0, canvas_height, [0])
         return rects
@@ -278,7 +264,7 @@ class CollageGeneratorAlgorithm(LayoutAlgorithm):
         scale_y = page_height / canvas_height_px
         
         for pixel_rect in pixel_rects:
-            rect_idx = pixel_rect['img_idx']
+            rect_idx = pixel_rect['rect_idx']
             if rect_idx < len(rectangles):
                 rect = rectangles[rect_idx]
                 # Update position and size in page coordinates
