@@ -144,29 +144,35 @@ class LayoutViewer:
         param_frame = ttk.LabelFrame(right_col, text='Parameters', padding=6)
         param_frame.grid(row=1, column=0, sticky='ew')
         
-        # Gap parameter
-        ttk.Label(param_frame, text='Gap (mm):').grid(row=0, column=0, sticky='w', pady=2)
+        # Edge gap parameter (read-only display)
+        ttk.Label(param_frame, text='Edge gap (mm):').grid(row=0, column=0, sticky='w', pady=2)
+        self.edge_gap_var = tk.StringVar(value='0.0')
+        edge_gap_entry = ttk.Entry(param_frame, textvariable=self.edge_gap_var, width=8, state='readonly')
+        edge_gap_entry.grid(row=0, column=1, sticky='w', padx=4, pady=2)
+        
+        # Inter-photo gap parameter (editable)
+        ttk.Label(param_frame, text='Inter-photo gap (mm):').grid(row=1, column=0, sticky='w', pady=2)
         self.gap_var = tk.StringVar(value='0.0')
         self.gap_entry = ttk.Entry(param_frame, textvariable=self.gap_var, width=8)
-        self.gap_entry.grid(row=0, column=1, sticky='w', padx=4, pady=2)
+        self.gap_entry.grid(row=1, column=1, sticky='w', padx=4, pady=2)
         self.gap_entry.bind('<Return>', lambda e: self.on_gap_changed())
         self.gap_entry.bind('<FocusOut>', lambda e: self.on_gap_changed())
         
         # Weight importance parameter
-        ttk.Label(param_frame, text='Size importance (λ):').grid(row=1, column=0, sticky='w', pady=2)
+        ttk.Label(param_frame, text='Size importance (λ):').grid(row=2, column=0, sticky='w', pady=2)
         self.size_importance_var = tk.StringVar(value='100.0')
         self.size_importance_entry = ttk.Entry(param_frame, textvariable=self.size_importance_var, width=8)
-        self.size_importance_entry.grid(row=1, column=1, sticky='w', padx=4, pady=2)
+        self.size_importance_entry.grid(row=2, column=1, sticky='w', padx=4, pady=2)
         self.size_importance_entry.bind('<Return>', lambda e: self.on_size_importance_changed())
         self.size_importance_entry.bind('<FocusOut>', lambda e: self.on_size_importance_changed())
 
         # Equal sizes button
         equal_btn = ttk.Button(param_frame, text='Equal sizes', command=self.equal_sizes)
-        equal_btn.grid(row=2, column=0, columnspan=2, sticky='ew', pady=(6,2))
+        equal_btn.grid(row=3, column=0, columnspan=2, sticky='ew', pady=(6,2))
         
         # Stored sizes button
         stored_btn = ttk.Button(param_frame, text='Stored sizes', command=self.stored_sizes)
-        stored_btn.grid(row=3, column=0, columnspan=2, sticky='ew', pady=2)
+        stored_btn.grid(row=4, column=0, columnspan=2, sticky='ew', pady=2)
         
         # Photo weight rows (will be populated dynamically)
         self.weight_widgets = []  # List of (photo_label, desired_entry, actual_label)
@@ -292,8 +298,19 @@ class LayoutViewer:
             if estimated_gap > 0:
                 self.layout_mgr.set_gap(pageno, estimated_gap)
                 current_gap = estimated_gap
+            # Display both gaps
+            edge_gap_mm = edge_gap / 10.0
+            self.edge_gap_var.set(f'{edge_gap_mm:.1f}')
+        else:
+            # If gap already set, re-estimate to show edge gap
+            if photos:
+                edge_gap, inter_gap = estimate_gaps(photos, page_w, page_h, origin_left)
+                edge_gap_mm = edge_gap / 10.0
+                self.edge_gap_var.set(f'{edge_gap_mm:.1f}')
+            else:
+                self.edge_gap_var.set('0.0')
         
-        # Update gap display (convert MCF units to mm: 1 MCF unit = 0.1mm)
+        # Update inter-photo gap display (convert MCF units to mm: 1 MCF unit = 0.1mm)
         gap_mm = current_gap / 10.0
         self.gap_var.set(f'{gap_mm:.1f}')
         
