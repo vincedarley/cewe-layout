@@ -53,19 +53,45 @@
 ## Pending ⚠️
 
 ### 1. Layout Algorithm Integration
-**Current state**: Collage wrapper creates `LayoutRectangle` objects with `preserve_aspect_ratio=False` for texts, but the underlying algorithms don't yet respect this attribute.
+**Current state**: Collage wrapper creates `LayoutRectangle` objects with `preserve_aspect_ratio=False` for texts, but the collage-generator algorithm doesn't yet respect this attribute. Text blocks are positioned in the layout but maintain their original aspect ratio like photos.
 
-**Required changes**:
+**Why this is complex**:
+The collage-generator algorithm (Wu et al. 2016) fundamentally operates by:
+1. Creating synthetic images with aspect ratios matching input items
+2. Building a binary tree layout that optimizes aspect ratio matching
+3. Computing pixel positions that preserve aspect ratios
+
+For text blocks with flexible aspect ratios, we have several options:
+
+**Option A: Post-process text blocks** (Recommended)
+- Let algorithm position texts like photos
+- After layout, stretch text blocks to fill available space better
+- Example: if text is in a vertical slot, stretch it vertically
+- Pros: Simple, preserves algorithm stability
+- Cons: May not optimize layout for text flexibility
+
+**Option B: Separate text positioning**
+- Position photos using collage algorithm
+- Fill remaining gaps with text blocks
+- Pros: Treats texts as true "filler" content
+- Cons: More complex, may not achieve optimal layouts
+
+**Option C: Enhanced tree algorithm**
+- Modify collage-generator to support flexible aspect ratios
+- Would require deep changes to tree generation/adjustment
+- Pros: Mathematically optimal
+- Cons: Complex, may break existing behavior
+
+**Required changes** (for Option A):
 - `cewe_layout/algorithms/collage_generator.py`:
-  - When fitting items into slots, check `preserve_aspect_ratio`
-  - Photos: maintain aspect ratio, crop if needed
-  - Texts: stretch to fill slot exactly (no cropping)
+  - After `_map_pixel_layout_to_page()`, identify text rectangles
+  - For each text, check if slot aspect differs significantly from text aspect
+  - Stretch text to fill slot (adjust width and/or height)
+  - Example: if slot is 500×200 but text wants 300×200, stretch width to 500
 
-- `cewe_layout/algorithms/evaluator.py`:
-  - Size mismatch cost calculation should allow flexible aspect ratios for texts
-  - May need separate cost function for text blocks vs photos
+**Impact**: Currently, text blocks work but don't stretch optimally. This is acceptable for initial integration - texts are positioned correctly, just not optimally resized.
 
-**Impact**: Currently, if you click "Generate Layout", text blocks will be treated like photos (aspect ratio preserved), which may not be desired.
+**Future enhancement priority**: Medium - texts work but could be better optimized.
 
 ### 2. GUI Buttons for Mixed Layouts
 **Current state**: Buttons work for photos only.
@@ -89,15 +115,22 @@
 **Impact**: Cannot persist layout changes to disk yet.
 
 ### 4. Cost Function for Text Blocks
-**Current state**: Gap estimation includes texts, but evaluator doesn't handle them specially.
+**Current state**: Evaluator treats all items uniformly - calculates size mismatch based on preferred sizes and actual area fractions. This is actually appropriate for text blocks too.
 
-**Required changes**:
-- `cewe_layout/algorithms/evaluator.py`:
-  - Recognize text blocks by `item_id.startswith('TEXT_')`
-  - Apply different cost function for flexible aspect ratio items
-  - May need to consider text readability (minimum size, aspect ratio bounds)
+**Why current approach works**:
+- Size mismatch cost = sum of (preferred_area_fraction - actual_area_fraction)²
+- This is valid for both photos and texts
+- Text blocks with `preserve_aspect_ratio=False` still have preferred sizes
+- We want them to occupy their preferred fraction of the page
+- The aspect ratio flexibility doesn't affect size preference
 
-**Impact**: Layout quality scores may not be accurate for pages with text blocks.
+**No changes needed**:
+- `cewe_layout/algorithms/evaluator.py` works as-is
+- Empty space cost: same for photos and texts
+- Size mismatch cost: same for photos and texts
+- The `preserve_aspect_ratio` attribute affects *how* the size is achieved (stretch vs crop), not the target size itself
+
+**Impact**: None - evaluator already handles text blocks correctly.
 
 ## Architecture Notes
 
