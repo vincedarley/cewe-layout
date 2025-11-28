@@ -45,6 +45,11 @@ class TreeNode:
         self.height = None
         self.x = None
         self.y = None
+        
+        # LayoutRectangle-compatible attributes (set during evaluation)
+        self.item_id = None
+        self.preferred_size = None
+        self.preserve_aspect_ratio = None
     
     def count_leaves(self):
         """Count leaf nodes in this subtree."""
@@ -260,8 +265,8 @@ def _evaluate_cost(tree: TreeNode, canvas_width: float, canvas_height: float,
                   undersized_penalty: float = 5.0) -> float:
     """Evaluate cost function using centralized evaluator.
     
-    This creates temporary LayoutRectangle objects from the tree's leaf nodes
-    and delegates to evaluate_layout() for consistency.
+    This uses tree leaf nodes directly as LayoutRectangle-compatible objects
+    by copying the necessary attributes from the original rectangles.
     
     Args:
         tree: Layout tree (with positioned leaf nodes)
@@ -275,10 +280,15 @@ def _evaluate_cost(tree: TreeNode, canvas_width: float, canvas_height: float,
     Returns:
         Cost value (lower is better)
     """
-    # Collect leaf nodes from tree
+    # Collect leaf nodes from tree and copy LayoutRectangle attributes
     leaves = []
     def collect_leaves(node):
         if node.is_leaf:
+            # Copy LayoutRectangle-compatible attributes to the leaf node
+            original_rect = rectangles[node.photo_idx]
+            node.item_id = original_rect.item_id
+            node.preferred_size = original_rect.preferred_size
+            node.preserve_aspect_ratio = original_rect.preserve_aspect_ratio
             leaves.append(node)
         else:
             if node.left:
@@ -287,26 +297,9 @@ def _evaluate_cost(tree: TreeNode, canvas_width: float, canvas_height: float,
                 collect_leaves(node.right)
     collect_leaves(tree)
     
-    # Create temporary rectangles from tree leaf nodes (with positioning from tree)
-    # The original rectangles list has the preferred_size we need
-    from .base import LayoutRectangle
-    temp_rects = []
-    for leaf in leaves:
-        original_rect = rectangles[leaf.photo_idx]
-        temp_rect = LayoutRectangle(
-            item_id=original_rect.item_id,
-            width=leaf.width,
-            height=leaf.height,
-            preferred_size=original_rect.preferred_size,
-            preserve_aspect_ratio=original_rect.preserve_aspect_ratio,
-            x=leaf.x,
-            y=leaf.y
-        )
-        temp_rects.append(temp_rect)
-    
-    # Use centralized cost computation (detailed=False for efficiency)
+    # Use leaf nodes directly as LayoutRectangle-compatible objects
     return evaluate_layout(
-        canvas_width, canvas_height, temp_rects,
+        canvas_width, canvas_height, leaves,
         size_importance=size_importance,
         acceptable_empty_fraction=0.05,
         undersized_threshold=undersized_threshold,
