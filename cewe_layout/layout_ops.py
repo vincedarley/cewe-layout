@@ -45,10 +45,6 @@ class LayoutManager:
             return self.page_layouts[pageno][-1].clone()
         return self.get_original(pageno)
 
-    def get_history(self, pageno):
-        """Return all stored layouts for a page (list of PageLayout)."""
-        return [p.clone() for p in self.page_layouts[pageno]]
-
     def push_layout(self, pageno, photos, texts=None):
         """Store a new layout variant for a page."""
         self.page_layouts[pageno].append(PageLayout(pageno, photos, texts))
@@ -57,13 +53,6 @@ class LayoutManager:
         """Remove the most recent layout, reverting to previous."""
         if pageno in self.page_layouts and len(self.page_layouts[pageno]) > 0:
             self.page_layouts[pageno].pop()
-            return True
-        return False
-
-    def delete_layout_index(self, pageno, idx):
-        """Delete a stored layout by index."""
-        if pageno in self.page_layouts and 0 <= idx < len(self.page_layouts[pageno]):
-            del self.page_layouts[pageno][idx]
             return True
         return False
 
@@ -83,11 +72,6 @@ class LayoutManager:
     def get_sizes_for_page(self, pageno):
         """Return dict of filename -> preferred_size for a page."""
         return dict(self.page_sizes[pageno])
-
-    def clear_sizes(self, pageno):
-        """Clear stored preferred sizes for a page."""
-        if pageno in self.page_sizes:
-            del self.page_sizes[pageno]
     
     def get_stored_sizes_for_page(self, pageno, page_width=None, page_height=None, origin_left=0.0):
         """Get dict of filename -> area-based size from original layout.
