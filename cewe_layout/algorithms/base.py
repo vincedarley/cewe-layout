@@ -11,7 +11,211 @@ and the algorithm's generic item/page space.
 """
 
 from abc import ABC, abstractmethod
-from typing import List, Tuple
+from typing import List, Tuple, Optional
+
+
+class TreeNode:
+    """Node in a binary slicing tree representing a page layout.
+    
+    A slicing tree is a binary tree where:
+    - Internal nodes represent cuts (horizontal 'H' or vertical 'V')
+    - Leaf nodes represent items (photos, text blocks) to be laid out
+    
+    This is a general-purpose representation used by layout algorithms like
+    Fan's GA (2012) and can be used by other tree-based layout methods.
+    
+    The tree can be evaluated to compute:
+    - Aspect ratios (via _compute_aspect_ratios)
+    - Dimensions (via _compute_dimensions)
+    - Positions (via _compute_layout)
+    """
+    
+    def __init__(self, label=None, is_leaf=False, item_idx=None):
+        """Initialize a tree node.
+        
+        Args:
+            label: 'V' or 'H' for internal nodes, item index for leaves
+            is_leaf: True if this is a leaf node
+            item_idx: Index into rectangles list (for leaf nodes)
+        """
+        self.label = label  # 'V', 'H' for internal nodes, or item index for leaves
+        self.is_leaf = is_leaf
+        self.item_idx = item_idx  # Index into rectangles list (for leaf nodes)
+        self.left = None
+        self.right = None
+        self.parent = None
+        
+        # Computed during layout
+        self.aspect_ratio = None  # Width/height ratio
+        self.width = None
+        self.height = None
+        self.x = None
+        self.y = None
+        
+        # LayoutRectangle-compatible attributes (set during evaluation)
+        self.item_id = None
+        self.preferred_size = None
+        self.preserve_aspect_ratio = None
+    
+    def count_leaves(self) -> int:
+        """Count leaf nodes in this subtree."""
+        if self.is_leaf:
+            return 1
+        left_count = self.left.count_leaves() if self.left else 0
+        right_count = self.right.count_leaves() if self.right else 0
+        return left_count + right_count
+    
+    def collect_subtrees(self, min_leaves: int = 3) -> List['TreeNode']:
+        """Collect all subtrees with at least min_leaves leaf nodes."""
+        subtrees = []
+        leaf_count = self.count_leaves()
+        if not self.is_leaf and leaf_count >= min_leaves:
+            subtrees.append(self)
+        if self.left:
+            subtrees.extend(self.left.collect_subtrees(min_leaves))
+        if self.right:
+            subtrees.extend(self.right.collect_subtrees(min_leaves))
+        return subtrees
+    
+    def compute_aspect_ratios(self, rectangles: List['LayoutRectangle']) -> float:
+        """Compute aspect ratio recursively for this subtree (Lemma 1 from Fan 2012).
+        
+        For leaf nodes: uses the rectangle's aspect ratio.
+        For vertical cuts: aspect ratios add (a1 + a2).
+        For horizontal cuts: uses reciprocal formula (a1*a2)/(a1+a2).
+        
+        Args:
+            rectangles: List of LayoutRectangle objects
+            
+        Returns:
+            Aspect ratio (width/height) of this subtree
+        """
+        if self.is_leaf:
+            rect = rectangles[self.item_idx]
+            self.aspect_ratio = rect.width / rect.height if rect.height > 0 else 1.0
+            return self.aspect_ratio
+        
+        # Recursively compute children
+        a1 = self.left.compute_aspect_ratios(rectangles)
+        a2 = self.right.compute_aspect_ratios(rectangles)
+        
+        # Apply Lemma 1
+        if self.label == 'V':
+            # Vertical cut: aspect ratios add
+            self.aspect_ratio = a1 + a2
+        else:  # 'H'
+            # Horizontal cut: reciprocal formula
+            self.aspect_ratio = (a1 * a2) / (a1 + a2)
+        
+        return self.aspect_ratio
+    
+    def compute_dimensions(self, width: float, height: float, 
+                          rectangles: List['LayoutRectangle'],
+                          min_fraction: float = 0.01):
+        """Compute dimensions recursively for this subtree (Lemma 2 from Fan 2012).
+        
+        Allocates space to children based on their aspect ratios while
+        respecting minimum dimensions to prevent degenerate layouts.
+        
+        Args:
+            width: Available width for this subtree
+            height: Available height for this subtree
+            rectangles: List of LayoutRectangle objects
+            min_fraction: Minimum dimension as fraction of canvas (default 1%)
+        """
+        if self.is_leaf:
+            # Lemma 2: largest image that fits in canvas
+            rect = rectangles[self.item_idx]
+            aspect = rect.width / rect.height if rect.height > 0 else 1.0
+            self.width = min(width, aspect * height)
+            self.height = self.width / aspect
+            return
+        
+        # Allocate space to children based on aspect ratios
+        a1 = self.left.aspect_ratio
+        a2 = self.right.aspect_ratio
+        
+        # Minimum dimension to prevent degenerate layouts
+        min_width = width * min_fraction
+        min_height = height * min_fraction
+        
+        if self.label == 'V':
+            # Vertical cut: divide width, both children get full height
+            w1_ideal = width * (a1 / (a1 + a2))
+            w2_ideal = width * (a2 / (a1 + a2))
+            
+            # Enforce minimum widths
+            w1 = max(min_width, w1_ideal)
+            w2 = max(min_width, w2_ideal)
+            
+            # If both needed adjustment, scale proportionally to fit
+            if w1 + w2 > width:
+                scale = width / (w1 + w2)
+                w1 *= scale
+                w2 *= scale
+            
+            self.left.compute_dimensions(w1, height, rectangles, min_fraction)
+            self.right.compute_dimensions(w2, height, rectangles, min_fraction)
+            # Set this node's dimensions
+            self.width = self.left.width + self.right.width
+            self.height = height
+        else:  # 'H'
+            # Horizontal cut: divide height, both children get full width
+            h1_ideal = height * (a2 / (a1 + a2))
+            h2_ideal = height * (a1 / (a1 + a2))
+            
+            # Enforce minimum heights
+            h1 = max(min_height, h1_ideal)
+            h2 = max(min_height, h2_ideal)
+            
+            # If both needed adjustment, scale proportionally to fit
+            if h1 + h2 > height:
+                scale = height / (h1 + h2)
+                h1 *= scale
+                h2 *= scale
+            
+            self.left.compute_dimensions(width, h1, rectangles, min_fraction)
+            self.right.compute_dimensions(width, h2, rectangles, min_fraction)
+            # Set this node's dimensions
+            self.width = width
+            self.height = self.left.height + self.right.height
+    
+    def compute_layout(self, x: float, y: float):
+        """Compute positions recursively for this subtree.
+        
+        Places children according to the cut direction:
+        - Vertical cuts: left child at (x,y), right child to the right
+        - Horizontal cuts: left child at (x,y), right child below
+        
+        Args:
+            x: X position of this subtree's top-left corner
+            y: Y position of this subtree's top-left corner
+        """
+        self.x = x
+        self.y = y
+        
+        if self.is_leaf:
+            return
+        
+        if self.label == 'V':
+            # Vertical cut: left child at (x,y), right child to the right
+            self.left.compute_layout(x, y)
+            self.right.compute_layout(x + self.left.width, y)
+        else:  # 'H'
+            # Horizontal cut: left child at (x,y), right child below
+            self.left.compute_layout(x, y)
+            self.right.compute_layout(x, y + self.left.height)
+    
+    def collect_leaves(self) -> List['TreeNode']:
+        """Collect all leaf nodes in this subtree in traversal order."""
+        if self.is_leaf:
+            return [self]
+        leaves = []
+        if self.left:
+            leaves.extend(self.left.collect_leaves())
+        if self.right:
+            leaves.extend(self.right.collect_leaves())
+        return leaves
 
 
 class LayoutRectangle:

@@ -18,58 +18,10 @@ Attribution:
 
 import copy
 import random
-from typing import List, Tuple, Optional
+from typing import List, Tuple
 
-from .base import LayoutAlgorithm
+from .base import LayoutAlgorithm, TreeNode
 from .evaluator import evaluate_layout
-
-
-class TreeNode:
-    """Node in a binary slicing tree.
-    
-    Internal nodes (I nodes) have a cut direction ('V' or 'H').
-    Leaf nodes (L nodes) reference a photo/rectangle.
-    """
-    
-    def __init__(self, label=None, is_leaf=False, photo_idx=None):
-        self.label = label  # 'V', 'H' for internal nodes, or photo index for leaves
-        self.is_leaf = is_leaf
-        self.photo_idx = photo_idx  # Index into rectangles list (for leaf nodes)
-        self.left = None
-        self.right = None
-        self.parent = None
-        
-        # Computed during layout
-        self.aspect_ratio = None  # Width/height ratio
-        self.width = None
-        self.height = None
-        self.x = None
-        self.y = None
-        
-        # LayoutRectangle-compatible attributes (set during evaluation)
-        self.item_id = None
-        self.preferred_size = None
-        self.preserve_aspect_ratio = None
-    
-    def count_leaves(self):
-        """Count leaf nodes in this subtree."""
-        if self.is_leaf:
-            return 1
-        left_count = self.left.count_leaves() if self.left else 0
-        right_count = self.right.count_leaves() if self.right else 0
-        return left_count + right_count
-    
-    def collect_subtrees(self, min_leaves=3):
-        """Collect all subtrees with at least min_leaves leaf nodes."""
-        subtrees = []
-        leaf_count = self.count_leaves()
-        if not self.is_leaf and leaf_count >= min_leaves:
-            subtrees.append(self)
-        if self.left:
-            subtrees.extend(self.left.collect_subtrees(min_leaves))
-        if self.right:
-            subtrees.extend(self.right.collect_subtrees(min_leaves))
-        return subtrees
 
 
 def _generate_random_tree(n_photos: int, photo_indices: List[int]) -> TreeNode:
@@ -85,7 +37,7 @@ def _generate_random_tree(n_photos: int, photo_indices: List[int]) -> TreeNode:
     if n_photos == 0:
         return None
     if n_photos == 1:
-        return TreeNode(label=photo_indices[0], is_leaf=True, photo_idx=photo_indices[0])
+        return TreeNode(label=photo_indices[0], is_leaf=True, item_idx=photo_indices[0])
     
     # Step 1: Create internal nodes (N-1 for N leaves)
     n_internal = n_photos - 1
@@ -122,13 +74,13 @@ def _generate_random_tree(n_photos: int, photo_indices: List[int]) -> TreeNode:
     for node in internal_nodes:
         if node.left is None:
             leaf = TreeNode(label=shuffled_indices[leaf_idx], is_leaf=True, 
-                          photo_idx=shuffled_indices[leaf_idx])
+                          item_idx=shuffled_indices[leaf_idx])
             leaf.parent = node
             node.left = leaf
             leaf_idx += 1
         if node.right is None:
             leaf = TreeNode(label=shuffled_indices[leaf_idx], is_leaf=True,
-                          photo_idx=shuffled_indices[leaf_idx])
+                          item_idx=shuffled_indices[leaf_idx])
             leaf.parent = node
             node.right = leaf
             leaf_idx += 1
@@ -136,128 +88,6 @@ def _generate_random_tree(n_photos: int, photo_indices: List[int]) -> TreeNode:
     return root
 
 
-
-def _compute_aspect_ratios(node: TreeNode, rectangles) -> float:
-    """Compute aspect ratio recursively (Lemma 1).
-    
-    Args:
-        node: Tree node
-        rectangles: List of LayoutRectangle objects
-        
-    Returns:
-        Aspect ratio (width/height) of this subtree
-    """
-    if node.is_leaf:
-        rect = rectangles[node.photo_idx]
-        node.aspect_ratio = rect.width / rect.height if rect.height > 0 else 1.0
-        return node.aspect_ratio
-    
-    # Recursively compute children
-    a1 = _compute_aspect_ratios(node.left, rectangles)
-    a2 = _compute_aspect_ratios(node.right, rectangles)
-    
-    # Apply Lemma 1
-    if node.label == 'V':
-        # Vertical cut: aspect ratios add
-        node.aspect_ratio = a1 + a2
-    else:  # 'H'
-        # Horizontal cut: reciprocal formula
-        node.aspect_ratio = (a1 * a2) / (a1 + a2)
-    
-    return node.aspect_ratio
-
-
-def _compute_dimensions(node: TreeNode, width: float, height: float, rectangles):
-    """Compute dimensions recursively (Lemma 2).
-    
-    Args:
-        node: Tree node
-        width: Available width
-        height: Available height
-        rectangles: List of LayoutRectangle objects
-    """
-    if node.is_leaf:
-        # Lemma 2: largest image that fits in canvas
-        rect = rectangles[node.photo_idx]
-        aspect = rect.width / rect.height if rect.height > 0 else 1.0
-        node.width = min(width, aspect * height)
-        node.height = node.width / aspect
-        return
-    
-    # Allocate space to children based on aspect ratios
-    a1 = node.left.aspect_ratio
-    a2 = node.right.aspect_ratio
-    
-    # Minimum dimension to prevent degenerate layouts (1% of canvas dimension)
-    min_width = width * 0.01
-    min_height = height * 0.01
-    
-    if node.label == 'V':
-        # Vertical cut: divide width
-        # Both children get full height
-        w1_ideal = width * (a1 / (a1 + a2))
-        w2_ideal = width * (a2 / (a1 + a2))
-        
-        # Enforce minimum widths
-        w1 = max(min_width, w1_ideal)
-        w2 = max(min_width, w2_ideal)
-        
-        # If both needed adjustment, scale proportionally to fit
-        if w1 + w2 > width:
-            scale = width / (w1 + w2)
-            w1 *= scale
-            w2 *= scale
-        
-        _compute_dimensions(node.left, w1, height, rectangles)
-        _compute_dimensions(node.right, w2, height, rectangles)
-        # Set this node's dimensions
-        node.width = node.left.width + node.right.width
-        node.height = height
-    else:  # 'H'
-        # Horizontal cut: divide height
-        # Both children get full width
-        h1_ideal = height * (a2 / (a1 + a2))
-        h2_ideal = height * (a1 / (a1 + a2))
-        
-        # Enforce minimum heights
-        h1 = max(min_height, h1_ideal)
-        h2 = max(min_height, h2_ideal)
-        
-        # If both needed adjustment, scale proportionally to fit
-        if h1 + h2 > height:
-            scale = height / (h1 + h2)
-            h1 *= scale
-            h2 *= scale
-        
-        _compute_dimensions(node.left, width, h1, rectangles)
-        _compute_dimensions(node.right, width, h2, rectangles)
-        # Set this node's dimensions
-        node.width = width
-        node.height = node.left.height + node.right.height
-
-
-def _compute_layout(node: TreeNode, x: float, y: float):
-    """Compute positions recursively.
-    
-    Args:
-        node: Tree node
-        x: X position of this subtree
-        y: Y position of this subtree
-    """
-    node.x = x
-    node.y = y
-    
-    if node.is_leaf:
-        return
-    
-    if node.label == 'V':
-        # Vertical cut: left child at (x,y), right child to the right
-        _compute_layout(node.left, x, y)
-        _compute_layout(node.right, x + node.left.width, y)
-    else:  # 'H'
-        # Horizontal cut: left child at (x,y), right child below
-        _compute_layout(node.left, x, y)
-        _compute_layout(node.right, x, y + node.left.height)
 
 
 def _evaluate_cost(tree: TreeNode, canvas_width: float, canvas_height: float,
@@ -282,21 +112,13 @@ def _evaluate_cost(tree: TreeNode, canvas_width: float, canvas_height: float,
         Cost value (lower is better)
     """
     # Collect leaf nodes from tree and copy LayoutRectangle attributes
-    leaves = []
-    def collect_leaves(node):
-        if node.is_leaf:
-            # Copy LayoutRectangle-compatible attributes to the leaf node
-            original_rect = rectangles[node.photo_idx]
-            node.item_id = original_rect.item_id
-            node.preferred_size = original_rect.preferred_size
-            node.preserve_aspect_ratio = original_rect.preserve_aspect_ratio
-            leaves.append(node)
-        else:
-            if node.left:
-                collect_leaves(node.left)
-            if node.right:
-                collect_leaves(node.right)
-    collect_leaves(tree)
+    leaves = tree.collect_leaves()
+    for node in leaves:
+        # Copy LayoutRectangle-compatible attributes to the leaf node
+        original_rect = rectangles[node.item_idx]
+        node.item_id = original_rect.item_id
+        node.preferred_size = original_rect.preferred_size
+        node.preserve_aspect_ratio = original_rect.preserve_aspect_ratio
     
     # Use leaf nodes directly as LayoutRectangle-compatible objects
     return evaluate_layout(
@@ -346,7 +168,7 @@ def _mutate_tree(tree: TreeNode) -> TreeNode:
         # Mutate leaf nodes: swap photo assignments
         node1, node2 = random.sample(leaf_nodes, 2)
         node1.label, node2.label = node2.label, node1.label
-        node1.photo_idx, node2.photo_idx = node2.photo_idx, node1.photo_idx
+        node1.item_idx, node2.item_idx = node2.item_idx, node1.item_idx
     
     return tree
 
@@ -394,7 +216,7 @@ def _crossover_trees(tree1: TreeNode, tree2: TreeNode) -> Tuple[TreeNode, TreeNo
     # Collect leaf labels from each subtree (to preserve them)
     def collect_leaf_labels(node):
         if node.is_leaf:
-            return [node.photo_idx]
+            return [node.item_idx]
         labels = []
         if node.left:
             labels.extend(collect_leaf_labels(node.left))
@@ -416,7 +238,7 @@ def _crossover_trees(tree1: TreeNode, tree2: TreeNode) -> Tuple[TreeNode, TreeNo
         def _reassign(n):
             if n.is_leaf:
                 n.label = labels[idx[0]]
-                n.photo_idx = labels[idx[0]]
+                n.item_idx = labels[idx[0]]
                 idx[0] += 1
             else:
                 if n.left:
@@ -532,10 +354,10 @@ class FanLayoutAlgorithm(LayoutAlgorithm):
                 # Evaluate all individuals
                 fitness_scores = []
                 for tree in population:
-                    # Fast O(N) evaluation
-                    _compute_aspect_ratios(tree, rectangles)
-                    _compute_dimensions(tree, page_width, page_height, rectangles)
-                    _compute_layout(tree, 0, 0)
+                    # Fast O(N) evaluation using TreeNode methods
+                    tree.compute_aspect_ratios(rectangles)
+                    tree.compute_dimensions(page_width, page_height, rectangles)
+                    tree.compute_layout(0, 0)
                     
                     cost = _evaluate_cost(tree, page_width, page_height, 
                                         rectangles, self.size_importance,
@@ -586,14 +408,14 @@ class FanLayoutAlgorithm(LayoutAlgorithm):
                 return False, [], "Failed to generate valid layout tree"
             
             # Extract final layout from best tree
-            _compute_aspect_ratios(best_tree, rectangles)
-            _compute_dimensions(best_tree, page_width, page_height, rectangles)
-            _compute_layout(best_tree, 0, 0)
+            best_tree.compute_aspect_ratios(rectangles)
+            best_tree.compute_dimensions(page_width, page_height, rectangles)
+            best_tree.compute_layout(0, 0)
             
             # Validate tree has all photos before updating
             def collect_photo_indices(node):
                 if node.is_leaf:
-                    return [node.photo_idx]
+                    return [node.item_idx]
                 indices = []
                 if node.left:
                     indices.extend(collect_photo_indices(node.left))
@@ -613,7 +435,7 @@ class FanLayoutAlgorithm(LayoutAlgorithm):
             # Update rectangles in-place
             def update_rectangles(node):
                 if node.is_leaf:
-                    rect = rectangles[node.photo_idx]
+                    rect = rectangles[node.item_idx]
                     rect.x = node.x
                     rect.y = node.y
                     rect.width = node.width
