@@ -519,6 +519,19 @@ class LayoutViewer:
             page_w, page_h, edge_gap, internal_gap
         )
         
+        # DEBUG: Print evaluation inputs for Page 2
+        if pageno == 2:
+            print(f"\n=== GUI Evaluation Debug for Page {pageno} ===")
+            print(f"  Eval page: {eval_page_w} x {eval_page_h}")
+            print(f"  Edge gap: {edge_gap}, Internal gap: {internal_gap}")
+            print(f"  Rectangles passed to evaluator ({len(rectangles)} total):")
+            for i, (rect, item_info) in enumerate(zip(rectangles, item_identifiers)):
+                item_type, item_idx, item_id = item_info
+                area = rect.width * rect.height
+                print(f"    {i} ({item_type}): preferred_size={rect.preferred_size:.6f}, dims={rect.width:.2f}x{rect.height:.2f}, area={area:.2f}")
+            print(f"  Sum of preferred_sizes: {sum(r.preferred_size for r in rectangles):.6f}")
+            print()
+        
         cost = evaluate_layout(
             eval_page_w, eval_page_h, rectangles,
             size_importance=self.size_importance,
@@ -526,6 +539,19 @@ class LayoutViewer:
             undersized_threshold=self.undersized_threshold,
             undersized_penalty=self.undersized_penalty
         )
+        
+        # DEBUG: Print evaluation results for Page 2
+        if pageno == 2:
+            print(f"=== GUI Evaluation Results for Page {pageno} ===")
+            print(f"  Total cost: {cost.total_cost:.4f}")
+            print(f"  Empty space cost: {cost.empty_space_cost:.4f}")
+            print(f"  Size mismatch cost: {cost.size_mismatch_cost:.4f}")
+            print(f"  Size mismatch / size_importance: {cost.size_mismatch_cost / self.size_importance:.6f}")
+            if cost.size_errors:
+                print(f"  Size errors:")
+                for item_id, pref_norm, actual_norm, sq_err, undersized in cost.size_errors:
+                    print(f"    {item_id}: pref={pref_norm:.6f}, actual={actual_norm:.6f}, sq_err={sq_err:.8f}, undersized={undersized}")
+            print()
         
         # Update cost labels with human-readable format
         self.cost_total_label.config(text=f'{cost.total_cost:.1f}')
