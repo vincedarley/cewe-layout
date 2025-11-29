@@ -59,6 +59,15 @@ def generate_layout_for_page(photos, page_width_mcf, page_height_mcf, mcf_base_f
     if use_slot_aspect is None:
         use_slot_aspect = {}
     
+    # TreeBuilderAlgorithm MUST use slot dimensions (rectangle dimensions) to reconstruct the tree
+    # It operates on the layout structure, not on individual image aspect ratios
+    # Cost evaluation happens separately and can use image dimensions if needed
+    from .algorithms.tree_builder import TreeBuilderAlgorithm
+    if isinstance(algorithm, TreeBuilderAlgorithm):
+        # Force all photos to use slot aspect ratio for tree building
+        # The tree structure is based on layout slots, not image aspect ratios
+        use_slot_aspect = {i: True for i in range(len(photos))}
+    
     # Handle deprecated gap parameter
     if gap is not None:
         edge_gap = gap
@@ -188,9 +197,21 @@ def _photos_to_rectangles(photos, mcf_base_folder, preferred_sizes=None, edge_ga
         if preferred_sizes and fn in preferred_sizes:
             preferred_size = preferred_sizes[fn]
         
+        # Extract position from MCF if available (needed for TreeBuilder)
+        # Use original_photos if available (for consistent positions across iterations)
+        source_photo = original_photos[photo_idx] if original_photos and photo_idx < len(original_photos) else photo
+        rect_x = None
+        rect_y = None
+        if 'area_left' in source_photo and 'area_top' in source_photo:
+            # Adjust from MCF coordinates (with edge gap) to algorithm coordinates (gap-free)
+            rect_x = float(source_photo['area_left']) - edge_gap
+            rect_y = float(source_photo['area_top']) - edge_gap
+        
         # Use determined dimensions (either image or slot)
         rect = LayoutRectangle(
             item_id=item_id,
+            x=rect_x,
+            y=rect_y,
             width=rect_width,
             height=rect_height,
             preferred_size=preferred_size,
@@ -232,9 +253,19 @@ def _texts_to_rectangles(texts, preferred_sizes=None, edge_gap=0.0, internal_gap
         if preferred_sizes and item_id in preferred_sizes:
             preferred_size = preferred_sizes[item_id]
         
+        # Extract position from MCF if available (needed for TreeBuilder)
+        rect_x = None
+        rect_y = None
+        if 'area_left' in text and 'area_top' in text:
+            # Adjust from MCF coordinates (with edge gap) to algorithm coordinates (gap-free)
+            rect_x = float(text['area_left']) - edge_gap
+            rect_y = float(text['area_top']) - edge_gap
+        
         # Use MCF dimensions directly (algorithm will scale to fit)
         rect = LayoutRectangle(
             item_id=item_id,
+            x=rect_x,
+            y=rect_y,
             width=float(area_width),
             height=float(area_height),
             preferred_size=preferred_size,

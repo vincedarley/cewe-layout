@@ -357,6 +357,11 @@ class TreeBuilderAlgorithm(LayoutAlgorithm):
         if not rectangles:
             return False, [], "No rectangles to layout"
         
+        # Validate that all rectangles have positions (x, y, width, height)
+        for rect in rectangles:
+            if rect.x is None or rect.y is None or rect.width is None or rect.height is None:
+                return False, [], f"TreeBuilder requires all rectangles to have positions. Rectangle {rect.item_id} is missing position data (x={rect.x}, y={rect.y}, w={rect.width}, h={rect.height})"
+        
         # Build tree from input positions
         tree = build_tree_from_layout(rectangles, page_width, page_height, self.tolerance)
         
