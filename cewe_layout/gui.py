@@ -528,7 +528,8 @@ class LayoutViewer:
         
         # DEBUG: Print evaluation inputs if debug flag is set
         if self.debug_var.get():
-            print(f"\n=== GUI Evaluation Debug for Page {pageno} ===")
+            print(f"\n=== GUI Evaluation Debug ===")
+            print(f"  Page: {pageno}")
             print(f"  Eval page: {eval_page_w} x {eval_page_h}")
             print(f"  Edge gap: {edge_gap}, Internal gap: {internal_gap}")
             print(f"  Rectangles passed to evaluator ({len(rectangles)} total):")
@@ -549,7 +550,8 @@ class LayoutViewer:
         
         # DEBUG: Print evaluation results if debug flag is set
         if self.debug_var.get():
-            print(f"=== GUI Evaluation Results for Page {pageno} ===")
+            print(f"\n=== GUI Evaluation Results ===")
+            print(f"  Page: {pageno}")
             print(f"  Total cost: {cost.total_cost:.4f}")
             print(f"  Empty space cost: {cost.empty_space_cost:.4f}")
             print(f"  Size mismatch cost: {cost.size_mismatch_cost:.4f}")

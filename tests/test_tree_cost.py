@@ -72,84 +72,64 @@ def test_page_tree_cost(page_file: Path):
         gap_analysis.internal_gap
     )
     
-    # Build original rectangles in gap-free space for tree building
-    # First, compute total gap-free area to normalize preferred sizes (like GUI does)
-    total_gf_area = 0.0
-    gf_areas = []
-    
-    for photo in page_data.photos:
-        slot_w, slot_h = photo['slot_width'], photo['slot_height']
-        gf_w = slot_w + gap_analysis.internal_gap
-        gf_h = slot_h + gap_analysis.internal_gap
-        gf_area = gf_w * gf_h
-        gf_areas.append(gf_area)
-        total_gf_area += gf_area
-    
-    for text in page_data.texts:
-        text_w, text_h = text['width'], text['height']
-        gf_w = text_w + gap_analysis.internal_gap
-        gf_h = text_h + gap_analysis.internal_gap
-        gf_area = gf_w * gf_h
-        gf_areas.append(gf_area)
-        total_gf_area += gf_area
-    
+    # Build original rectangles for tree building
+    # TreeBuilder uses slot dimensions with gap-free coordinates
+    # Match collage_wrapper: add internal_gap to slot dimensions to convert to gap-free space
     original_rectangles = []
-    gf_idx = 0
     
     for i, photo in enumerate(page_data.photos):
         pos_x, pos_y = photo['pos']
         slot_w, slot_h = photo['slot_width'], photo['slot_height']
         
-        # Transform to gap-free coordinates
-        gf_left, gf_top, gf_width, gf_height = transform_item_to_gapfree(
-            pos_x, pos_y, slot_w, slot_h,
-            gap_analysis.edge_gap,
-            gap_analysis.internal_gap
-        )
+        # Position: gap-free (subtract edge_gap only, NOT transform_item_to_gapfree)
+        gf_left = pos_x - gap_analysis.edge_gap
+        gf_top = pos_y - gap_analysis.edge_gap
         
-        # Use normalized gap-free area scaled by 10× (matching GUI's approach)
-        # This represents the relative importance from the original layout
-        preferred_size = (gf_areas[gf_idx] / total_gf_area * 10.0) if total_gf_area > 0 else 1.0
-        gf_idx += 1
+        # Dimensions: gap-free slot dimensions (add internal_gap to match collage_wrapper)
+        rect_width = slot_w + gap_analysis.internal_gap
+        rect_height = slot_h + gap_analysis.internal_gap
         
         rect = LayoutRectangle(
             item_id=f'photo_{i}',
-            width=gf_width,
-            height=gf_height,
-            preferred_size=preferred_size,
+            width=rect_width,
+            height=rect_height,
+            preferred_size=0,  # Will be set below after all areas computed
             preserve_aspect_ratio=True,
             x=gf_left,
             y=gf_top
         )
-        # Don't set actual_size - let evaluator compute it
         original_rectangles.append(rect)
     
     for i, text in enumerate(page_data.texts):
         pos_x, pos_y = text['pos']
         text_w, text_h = text['width'], text['height']
         
-        # Transform to gap-free coordinates
-        gf_left, gf_top, gf_width, gf_height = transform_item_to_gapfree(
-            pos_x, pos_y, text_w, text_h,
-            gap_analysis.edge_gap,
-            gap_analysis.internal_gap
-        )
+        # Position: gap-free (subtract edge_gap)
+        gf_left = pos_x - gap_analysis.edge_gap
+        gf_top = pos_y - gap_analysis.edge_gap
         
-        # Use normalized gap-free area scaled by 10× (matching GUI)
-        preferred_size = (gf_areas[gf_idx] / total_gf_area * 10.0) if total_gf_area > 0 else 1.0
-        gf_idx += 1
+        # Dimensions: RAW dimensions (no gap added)
+        rect_width = text_w
+        rect_height = text_h
         
         rect = LayoutRectangle(
             item_id=f'text_{i}',
-            width=gf_width,
-            height=gf_height,
-            preferred_size=preferred_size,
+            width=rect_width,
+            height=rect_height,
+            preferred_size=0,  # Will be set below
             preserve_aspect_ratio=False,
             x=gf_left,
             y=gf_top
         )
-        # Don't set actual_size - let evaluator compute it
         original_rectangles.append(rect)
+    
+    # Now compute preferred sizes using gap-free areas (matching GUI)
+    gap = gap_analysis.internal_gap if gap_analysis.internal_gap > 0 else gap_analysis.edge_gap
+    total_gf_area = sum((r.width + gap) * (r.height + gap) for r in original_rectangles)
+    
+    for rect in original_rectangles:
+        gf_area = (rect.width + gap) * (rect.height + gap)
+        rect.preferred_size = (gf_area / total_gf_area * 10.0) if total_gf_area > 0 else 1.0
     
     if not original_rectangles:
         print(f'Page {page_data.page_num}: Skipping (no rectangles)')
@@ -170,6 +150,20 @@ Cannot build tree from this layout (tolerance={tolerance})
     
     # Recompute layout from tree
     tree.compute_aspect_ratios(original_rectangles)
+    
+    # Diagnostic for Page 2: check aspect ratios
+    if page_data.page_num == 2:
+        print(f"\n=== Tree Debug for Page 2 ===")
+        print(f"Original rectangles passed to tree:")
+        for i, rect in enumerate(original_rectangles):
+            aspect = rect.width / rect.height if rect.height > 0 else 0
+            print(f"  Photo {i}: {rect.width:.2f} x {rect.height:.2f}, aspect={aspect:.6f}")
+        print(f"\nTree aspect ratios after compute_aspect_ratios:")
+        leaves = tree.collect_leaves()
+        for i, leaf in enumerate(leaves):
+            print(f"  Leaf {i}: aspect_ratio={leaf.aspect_ratio:.6f}")
+        print()
+    
     tree.compute_dimensions(eval_page_w, eval_page_h, original_rectangles)
     tree.compute_layout(0, 0)
     
@@ -201,6 +195,22 @@ Cannot build tree from this layout (tolerance={tolerance})
         undersized_threshold=0.5,
         undersized_penalty=5.0
     )
+    
+    # Diagnostic output for problematic pages
+    if page_data.page_num in [2, 22, 35]:
+        print(f"\nDiagnostic for Page {page_data.page_num}:")
+        print(f"  Cost result: {cost_result.total_cost}")
+        print(f"  Empty space cost: {cost_result.empty_space_cost}")
+        print(f"  Size mismatch cost: {cost_result.size_mismatch_cost}")
+        print(f"  Size mismatch / size_importance = {cost_result.size_mismatch_cost / 100.0}")
+        print(f"\n  Rectangles passed to evaluator:")
+        for i, rect in enumerate(tree_rectangles):
+            area = rect.width * rect.height
+            print(f"    {i}: preferred_size={rect.preferred_size:.4f}, dims={rect.width:.2f}x{rect.height:.2f}, area={area:.2f}")
+        print(f"\n  Size errors from evaluator:")
+        for item_id, pref_norm, actual_norm, sq_err, undersized in cost_result.size_errors:
+            print(f"    {item_id}: pref={pref_norm:.6f}, actual={actual_norm:.6f}, sq_err={sq_err:.8f}, undersized={undersized}")
+        print()
     
     # Format results
     result = f'''Total cost: {cost_result.total_cost:.2f}
