@@ -869,15 +869,14 @@ class LayoutViewer:
                 text_id = f'TEXT_{i}'
                 preferred_sizes[text_id] = self.layout_mgr.get_size(pageno, text_id)
             
-            # Build algorithm kwargs, including optional trace flag for Fan-GA
-            algo_kwargs = {}
-            if isinstance(algorithm, FanLayoutAlgorithm) and self.trace_pairings_var.get():
-                algo_kwargs['trace_pairings'] = True
-success, updated_photos, updated_texts, error_msg = generate_layout_for_page(
+            success, updated_photos, updated_texts, error_msg = generate_layout_for_page(
                 photos, page_w, page_h, Path(self.mcf_base_folder), 
                 algorithm=algorithm, edge_gap=edge_gap, internal_gap=internal_gap, texts=texts,
                 preferred_sizes=preferred_sizes,
-                use_slot_aspect=use_slot_aspect_for_photos, original_photos=original_photoft as absolute coordinates relative to the full spread.
+                use_slot_aspect=use_slot_aspect_for_photos, original_photos=original_photos
+            )
+            
+            # MCF stores area_left as absolute coordinates relative to the full spread.
             # The collage generator returns coordinates relative to the single-page
             # width (0..page_w). Add origin_left back so updated area_left matches
             # the original absolute coordinate system.
