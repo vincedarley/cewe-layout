@@ -38,3 +38,18 @@ Details:
   Tree tolerance: 20.0 units (2.0 mm)
 
 
+
+=== Fan-GA Layout Cost ===
+Total cost: 71717.29
+
+Components:
+  Empty space cost: 20.17
+  Size mismatch cost: 71697.13
+    - Normal: 71697.13
+    - Undersized: 0.00
+
+Details:
+  Empty fraction: 0.2517 (25.17%)
+  Undersized count: 0
+
+

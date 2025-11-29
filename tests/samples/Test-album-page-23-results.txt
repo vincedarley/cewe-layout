@@ -28,3 +28,18 @@ Tree building FAILED
 Cannot build tree from this layout (tolerance=20.0)
 
 
+
+=== Fan-GA Layout Cost ===
+Total cost: 380686.09
+
+Components:
+  Empty space cost: 66.35
+  Size mismatch cost: 380619.74
+    - Normal: 351.74
+    - Undersized: 380268.00
+
+Details:
+  Empty fraction: 0.7135 (71.35%)
+  Undersized count: 8
+
+
