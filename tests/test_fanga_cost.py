@@ -132,12 +132,10 @@ def test_page_fanga_cost(page_file: Path):
         print(f' Skipping (no rectangles)')
         return
     
-    # Run Fan-GA algorithm
-    # Use minimal parameters for fast testing/validation
-    # (Can increase generations/population for better results once validated)
+    # Run Fan-GA algorithm with production parameters
     fanga = FanLayoutAlgorithm(
-        population_size=5,
-        generations=10,
+        population_size=50,
+        generations=100,
         mutation_rate=0.2,
         crossover_rate=0.8,
         size_importance=100.0
@@ -189,8 +187,13 @@ Exception: {str(e)}
         undersized_penalty=5.0
     )
     
+    # Get tree structure
+    tree_structure = fanga.best_tree.to_compact_string() if fanga.best_tree else "N/A"
+    
     # Format results
     result = f'''Total cost: {cost_result.total_cost:.2f}
+
+Tree structure: {tree_structure}
 
 Components:
   Empty space cost: {cost_result.empty_space_cost:.2f}

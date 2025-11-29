@@ -216,6 +216,15 @@ class TreeNode:
         if self.right:
             leaves.extend(self.right.collect_leaves())
         return leaves
+    
+    def to_compact_string(self) -> str:
+        """Generate compact string representation like H[V[1,2],V[3,4]]."""
+        if self.is_leaf:
+            return str(self.item_idx)
+        
+        left_str = self.left.to_compact_string() if self.left else "?"
+        right_str = self.right.to_compact_string() if self.right else "?"
+        return f"{self.label}[{left_str},{right_str}]"
 
 
 class LayoutRectangle:

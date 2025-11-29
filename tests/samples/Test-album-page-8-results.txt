@@ -24,32 +24,40 @@ Details:
 
 
 === Tree Layout Cost ===
-Total cost: 260.29
+Total cost: 0.57
+
+Tree structure: H[V[H[0,1],V[2,H[3,4]]],V[H[5,6],V[7,V[10,H[8,9]]]]]
 
 Components:
   Empty space cost: 0.00
-  Size mismatch cost: 260.29
-    - Normal: 260.29
+  Size mismatch cost: 0.57
+    - Normal: 0.57
     - Undersized: 0.00
 
 Details:
-  Empty fraction: 0.0177 (1.77%)
+  Empty fraction: 0.0016 (0.16%)
   Undersized count: 0
   Tree tolerance: 20.0 units (2.0 mm)
 
 
-
 === Fan-GA Layout Cost ===
-Total cost: 144568.60
+Total cost: 25573.67
+
+Tree structure: V[H[V[V[2,7],H[9,4]],V[H[V[0,6],V[5,1]],3]],H[8,10]]
 
 Components:
-  Empty space cost: 28.55
-  Size mismatch cost: 144540.05
-    - Normal: 19471.05
-    - Undersized: 125069.00
+  Empty space cost: 19.86
+  Size mismatch cost: 25553.81
+    - Normal: 25553.81
+    - Undersized: 0.00
 
 Details:
-  Empty fraction: 0.3355 (33.55%)
-  Undersized count: 5
+  Empty fraction: 0.2486 (24.86%)
+  Undersized count: 0
 
+
+
+=== Collage-generator Layout Cost ===
+Collage-generator FAILED
+Error: Layout generation error: 'NoneType' object has no attribute 'height'
 

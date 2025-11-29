@@ -14,7 +14,6 @@ from .layout_ops import LayoutManager
 from .collage_wrapper import generate_layout_for_page
 from .algorithms.evaluator import evaluate_layout
 from .algorithms.collage_generator import CollageGeneratorAlgorithm
-from .algorithms.genetic_photo_layout import GeneticPhotoLayoutAlgorithm
 from .algorithms.fan_layout import FanLayoutAlgorithm
 from .algorithms.tree_builder import TreeBuilderAlgorithm
 from .gap_utils import (
@@ -116,7 +115,7 @@ class LayoutViewer:
         algo_menu = ttk.OptionMenu(
             self.ctrl, self.algorithm_var,
             'Collage-Gen',  # default
-            'Collage-Gen', 'Generic-GA', 'Fan-GA', 'Tree-Builder'
+            'Collage-Gen', 'Fan-GA', 'Tree-Builder'
         )
         algo_menu.grid(row=1, column=1, padx=(0, 8), pady=4, sticky='ew')
         
@@ -873,8 +872,6 @@ class LayoutViewer:
             algo_name = self.algorithm_var.get()
             if algo_name == 'Collage-Gen':
                 algorithm = CollageGeneratorAlgorithm(temperature=1.0)
-            elif algo_name == 'Generic-GA':
-                algorithm = GeneticPhotoLayoutAlgorithm()
             elif algo_name == 'Fan-GA':
                 algorithm = FanLayoutAlgorithm(
                     size_importance=self.size_importance,

@@ -214,7 +214,10 @@ Cannot build tree from this layout (tolerance={tolerance})
         print()
     
     # Format results
+    tree_structure = tree.to_compact_string()
     result = f'''Total cost: {cost_result.total_cost:.2f}
+
+Tree structure: {tree_structure}
 
 Components:
   Empty space cost: {cost_result.empty_space_cost:.2f}

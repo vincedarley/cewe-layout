@@ -174,11 +174,15 @@ def _mutate_tree(tree: TreeNode) -> TreeNode:
 
 
 def _crossover_trees(tree1: TreeNode, tree2: TreeNode) -> Tuple[TreeNode, TreeNode]:
-    """Crossover operator: swap subtree structures while preserving leaf labels.
+    """Crossover operator: swap subtree structures while swapping photo assignments.
     
-    Per Fan (2012): "the labels of the leaf nodes remain in the original tree
-    and are assigned to new I nodes." This means we swap the internal node
-    structure (topology) but keep each tree's original photo assignments.
+    Algorithm:
+    1. Find matching subtrees (same leaf count) from both parents
+    2. Deep copy both subtrees
+    3. Traverse both copies simultaneously and swap photo indices
+    4. Replace: subtree1 (with parent2's photos) goes into parent2
+                subtree2 (with parent1's photos) goes into parent1
+    5. Skip if subtrees have identical structure (would be no-op)
     
     Args:
         tree1: First parent tree
@@ -213,32 +217,52 @@ def _crossover_trees(tree1: TreeNode, tree2: TreeNode) -> Tuple[TreeNode, TreeNo
     # Randomly select a pair to crossover
     st1, st2 = random.choice(pairs)
     
-    # Collect leaf labels from each subtree (to preserve them)
-    def collect_leaf_labels(node):
+    # Check if subtrees have identical structure (would be no-op)
+    def trees_have_same_structure(node1, node2):
+        """Check if two trees have identical branching structure."""
+        if node1.is_leaf and node2.is_leaf:
+            return True
+        if node1.is_leaf != node2.is_leaf:
+            return False
+        if node1.label != node2.label:  # Different V/H split
+            return False
+        return (trees_have_same_structure(node1.left, node2.left) and 
+                trees_have_same_structure(node1.right, node2.right))
+    
+    if trees_have_same_structure(st1, st2):
+        # Identical structure - crossover would be no-op, try to find different pair
+        valid_pairs = [(s1, s2) for s1, s2 in pairs if not trees_have_same_structure(s1, s2)]
+        if not valid_pairs:
+            return offspring1, offspring2  # All pairs have identical structure
+        st1, st2 = random.choice(valid_pairs)
+    
+    # Deep copy the subtrees
+    st1_copy = copy.deepcopy(st1)
+    st2_copy = copy.deepcopy(st2)
+    
+    # Collect indices from both subtrees
+    def collect_leaf_indices(node):
+        """Collect photo indices from leaves in pre-order."""
         if node.is_leaf:
             return [node.item_idx]
-        labels = []
+        indices = []
         if node.left:
-            labels.extend(collect_leaf_labels(node.left))
+            indices.extend(collect_leaf_indices(node.left))
         if node.right:
-            labels.extend(collect_leaf_labels(node.right))
-        return labels
+            indices.extend(collect_leaf_indices(node.right))
+        return indices
     
-    labels1 = collect_leaf_labels(st1)
-    labels2 = collect_leaf_labels(st2)
+    indices1 = collect_leaf_indices(st1_copy)
+    indices2 = collect_leaf_indices(st2_copy)
     
-    # Create deep copies of the subtrees to swap their structure
-    st1_structure = copy.deepcopy(st1)
-    st2_structure = copy.deepcopy(st2)
-    
-    # Reassign leaf labels: st1's structure gets st2's labels, st2's structure gets st1's labels
-    def reassign_labels(node, labels):
-        """Reassign labels to leaf nodes in pre-order traversal."""
-        idx = [0]  # Use list to allow modification in nested function
+    # Reassign: st1_copy gets indices2, st2_copy gets indices1
+    def reassign_indices(node, indices):
+        """Reassign photo indices to leaves in pre-order."""
+        idx = [0]
         def _reassign(n):
             if n.is_leaf:
-                n.label = labels[idx[0]]
-                n.item_idx = labels[idx[0]]
+                n.item_idx = indices[idx[0]]
+                n.label = indices[idx[0]]
                 idx[0] += 1
             else:
                 if n.left:
@@ -247,7 +271,10 @@ def _crossover_trees(tree1: TreeNode, tree2: TreeNode) -> Tuple[TreeNode, TreeNo
                     _reassign(n.right)
         _reassign(node)
     
-    # Fix parent pointers in deep-copied subtrees (deepcopy breaks parent links)
+    reassign_indices(st1_copy, indices2)  # st1 structure gets st2 photos
+    reassign_indices(st2_copy, indices1)  # st2 structure gets st1 photos
+    
+    # Fix parent pointers
     def fix_parent_pointers(node, parent=None):
         node.parent = parent
         if node.left:
@@ -255,25 +282,21 @@ def _crossover_trees(tree1: TreeNode, tree2: TreeNode) -> Tuple[TreeNode, TreeNo
         if node.right:
             fix_parent_pointers(node.right, node)
     
-    reassign_labels(st1_structure, labels1)  # st1's structure keeps st1's labels  
-    reassign_labels(st2_structure, labels2)  # st2's structure keeps st2's labels
+    # Now: st1_copy has parent1's structure with parent2's photos
+    #      st2_copy has parent2's structure with parent1's photos
+    # Replace: st1_copy goes into offspring2 (parent2), st2_copy goes into offspring1 (parent1)
     
-    # Replace subtrees in offspring
-    # st1_structure (with labels2) replaces st1 in offspring1
-    # st2_structure (with labels1) replaces st2 in offspring2
-    
-    # First fix parent pointers with the correct parent
-    fix_parent_pointers(st1_structure, st1.parent)
+    fix_parent_pointers(st2_copy, st1.parent)
     if st1.parent.left == st1:
-        st1.parent.left = st1_structure
+        st1.parent.left = st2_copy
     else:
-        st1.parent.right = st1_structure
+        st1.parent.right = st2_copy
     
-    fix_parent_pointers(st2_structure, st2.parent)
+    fix_parent_pointers(st1_copy, st2.parent)
     if st2.parent.left == st2:
-        st2.parent.left = st2_structure
+        st2.parent.left = st1_copy
     else:
-        st2.parent.right = st2_structure
+        st2.parent.right = st1_copy
     
     return offspring1, offspring2
 
@@ -312,6 +335,9 @@ class FanLayoutAlgorithm(LayoutAlgorithm):
         self.elite_size = elite_size
         self.undersized_threshold = undersized_threshold
         self.undersized_penalty = undersized_penalty
+        
+        # Store best tree from last run
+        self.best_tree = None
     
     def generate_layout(
         self,
@@ -431,6 +457,9 @@ class FanLayoutAlgorithm(LayoutAlgorithm):
                 missing = expected_indices - actual_indices
                 extra = actual_indices - expected_indices
                 return False, [], f"Tree corruption: missing photos {missing}, extra photos {extra}"
+            
+            # Store best tree for later retrieval
+            self.best_tree = best_tree
             
             # Update rectangles in-place
             def update_rectangles(node):
