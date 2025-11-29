@@ -10,7 +10,7 @@ Coordinate system:
 """
 
 from typing import List, Optional, Tuple
-from .base import TreeNode, LayoutRectangle
+from .base import TreeNode, LayoutRectangle, LayoutAlgorithm
 
 
 def build_tree_from_layout(rectangles: List[LayoutRectangle], 
@@ -312,3 +312,81 @@ def find_horizontal_split(indexed_rects: List[Tuple[int, LayoutRectangle]],
             return (y, top, bottom)
     
     return None
+
+
+class TreeBuilderAlgorithm(LayoutAlgorithm):
+    """Layout algorithm that builds a tree from existing layout and recomputes it.
+    
+    This is useful for:
+    1. Validating that a layout can be represented as a slicing tree
+    2. Testing tree-based layout computation
+    3. Debugging tree builder and compute_dimensions/compute_layout
+    
+    The algorithm:
+    1. Takes the input rectangles with their x, y positions
+    2. Builds a binary slicing tree from those positions
+    3. Uses the tree to recompute positions (should match original if preserve_aspect_ratio=True)
+    """
+    
+    def __init__(self, tolerance: float = 20.0):
+        """Initialize tree builder algorithm.
+        
+        Args:
+            tolerance: Tolerance for alignment in MCF units (0.1mm each).
+                      Default 20.0 = 2.0mm.
+        """
+        self.tolerance = tolerance
+    
+    def generate_layout(
+        self,
+        page_width: float,
+        page_height: float,
+        rectangles: List[LayoutRectangle],
+        **kwargs
+    ) -> Tuple[bool, List[LayoutRectangle], str]:
+        """Generate layout by building tree from input positions and recomputing.
+        
+        Args:
+            page_width: Page width
+            page_height: Page height
+            rectangles: Input rectangles with x, y, width, height set
+            
+        Returns:
+            (success, rectangles, error_msg)
+        """
+        if not rectangles:
+            return False, [], "No rectangles to layout"
+        
+        # Build tree from input positions
+        tree = build_tree_from_layout(rectangles, page_width, page_height, self.tolerance)
+        
+        if tree is None:
+            return False, [], "Cannot build slicing tree from this layout (not tree-representable)"
+        
+        # Compute layout from the tree
+        tree.compute_aspect_ratios(rectangles)
+        tree.compute_dimensions(page_width, page_height, rectangles)
+        tree.compute_layout(0, 0)
+        
+        # Collect results
+        leaves = tree.collect_leaves()
+        
+        # Create output rectangles with computed positions
+        output = []
+        for leaf in leaves:
+            rect = rectangles[leaf.item_idx]
+            
+            # Create new rectangle with computed position
+            output_rect = LayoutRectangle(
+                item_id=rect.item_id,
+                width=leaf.width,
+                height=leaf.height,
+                preferred_size=rect.preferred_size,
+                preserve_aspect_ratio=rect.preserve_aspect_ratio,
+                x=leaf.x,
+                y=leaf.y
+            )
+            output_rect.actual_size = leaf.width * leaf.height  # Set actual size
+            output.append(output_rect)
+        
+        return True, output, ""

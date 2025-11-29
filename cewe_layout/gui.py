@@ -16,6 +16,7 @@ from .algorithms.evaluator import evaluate_layout
 from .algorithms.collage_generator import CollageGeneratorAlgorithm
 from .algorithms.genetic_photo_layout import GeneticPhotoLayoutAlgorithm
 from .algorithms.fan_layout import FanLayoutAlgorithm
+from .algorithms.tree_builder import TreeBuilderAlgorithm
 from .gap_utils import (
     estimate_gap,
     estimate_gaps,
@@ -112,7 +113,7 @@ class LayoutViewer:
         algo_menu = ttk.OptionMenu(
             self.ctrl, self.algorithm_var,
             'Collage-Gen',  # default
-            'Collage-Gen', 'Generic-GA', 'Fan-GA'
+            'Collage-Gen', 'Generic-GA', 'Fan-GA', 'Tree-Builder'
         )
         algo_menu.grid(row=1, column=1, padx=(0, 8), pady=4, sticky='ew')
         
@@ -845,6 +846,8 @@ class LayoutViewer:
                     undersized_threshold=self.undersized_threshold,
                     undersized_penalty=self.undersized_penalty
                 )
+            elif algo_name == 'Tree-Builder':
+                algorithm = TreeBuilderAlgorithm(tolerance=20.0)
             else:
                 algorithm = CollageGeneratorAlgorithm(temperature=1.0)  # fallback
             
