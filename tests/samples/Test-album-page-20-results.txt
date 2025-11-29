@@ -22,3 +22,9 @@ Details:
   Undersized count: 0
 
 
+
+=== Tree Layout Cost ===
+Tree building FAILED
+Cannot build tree from this layout (tolerance=20.0)
+
+

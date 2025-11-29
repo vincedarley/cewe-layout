@@ -22,3 +22,19 @@ Details:
   Undersized count: 0
 
 
+
+=== Tree Layout Cost ===
+Total cost: 145536.46
+
+Components:
+  Empty space cost: 0.00
+  Size mismatch cost: 145536.46
+    - Normal: 26693.88
+    - Undersized: 118842.58
+
+Details:
+  Empty fraction: 0.0457 (4.57%)
+  Undersized count: 2
+  Tree tolerance: 20.0 units (2.0 mm)
+
+
