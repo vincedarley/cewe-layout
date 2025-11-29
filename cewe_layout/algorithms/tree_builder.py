@@ -84,7 +84,7 @@ def build_tree_from_layout(rectangles: List[LayoutRectangle],
 
 def _build_tree_recursive(indexed_rects: List[Tuple[int, LayoutRectangle]],
                          width: float, height: float,
-                         tolerance: float) -> Optional[TreeNode]:
+                         tolerance: float, depth: int = 0) -> Optional[TreeNode]:
     """Recursive helper for building tree from indexed rectangles."""
     if not indexed_rects:
         return None
@@ -101,17 +101,45 @@ def _build_tree_recursive(indexed_rects: List[Tuple[int, LayoutRectangle]],
     
     direction, position, left_rects, right_rects = split
     
-    # Recurse
+    # Adjust rectangle coordinates to be relative to the subregion
     if direction == 'V':
+        # Vertical split: adjust x coordinates of right side
+        adjusted_right = []
+        for idx, rect in right_rects:
+            adjusted_rect = LayoutRectangle(
+                item_id=rect.item_id,
+                width=rect.width,
+                height=rect.height,
+                preferred_size=rect.preferred_size,
+                preserve_aspect_ratio=rect.preserve_aspect_ratio,
+                x=rect.x - position,  # Adjust x coordinate
+                y=rect.y
+            )
+            adjusted_right.append((idx, adjusted_rect))
+        
         left_width = position
         right_width = width - position
-        left_tree = _build_tree_recursive(left_rects, left_width, height, tolerance)
-        right_tree = _build_tree_recursive(right_rects, right_width, height, tolerance)
+        left_tree = _build_tree_recursive(left_rects, left_width, height, tolerance, depth + 1)
+        right_tree = _build_tree_recursive(adjusted_right, right_width, height, tolerance, depth + 1)
     else:  # 'H'
+        # Horizontal split: adjust y coordinates of bottom side
+        adjusted_bottom = []
+        for idx, rect in right_rects:
+            adjusted_rect = LayoutRectangle(
+                item_id=rect.item_id,
+                width=rect.width,
+                height=rect.height,
+                preferred_size=rect.preferred_size,
+                preserve_aspect_ratio=rect.preserve_aspect_ratio,
+                x=rect.x,
+                y=rect.y - position  # Adjust y coordinate
+            )
+            adjusted_bottom.append((idx, adjusted_rect))
+        
         top_height = position
         bottom_height = height - position
-        left_tree = _build_tree_recursive(left_rects, width, top_height, tolerance)
-        right_tree = _build_tree_recursive(right_rects, width, bottom_height, tolerance)
+        left_tree = _build_tree_recursive(left_rects, width, top_height, tolerance, depth + 1)
+        right_tree = _build_tree_recursive(adjusted_bottom, width, bottom_height, tolerance, depth + 1)
     
     if left_tree is None or right_tree is None:
         return None
