@@ -1,0 +1,40 @@
+PAGE: 3820.0 x 2900.0, origin: 3820.0
+
+Photo 0: pos: (3975.63, 155.61), slot: 792.296 x 792.195, img: 444 x 450, size: 5.7%
+  safecontainer:/o1k6kl2b_1_x43dffdc2-d8e6-43ba-8b7c-a6ab36d4ba70_2fl0_2f001_full.jpg.jpeg
+
+Photo 1: pos: (4881.11, 155.61), slot: 792.296 x 792.195, img: 450 x 450, size: 5.7%
+  safecontainer:/m7v1pq01_1_x1e6b2183-18d4-43d9-b6cf-9e051e20230e_2fl0_2f001_full.jpg.jpeg
+
+Photo 2: pos: (5786.59, 155.61), slot: 792.296 x 792.195, img: 447 x 450, size: 5.7%
+  safecontainer:/z78rqy3a_1_xbf4c85c3-b776-4c71-8a2d-a63c4132ebaf_2fl0_2f001_full.jpg.jpeg
+
+Photo 3: pos: (6692.07, 155.61), slot: 792.296 x 792.195, img: 446 x 450, size: 5.7%
+  safecontainer:/wdp81c0q_1_xbd69cfcc-b154-484b-8f59-60b8338e15bf_2fl0_2f001_full.jpg.jpeg
+
+Photo 4: pos: (3975.63, 1060.98), slot: 792.296 x 792.195, img: 450 x 444, size: 5.7%
+  safecontainer:/7hkf8hjf_1_x27ad7cce-0abd-43b7-8b3f-c7d7b589ad85_2fl0_2f001_full.jpg.jpeg
+
+Photo 5: pos: (4881.11, 1060.98), slot: 792.296 x 792.195, img: 443 x 450, size: 5.7%
+  safecontainer:/k10tzd71_1_x53db297c-60ed-4cbe-a5a1-6ea36768999c_2fl0_2f001_full.jpg.jpeg
+
+Photo 6: pos: (5786.59, 1060.98), slot: 792.296 x 792.195, img: 448 x 450, size: 5.7%
+  safecontainer:/t0f70b1g_1_xbac42cc4-129c-4955-8e8f-bfb9aee0348f_2fl0_2f001_full.jpg.jpeg
+
+Photo 7: pos: (6692.07, 1060.98), slot: 792.296 x 792.195, img: 450 x 449, size: 5.7%
+  safecontainer:/mxc56vs0_1_xdff40a86-8919-44ae-ac71-1353ffdd5edc_2fl0_2f001_full.jpg.jpeg
+
+Photo 8: pos: (3975.63, 1952.2), slot: 792.296 x 806.341, img: 450 x 448, size: 5.8%
+  safecontainer:/gvim81qu_1_xb2487993-1237-48cb-a20f-12ff06f3545d_2fl0_2f001_full.jpg.jpeg
+
+Photo 9: pos: (4881.11, 1952.2), slot: 792.296 x 806.341, img: 450 x 446, size: 5.8%
+  safecontainer:/yzth56yi_1_xd2ccac0c-e1ee-40f6-9a34-900516b7a840_2fl0_2f001_full.jpg.jpeg
+
+Photo 10: pos: (5786.59, 1952.2), slot: 792.296 x 806.341, img: 447 x 450, size: 5.8%
+  safecontainer:/7xkgiknd_1_xb6980066-a221-4632-81fe-c27313cea898_2fl0_2f001_full.jpg.jpeg
+
+Photo 11: pos: (6692.07, 1952.2), slot: 792.296 x 612.344, img: 450 x 360, size: 4.4%
+  safecontainer:/cwgnaqsu_1_x4b3ba18a-aff0-4418-8375-a91a988fb709_2fl0_2f001_full.jpg.jpeg
+
+Text 0: pos: (6720.37, 2630.54), size: 764.0 x 128.0, area: 0.9%
+

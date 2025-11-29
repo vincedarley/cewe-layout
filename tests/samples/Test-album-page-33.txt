@@ -1,0 +1,35 @@
+PAGE: 3820.0 x 2900.0, origin: 3820.0
+
+Photo 0: pos: (6692.07, 155.61), slot: 792.296 x 563.024, img: 4032 x 3024, size: 4.0%
+  safecontainer:/q8tkug60_1_x397ad51d-7739-445d-9377-9d3c4b9ed7b1_2fl0_2f001_full.jpg.jpeg
+
+Photo 1: pos: (4881.11, 155.61), slot: 1697.78 x 789.366, img: 4032 x 3024, size: 12.1%
+  safecontainer:/k6yee5ae_1_xbb7dba9b-4fa1-42e6-83c5-ca298649ea82_2fl0_2f001_full.jpg.jpeg
+
+Photo 2: pos: (3975.63, 155.61), slot: 792.296 x 563.024, img: 4032 x 3024, size: 4.0%
+  safecontainer:/w1isjnjd_1_x71bc710e-eb72-48f0-8347-39d1f615a023_2fl0_2f001_full.jpg.jpeg
+
+Photo 3: pos: (6692.07, 831.805), slot: 792.296 x 563.024, img: 2048 x 1536, size: 4.0%
+  safecontainer:/olqm8ibf_1_xeff59248-ac4d-4250-a031-e4684535ade5_2fl0_2f001_full.jpg.jpeg
+
+Photo 4: pos: (3975.63, 831.805), slot: 792.296 x 563.024, img: 4032 x 3024, size: 4.0%
+  safecontainer:/i24e22wu_1_x50a9810c-b4da-41fe-b36f-540f2c8e3cd6_2fl0_2f001_full.jpg.jpeg
+
+Photo 5: pos: (4881.11, 1056.73), slot: 1697.78 x 786.537, img: 2016 x 908, size: 12.1%
+  safecontainer:/58ckupzd_1_x7429f7fb-c8a1-4df9-82cb-11e3f8d791a4_2fl0_2f001_full.jpg.jpeg
+
+Photo 6: pos: (6692.07, 1506.59), slot: 792.296 x 563.024, img: 4032 x 3024, size: 4.0%
+  safecontainer:/r6uh53kt_1_x5d301fe7-7c67-41ce-a877-413f953cb8f7_2fl0_2f001_full.jpg.jpeg
+
+Photo 7: pos: (3975.63, 1506.59), slot: 792.296 x 563.024, img: 4032 x 3024, size: 4.0%
+  safecontainer:/3juclzgj_1_x8826b9cc-5d48-4d11-bf9b-843a5c4eed26_2fl0_2f001_full.jpg.jpeg
+
+Photo 8: pos: (6692.07, 2182.78), slot: 792.296 x 563.024, img: 3840 x 2160, size: 4.0%
+  safecontainer:/ytanf4oj_1_x7dc45f2d-8c3a-4c78-8023-27b29c0cc8be_2fl0_2f001_full.jpg.jpeg
+
+Photo 9: pos: (4881.11, 1956.44), slot: 1697.78 x 789.366, img: 4899 x 4899, size: 12.1%
+  safecontainer:/m6pjz2lv_1_xab2bb6af-ac08-4954-94c4-bdf38f17d55c_2fl0_2f001_full.jpg.jpeg
+
+Photo 10: pos: (3975.63, 2182.78), slot: 792.296 x 563.024, img: 3088 x 2316, size: 4.0%
+  safecontainer:/5s0hpqxh_1_x5855199c-5a41-43d6-96d5-08b925cbb0cc_2fl0_2f001_full.jpg.jpeg
+

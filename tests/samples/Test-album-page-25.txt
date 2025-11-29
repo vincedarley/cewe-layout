@@ -1,0 +1,35 @@
+PAGE: 3820.0 x 2900.0, origin: 3820.0
+
+Photo 0: pos: (3975.63, 155.61), slot: 593.424 x 789.366, img: 3024 x 4032, size: 4.2%
+  safecontainer:/dya4zwlj_1_xf41ea070-4067-4760-9a65-9c0bdc331ba0_2fl0_2f001_full.jpg.jpeg
+
+Photo 1: pos: (4696.44, 155.61), slot: 976.963 x 789.366, img: 4032 x 3024, size: 7.0%
+  safecontainer:/2ht4f0yp_1_x366f2b3f-527f-4b96-8ed9-c5e058cfe777_2fl0_2f001_full.jpg.jpeg
+
+Photo 2: pos: (5786.59, 155.61), slot: 792.296 x 789.366, img: 3088 x 2316, size: 5.6%
+  safecontainer:/qvwvpbqb_1_x417a1a48-322b-469d-be5d-59a8297b0b8a_2fl0_2f001_full.jpg.jpeg
+
+Photo 3: pos: (6692.07, 155.61), slot: 792.296 x 789.366, img: 4032 x 3024, size: 5.6%
+  safecontainer:/5pvfieqa_1_xffe5ad1c-2652-4641-af2c-972a31d80408_2fl0_2f001_full.jpg.jpeg
+
+Photo 4: pos: (3975.63, 1056.73), slot: 1095.07 x 786.537, img: 4032 x 3024, size: 7.8%
+  safecontainer:/ilfemb65_1_x8fab316f-1931-4124-bd93-139103626dca_2fl0_2f001_full.jpg.jpeg
+
+Photo 5: pos: (5182.47, 1056.73), slot: 1095.07 x 786.537, img: 4032 x 3024, size: 7.8%
+  safecontainer:/66eysiyt_1_xbdda5109-c1d6-4338-b005-8190f7177e1f_2fl0_2f001_full.jpg.jpeg
+
+Photo 6: pos: (6390.72, 1056.73), slot: 1095.07 x 786.537, img: 4032 x 3024, size: 7.8%
+  safecontainer:/7j8hvrck_1_x58a96d3a-2869-452c-ad30-b41eb62b6271_2fl0_2f001_full.jpg.jpeg
+
+Photo 7: pos: (3975.63, 1956.44), slot: 385.082 x 789.366, img: 1170 x 2532, size: 2.7%
+  safecontainer:/h9bs1cn7_1_x036fa66f-be93-4e2c-8536-00c7d4146978_2fl0_2f001_full.jpg.jpeg
+
+Photo 8: pos: (4478.63, 1956.44), slot: 1194.78 x 789.366, img: 4032 x 3024, size: 8.5%
+  safecontainer:/b3057fko_1_xdc574d12-ba8d-4163-870c-5b71798197d4_2fl0_2f001_full.jpg.jpeg
+
+Photo 9: pos: (5786.59, 1956.44), slot: 792.296 x 789.366, img: 4032 x 3024, size: 5.6%
+  safecontainer:/pub4576m_1_xad7b32f7-ce8d-4e26-b40b-f3744d6dfae8_2fl0_2f001_full.jpg.jpeg
+
+Photo 10: pos: (6692.07, 1956.44), slot: 792.296 x 789.366, img: 1920 x 1080, size: 5.6%
+  safecontainer:/f436h7nt_1_xc4d3b210-c33e-4c9b-b721-866d53acae7b_2fl0_2f001_full.jpg.jpeg
+

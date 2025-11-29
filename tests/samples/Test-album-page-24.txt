@@ -1,0 +1,37 @@
+PAGE: 3820.0 x 2900.0, origin: 0.0
+
+Photo 0: pos: (155.711, 155.793), slot: 551.0 x 789.0, img: 2160 x 3840, size: 3.9%
+  safecontainer:/t5fikws4_1_xff749078-9af6-47ba-8243-987ab8e78d9f_2fl0_2f001_full.jpg.jpeg
+
+Photo 1: pos: (785.611, 155.793), slot: 551.0 x 789.0, img: 3024 x 4032, size: 3.9%
+  safecontainer:/x383mbdm_1_x140a3c40-0f1a-4cd6-aeb5-96c909ef54ec_2fl0_2f001_full.jpg.jpeg
+
+Photo 2: pos: (1415.51, 155.793), slot: 551.0 x 789.0, img: 3024 x 4032, size: 3.9%
+  safecontainer:/hjoidv1l_1_xb297c267-6356-4053-bc23-bf91a588f42f_2fl0_2f001_full.jpg.jpeg
+
+Photo 3: pos: (2076.59, 155.61), slot: 1587.78 x 789.366, img: 4032 x 3024, size: 11.3%
+  safecontainer:/ok7h6ple_1_xb2341c5a-766a-4423-8af3-0932f2def7e1_2fl0_2f001_full.jpg.jpeg
+
+Photo 4: pos: (155.63, 1056.73), slot: 1095.07 x 786.537, img: 4032 x 3024, size: 7.8%
+  safecontainer:/by1l1gby_1_xf9005417-dc63-449b-8269-4dd5b74e3906_2fl0_2f001_full.jpg.jpeg
+
+Photo 5: pos: (1362.47, 1056.73), slot: 1095.07 x 786.537, img: 4032 x 3024, size: 7.8%
+  safecontainer:/16ucn7d2_1_xa002a3b0-cf33-4318-bd5c-9d98a702fa76_2fl0_2f001_full.jpg.jpeg
+
+Photo 6: pos: (2570.72, 1056.73), slot: 1095.07 x 786.537, img: 4032 x 3024, size: 7.8%
+  safecontainer:/et40n7ot_1_xd37d9fb0-0074-4871-9893-a0fde8f9aacd_2fl0_2f001_full.jpg.jpeg
+
+Photo 7: pos: (155.63, 1956.44), slot: 792.296 x 789.366, img: 4032 x 3024, size: 5.6%
+  safecontainer:/4pdz1tg3_1_x0d2de80b-107a-41fe-89b4-408225a3dc52_2fl0_2f001_full.jpg.jpeg
+
+Photo 8: pos: (1061.11, 2392.72), slot: 586.417 x 353.089, img: 1497 x 1125, size: 1.9%
+  safecontainer:/14mgl0ri_1_xcf6496f7-1c96-4a4e-bdab-c19872cebf7e_2fl0_2f001_full.jpg.jpeg
+
+Photo 9: pos: (1753.52, 1954.63), slot: 585.642 x 789.366, img: 3024 x 4032, size: 4.2%
+  safecontainer:/vqmq26f5_1_xc3dcbb6f-03fa-4be7-9705-77135463e747_2fl0_2f001_full.jpg.jpeg
+
+Photo 10: pos: (2457.53, 1956.44), slot: 1206.84 x 789.366, img: 4032 x 3024, size: 8.6%
+  safecontainer:/fpwnhfo4_1_x5c458274-c2cc-4ec0-b4ff-641705f741dd_2fl0_2f001_full.jpg.jpeg
+
+Text 0: pos: (1051.18, 1955.57), size: 764.0 x 336.188, area: 2.3%
+

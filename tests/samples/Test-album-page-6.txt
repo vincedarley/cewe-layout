@@ -1,0 +1,5 @@
+PAGE: 3820.0 x 2900.0, origin: 0.0
+
+Photo 0: pos: (-30.0, -30.0), slot: 3850.0 x 2960.0, img: 4032 x 3024, size: 102.9%
+  safecontainer:/p3cdh4vj_1_xf205a345-ca24-4644-8dba-dcf055935051_2fl0_2f001_full.jpg.jpeg
+

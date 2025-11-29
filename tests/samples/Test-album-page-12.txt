@@ -1,0 +1,11 @@
+PAGE: 3820.0 x 2900.0, origin: 0.0
+
+Photo 0: pos: (156.0, 156.0), slot: 1697.0 x 2588.0, img: 3024 x 4032, size: 39.6%
+  safecontainer:/kf6zcvyf_1_x33058985-d535-4efd-ae61-188554eb1893_2fl0_2f001_full.jpg.jpeg
+
+Photo 1: pos: (1967.0, 156.0), slot: 1697.0 x 1239.0, img: 4032 x 3024, size: 19.0%
+  safecontainer:/czydvyuj_1_x972fb2df-8819-4df5-bc5b-d36c8935d0d9_2fl0_2f001_full.jpg.jpeg
+
+Photo 2: pos: (1967.0, 1507.0), slot: 1697.0 x 1239.0, img: 4032 x 3024, size: 19.0%
+  safecontainer:/hpgq9t0g_1_xacb77e57-c8fe-4e25-b6b6-43af189beed3_2fl0_2f001_full.jpg.jpeg
+

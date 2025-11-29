@@ -1,0 +1,23 @@
+PAGE: 3820.0 x 2900.0, origin: 3820.0
+
+Photo 0: pos: (5786.59, 155.61), slot: 1697.78 x 2588.78, img: 3024 x 4032, size: 39.7%
+  safecontainer:/zrwjsjlz_1_xc5f00c7b-d8b8-43d1-a5b9-a39183d6b78c_2fl0_2f001_full.jpg.jpeg
+
+Photo 1: pos: (5062.21, 155.61), slot: 611.2 x 789.366, img: 3024 x 4032, size: 4.4%
+  safecontainer:/6kfn3rt6_1_xfaed8bdd-5dc8-4e30-b22e-8f7eb25c84c8_2fl0_2f001_full.jpg.jpeg
+
+Photo 2: pos: (3975.63, 155.61), slot: 973.393 x 789.366, img: 4032 x 3024, size: 6.9%
+  safecontainer:/smp4k2r2_1_x89442b64-bb54-4e97-a7f9-4737681a5ee7_2fl0_2f001_full.jpg.jpeg
+
+Photo 3: pos: (4700.01, 1056.73), slot: 973.393 x 786.537, img: 4032 x 3024, size: 6.9%
+  safecontainer:/fcznhrg1_1_x9a058dbd-03b8-4535-9859-12444bec199e_2fl0_2f001_full.jpg.jpeg
+
+Photo 4: pos: (3974.21, 1056.73), slot: 605.541 x 786.537, img: 3024 x 4032, size: 4.3%
+  safecontainer:/74dpx5wj_1_x15cb331f-58e5-4421-b6ff-c3495409f373_2fl0_2f001_full.jpg.jpeg
+
+Photo 5: pos: (5062.21, 1956.44), slot: 611.2 x 789.366, img: 3024 x 4032, size: 4.4%
+  safecontainer:/ytc9knro_1_x23df1398-b7e8-4b65-901f-ea7385d98d00_2fl0_2f001_full.jpg.jpeg
+
+Photo 6: pos: (3975.63, 1956.44), slot: 973.393 x 789.366, img: 4032 x 3024, size: 6.9%
+  safecontainer:/lrr1lhgv_1_xe828ef3f-09d4-4ceb-851d-8edc7545ec03_2fl0_2f001_full.jpg.jpeg
+

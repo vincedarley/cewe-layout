@@ -1,0 +1,35 @@
+PAGE: 3820.0 x 2900.0, origin: 0.0
+
+Photo 0: pos: (155.63, 155.61), slot: 792.296 x 563.024, img: 4032 x 3024, size: 4.0%
+  safecontainer:/b0809dq2_1_xf089ad2f-489d-462c-ae9c-ac664e31b8c0_2fl0_2f001_full.jpg.jpeg
+
+Photo 1: pos: (155.63, 831.805), slot: 792.296 x 563.024, img: 3024 x 4032, size: 4.0%
+  safecontainer:/3644w0d4_1_x7ef144ce-51aa-41a1-b468-7ae67b14db02_2fl0_2f001_full.jpg.jpeg
+
+Photo 2: pos: (1061.11, 155.61), slot: 1697.78 x 1239.22, img: 4032 x 3024, size: 19.0%
+  safecontainer:/g8mmtt5z_1_x622ea387-fdcb-47a3-b90d-182767b9bce4_2fl0_2f001_full.jpg.jpeg
+
+Photo 3: pos: (2872.07, 155.61), slot: 792.296 x 563.024, img: 4032 x 3024, size: 4.0%
+  safecontainer:/eqgszskt_1_xdf99ccde-3a4c-47f0-8d79-cb050f270bdb_2fl0_2f001_full.jpg.jpeg
+
+Photo 4: pos: (2872.07, 831.805), slot: 792.296 x 563.024, img: 4032 x 3024, size: 4.0%
+  safecontainer:/k1f6cwm8_1_x96f27bc8-de36-4668-9db8-1d4999de39e4_2fl0_2f001_full.jpg.jpeg
+
+Photo 5: pos: (155.63, 1506.59), slot: 792.296 x 563.024, img: 4032 x 3024, size: 4.0%
+  safecontainer:/g7n9xsct_1_x32ecd75a-7bf6-4519-9899-8e9405647f4b_2fl0_2f001_full.jpg.jpeg
+
+Photo 6: pos: (155.63, 2182.78), slot: 792.296 x 563.024, img: 4032 x 3024, size: 4.0%
+  safecontainer:/j88aywwf_1_x70d239f1-b984-47cb-93a6-72fdc8254ab7_2fl0_2f001_full.jpg.jpeg
+
+Photo 7: pos: (1061.11, 1506.59), slot: 794.219 x 1239.22, img: 3024 x 4032, size: 8.9%
+  safecontainer:/37w3sdng_1_x00264d7e-d54f-4842-813e-976efcef5899_2fl0_2f001_full.jpg.jpeg
+
+Photo 8: pos: (2872.07, 1506.59), slot: 792.296 x 563.024, img: 4032 x 3024, size: 4.0%
+  safecontainer:/rdetz6re_1_x8e0375ee-6a7d-445b-bf8c-d247a229309c_2fl0_2f001_full.jpg.jpeg
+
+Photo 9: pos: (2872.07, 2182.78), slot: 792.296 x 563.024, img: 4032 x 3024, size: 4.0%
+  safecontainer:/925rg61f_1_xc39398f8-e39a-4525-83e3-920b3301c218_2fl0_2f001_full.jpg.jpeg
+
+Photo 10: pos: (1972.41, 1506.81), slot: 786.482 x 1239.0, img: 3024 x 4032, size: 8.8%
+  safecontainer:/o9ch9avc_1_xc270bc58-120d-4415-b014-f23e99c3b103_2fl0_2f001_full.jpg.jpeg
+
