@@ -17,20 +17,23 @@ from cewe_layout.algorithms.fan_layout import FanLayoutAlgorithm, _evaluate_cost
 from cewe_layout.algorithms.base import LayoutRectangle
 import cv2
 
-def load_page_rectangles(page_data, mcf_base_folder, edge_gap=155.6):
+def load_page_rectangles(page_data, mcf_base_folder):
     """
     Load rectangles from page data with positions and slot dimensions.
+    
+    MCF positions are absolute coordinates on the page. For right pages,
+    we need to subtract origin_left to get page-relative coordinates.
     
     Args:
         page_data: Page dict from extract_pages_info
         mcf_base_folder: Base folder for images
-        edge_gap: Edge gap in MCF units (default 155.6 for typical margins)
     
     Returns:
         List of LayoutRectangle objects with x, y, width, height set
     """
     rectangles = []
     photos = page_data.get('photos', [])
+    origin_left = page_data.get('origin_left', 0.0)
     
     for idx, photo in enumerate(photos):
         # Use slot dimensions (area_width, area_height)
@@ -42,9 +45,9 @@ def load_page_rectangles(page_data, mcf_base_folder, edge_gap=155.6):
         if width <= 0 or height <= 0:
             continue
             
-        # Adjust to gap-free coordinates
-        x = float(left) - edge_gap
-        y = float(top) - edge_gap
+        # Adjust for right page offset
+        x = float(left) - origin_left
+        y = float(top)
         
         rect = LayoutRectangle(
             item_id=str(idx),
@@ -71,17 +74,21 @@ def main():
     print("=" * 70)
     
     tolerance = 20.0  # 2mm tolerance for tree building
-    edge_gap = 155.6  # Typical edge gap
-    internal_gap = 0.0  # No internal gaps in these layouts
     
     # Skip pages 23, 24 (known to not be tree-representable)
     skip_pages = {23, 24}
+    
+    # For initial testing, only test first few pages
+    test_limit = 5  # Remove this limit after validating the script works
     
     results = []
     
     for page_num, page_data in pages:
         if page_num in skip_pages:
             continue
+        
+        if len(results) >= test_limit:
+            break
             
         photos = page_data.get('photos', [])
         if len(photos) == 0:
@@ -91,17 +98,13 @@ def main():
         page_height = page_data.get('page_height', 0)
         
         # Load rectangles with slot dimensions and positions
-        rectangles = load_page_rectangles(page_data, mcf_base, edge_gap)
+        rectangles = load_page_rectangles(page_data, mcf_base)
         
         if len(rectangles) == 0:
             continue
         
-        # Adjust page to gap-free coordinates
-        algo_page_width = page_width - 2 * edge_gap
-        algo_page_height = page_height - 2 * edge_gap
-        
         # Step 1: Build tree and compute cost
-        tree = build_tree_from_layout(rectangles, algo_page_width, algo_page_height, tolerance)
+        tree = build_tree_from_layout(rectangles, page_width, page_height, tolerance)
         
         if tree is None:
             print(f"Page {page_num}: SKIP - cannot build tree (unexpected!)")
@@ -109,18 +112,23 @@ def main():
         
         # Compute tree layout
         tree.compute_aspect_ratios(rectangles)
-        tree.compute_dimensions(algo_page_width, algo_page_height, rectangles)
+        tree.compute_dimensions(page_width, page_height, rectangles)
         tree.compute_layout(0, 0)
         
         # Compute cost for tree layout
         tree_cost = _evaluate_cost(
-            tree, algo_page_width, algo_page_height, rectangles
+            tree, page_width, page_height, rectangles
         )
+        
+        # VALIDATION: Tree cost should be very low (typically < 1000)
+        if tree_cost > 1000:
+            print(f"Page {page_num:2d}: WARNING - Tree cost is {tree_cost:.1f} (expected < 1000). Skipping this page.")
+            continue
         
         # Step 2: Run Fan-GA on same page
         fan_algo = FanLayoutAlgorithm(
-            generations=50,  # Reduced for faster testing
-            population_size=30
+            generations=20,  # Reduced for faster testing
+            population_size=20
         )
         
         # Fan-GA needs rectangles without positions (generates new layout)
@@ -136,7 +144,7 @@ def main():
             fan_rectangles.append(fan_rect)
         
         success, positioned_rects, error_msg = fan_algo.generate_layout(
-            algo_page_width, algo_page_height, fan_rectangles
+            page_width, page_height, fan_rectangles
         )
         
         if not success:
@@ -152,7 +160,7 @@ def main():
         
         # Build tree from Fan-GA result to compute cost
         fan_tree = build_tree_from_layout(
-            positioned_rects, algo_page_width, algo_page_height, tolerance
+            positioned_rects, page_width, page_height, tolerance
         )
         
         if fan_tree is None:
@@ -162,10 +170,10 @@ def main():
             fan_note = "Non-tree layout"
         else:
             fan_tree.compute_aspect_ratios(positioned_rects)
-            fan_tree.compute_dimensions(algo_page_width, algo_page_height, positioned_rects)
+            fan_tree.compute_dimensions(page_width, page_height, positioned_rects)
             fan_tree.compute_layout(0, 0)
             fan_cost = _evaluate_cost(
-                fan_tree, algo_page_width, algo_page_height, positioned_rects
+                fan_tree, page_width, page_height, positioned_rects
             )
             fan_note = "OK"
         
