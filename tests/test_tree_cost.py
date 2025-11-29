@@ -124,11 +124,12 @@ def test_page_tree_cost(page_file: Path):
         original_rectangles.append(rect)
     
     # Now compute preferred sizes using gap-free areas (matching GUI)
-    gap = gap_analysis.internal_gap if gap_analysis.internal_gap > 0 else gap_analysis.edge_gap
-    total_gf_area = sum((r.width + gap) * (r.height + gap) for r in original_rectangles)
+    # GUI uses transform_item_to_gapfree which adds internal_gap to dimensions
+    # We already added internal_gap to rect dimensions above, so use those directly
+    total_gf_area = sum(r.width * r.height for r in original_rectangles)
     
     for rect in original_rectangles:
-        gf_area = (rect.width + gap) * (rect.height + gap)
+        gf_area = rect.width * rect.height
         rect.preferred_size = (gf_area / total_gf_area * 10.0) if total_gf_area > 0 else 1.0
     
     if not original_rectangles:

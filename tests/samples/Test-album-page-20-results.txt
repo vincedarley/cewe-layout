@@ -24,7 +24,17 @@ Details:
 
 
 === Tree Layout Cost ===
-Tree building FAILED
-Cannot build tree from this layout (tolerance=20.0)
+Total cost: 525.20
+
+Components:
+  Empty space cost: 0.00
+  Size mismatch cost: 525.20
+    - Normal: 525.20
+    - Undersized: 0.00
+
+Details:
+  Empty fraction: 0.0144 (1.44%)
+  Undersized count: 0
+  Tree tolerance: 20.0 units (2.0 mm)
 
 

@@ -25,12 +25,12 @@ Details:
 
 
 === Tree Layout Cost ===
-Total cost: 15415.44
+Total cost: 45.48
 
 Components:
   Empty space cost: 0.00
-  Size mismatch cost: 15415.44
-    - Normal: 15415.44
+  Size mismatch cost: 45.48
+    - Normal: 45.48
     - Undersized: 0.00
 
 Details:
