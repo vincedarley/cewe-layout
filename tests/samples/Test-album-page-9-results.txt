@@ -1,0 +1,9 @@
+=== Gap Analysis ===
+Edge gap: 155.90 units (15.59 mm)
+Internal gap: 94.95 units (9.49 mm)
+Bleed: 0.00 units (0.00 mm)
+
+Edge gaps: [155.63, 156.43, 155.63]
+Internal gaps: [86.92, 96.95, 72.61, 96.95, 96.96, 96.96]
+Bleed margins: []
+
