@@ -7,3 +7,18 @@ Edge gaps: [156.0, 156.0, 156.0, 156.0]
 Internal gaps: [114.0, 112.0, 112.0, 114.0]
 Bleed margins: []
 
+
+=== Original Layout Cost ===
+Total cost: 0.17
+
+Components:
+  Empty space cost: 0.00
+  Size mismatch cost: 0.17
+    - Normal: 0.17
+    - Undersized: 0.00
+
+Details:
+  Empty fraction: -0.0008 (-0.08%)
+  Undersized count: 0
+
+
