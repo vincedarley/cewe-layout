@@ -3,6 +3,10 @@ Build a binary slicing tree from a set of non-overlapping rectangles.
 
 This module implements the algorithm to construct a TreeNode representation
 from an existing layout by finding splitting lines.
+
+Coordinate system:
+    MCF coordinates use units of 0.1mm (10 units = 1mm).
+    This matches the cewe2pdf coordinate system.
 """
 
 from typing import List, Optional, Tuple
@@ -12,7 +16,7 @@ from .base import TreeNode, LayoutRectangle
 def build_tree_from_layout(rectangles: List[LayoutRectangle], 
                            page_width: float, 
                            page_height: float,
-                           tolerance: float = 10.0) -> Optional[TreeNode]:
+                           tolerance: float = 20.0) -> Optional[TreeNode]:
     """Build a binary slicing tree from a layout.
     
     Algorithm:
@@ -25,8 +29,8 @@ def build_tree_from_layout(rectangles: List[LayoutRectangle],
         rectangles: List of LayoutRectangle objects with x, y, width, height set
         page_width: Width of the page/region
         page_height: Height of the page/region
-        tolerance: Tolerance for alignment (in same units as coordinates).
-                   Default 10.0 allows for small overlaps/bleeds in layouts.
+        tolerance: Tolerance for alignment in MCF units (0.1mm each).
+                   Default 20.0 = 2.0mm, allows for small overlaps/bleeds.
         
     Returns:
         Root TreeNode, or None if layout cannot be represented as a slicing tree
