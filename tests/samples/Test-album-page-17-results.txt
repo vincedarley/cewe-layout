@@ -10,16 +10,16 @@ Bleed margins: []
 
 
 === Original Layout Cost ===
-Total cost: 1416.28
+Total cost: 0.08
 
 Components:
-  Empty space cost: 1.78
-  Size mismatch cost: 1414.51
-    - Normal: 1414.51
+  Empty space cost: 0.00
+  Size mismatch cost: 0.08
+    - Normal: 0.08
     - Undersized: 0.00
 
 Details:
-  Empty fraction: 0.0678 (6.78%)
+  Empty fraction: 0.0005 (0.05%)
   Undersized count: 0
 
 

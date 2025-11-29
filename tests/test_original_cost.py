@@ -50,6 +50,15 @@ def test_page_cost(page_file: Path):
             'area_height': photo['slot_height']
         })
     
+    for text in page_data.texts:
+        pos_x, pos_y = text['pos']
+        items.append({
+            'area_left': pos_x,
+            'area_top': pos_y,
+            'area_width': text['width'],
+            'area_height': text['height']
+        })
+    
     gap_analysis = analyze_gaps(items, page_data.page_width, page_data.page_height, page_data.origin_left)
     
     # Transform page to gap-free space
@@ -62,6 +71,8 @@ def test_page_cost(page_file: Path):
     
     # Transform rectangles to gap-free space
     rectangles = []
+    
+    # Add photos
     for i, photo in enumerate(page_data.photos):
         pos_x, pos_y = photo['pos']
         slot_w, slot_h = photo['slot_width'], photo['slot_height']
@@ -77,11 +88,38 @@ def test_page_cost(page_file: Path):
         preferred_size = gf_width * gf_height
         
         rect = LayoutRectangle(
-            item_id=str(i),
+            item_id=f'photo_{i}',
             width=gf_width,
             height=gf_height,
             preferred_size=preferred_size,
             preserve_aspect_ratio=True,
+            x=gf_left,
+            y=gf_top
+        )
+        rect.actual_size = preferred_size
+        rectangles.append(rect)
+    
+    # Add text blocks
+    for i, text in enumerate(page_data.texts):
+        pos_x, pos_y = text['pos']
+        text_w, text_h = text['width'], text['height']
+        
+        # Transform to gap-free coordinates
+        gf_left, gf_top, gf_width, gf_height = transform_item_to_gapfree(
+            pos_x, pos_y, text_w, text_h,
+            gap_analysis.edge_gap,
+            gap_analysis.internal_gap
+        )
+        
+        # Use gap-free area as preferred size
+        preferred_size = gf_width * gf_height
+        
+        rect = LayoutRectangle(
+            item_id=f'text_{i}',
+            width=gf_width,
+            height=gf_height,
+            preferred_size=preferred_size,
+            preserve_aspect_ratio=False,  # Text blocks don't preserve aspect ratio
             x=gf_left,
             y=gf_top
         )
