@@ -136,130 +136,6 @@ def _generate_random_tree(n_photos: int, photo_indices: List[int]) -> TreeNode:
     return root
 
 
-def _generate_smart_tree(n_photos: int, photo_indices: List[int], rectangles) -> TreeNode:
-    """Generate a tree with intelligent pairing of complementary photos.
-    
-    Strategy:
-    - Pair photos with complementary aspect ratios (landscape with portrait)
-    - Pair important photos with less important ones for better size distribution
-    - Use horizontal splits to create rows, vertical splits within rows
-    
-    Args:
-        n_photos: Number of photos
-        photo_indices: List of photo indices
-        rectangles: List of LayoutRectangle objects for aspect ratio info
-        
-    Returns:
-        Root node of the generated tree
-    """
-    if n_photos == 0:
-        return None
-    if n_photos == 1:
-        return TreeNode(label=photo_indices[0], is_leaf=True, photo_idx=photo_indices[0])
-    if n_photos == 2:
-        # Simple pair: vertical split
-        left = TreeNode(label=photo_indices[0], is_leaf=True, photo_idx=photo_indices[0])
-        right = TreeNode(label=photo_indices[1], is_leaf=True, photo_idx=photo_indices[1])
-        root = TreeNode(label='V')
-        root.left = left
-        root.right = right
-        left.parent = root
-        right.parent = root
-        return root
-    
-    # For 3+ photos: Use smart pairing
-    # Categorize photos by aspect ratio and importance
-    photo_info = []
-    for idx in photo_indices:
-        rect = rectangles[idx]
-        aspect = rect.width / rect.height if rect.height > 0 else 1.0
-        size = rect.preferred_size
-        photo_info.append({
-            'idx': idx,
-            'aspect': aspect,
-            'size': size,
-            'is_landscape': aspect > 1.0,
-        })
-    
-    # Sort by importance (size) descending, then by aspect ratio
-    photo_info.sort(key=lambda p: (-p['size'], -p['aspect']))
-    
-    # Create pairs: try to match landscape with portrait, important with less important
-    pairs = []
-    used = set()
-    
-    for i, photo in enumerate(photo_info):
-        if photo['idx'] in used:
-            continue
-        
-        # Find a complementary partner (opposite aspect ratio, different importance)
-        best_partner = None
-        for j, candidate in enumerate(photo_info):
-            if candidate['idx'] in used or candidate['idx'] == photo['idx']:
-                continue
-            
-            # Score: prefer opposite orientation and complementary size
-            aspect_complement = abs((photo['aspect'] - 1.0) + (1.0 - candidate['aspect']))
-            size_diff = abs(photo['size'] - candidate['size'])
-            score = aspect_complement + size_diff * 0.1
-            
-            if best_partner is None or score > best_partner['score']:
-                best_partner = {'idx': j, 'score': score, 'photo': candidate}
-        
-        if best_partner:
-            pairs.append([photo['idx'], best_partner['photo']['idx']])
-            used.add(photo['idx'])
-            used.add(best_partner['photo']['idx'])
-        else:
-            # No partner found, add as singleton
-            pairs.append([photo['idx']])
-            used.add(photo['idx'])
-    
-    # Build tree from pairs
-    if len(pairs) == 1:
-        # Single pair: vertical split
-        if len(pairs[0]) == 2:
-            left = TreeNode(label=pairs[0][0], is_leaf=True, photo_idx=pairs[0][0])
-            right = TreeNode(label=pairs[0][1], is_leaf=True, photo_idx=pairs[0][1])
-            root = TreeNode(label='V')
-            root.left = left
-            root.right = right
-            left.parent = root
-            right.parent = root
-            return root
-        else:
-            return TreeNode(label=pairs[0][0], is_leaf=True, photo_idx=pairs[0][0])
-    
-    # Multiple pairs: horizontal split of rows, each row has vertical split
-    def build_pair_node(pair):
-        if len(pair) == 1:
-            return TreeNode(label=pair[0], is_leaf=True, photo_idx=pair[0])
-        else:
-            left = TreeNode(label=pair[0], is_leaf=True, photo_idx=pair[0])
-            right = TreeNode(label=pair[1], is_leaf=True, photo_idx=pair[1])
-            node = TreeNode(label='V')
-            node.left = left
-            node.right = right
-            left.parent = node
-            right.parent = node
-            return node
-    
-    # Build horizontal splits
-    pair_nodes = [build_pair_node(pair) for pair in pairs]
-    
-    # Combine pairs with horizontal splits
-    while len(pair_nodes) > 1:
-        left = pair_nodes.pop(0)
-        right = pair_nodes.pop(0)
-        h_split = TreeNode(label='H')
-        h_split.left = left
-        h_split.right = right
-        left.parent = h_split
-        right.parent = h_split
-        pair_nodes.append(h_split)
-    
-    return pair_nodes[0]
-
 
 def _compute_aspect_ratios(node: TreeNode, rectangles) -> float:
     """Compute aspect ratio recursively (Lemma 1).
@@ -431,6 +307,9 @@ def _evaluate_cost(tree: TreeNode, canvas_width: float, canvas_height: float,
         undersized_penalty=undersized_penalty,
         detailed=False
     )
+
+
+
 
 
 def _mutate_tree(tree: TreeNode) -> TreeNode:
@@ -642,14 +521,8 @@ class FanLayoutAlgorithm(LayoutAlgorithm):
             n_photos = len(rectangles)
             photo_indices = list(range(n_photos))
             
-            # Initialize population with mix of smart and random trees
-            # Smart trees use intelligent pairing of complementary photos
-            population = []
-            n_smart = max(1, self.population_size // 4)  # 25% smart trees
-            for _ in range(n_smart):
-                    population.append(_generate_smart_tree(n_photos, photo_indices, rectangles))
-            for _ in range(self.population_size - n_smart):
-                    population.append(_generate_random_tree(n_photos, photo_indices))
+            # Initialize population with random trees
+            population = [_generate_random_tree(n_photos, photo_indices) for _ in range(self.population_size)]
             
             best_tree = None
             best_cost = float('inf')
