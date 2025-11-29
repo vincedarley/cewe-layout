@@ -40,6 +40,9 @@ class LayoutViewer:
         # Algorithm selection
         self.algorithm_var = tk.StringVar(value='Collage-Gen')
         
+        # Debug flag for diagnostic output
+        self.debug_var = tk.BooleanVar(value=False)
+        
         # Track which photos should use slot aspect ratio (dict: {(pageno, photo_idx): BooleanVar})
         self.use_slot_aspect = {}
 
@@ -133,8 +136,12 @@ class LayoutViewer:
         weights_btn = ttk.Button(self.ctrl, text='Adjust Sizes', command=self.adjust_sizes)
         weights_btn.grid(row=3, column=0, padx=4, pady=4)
         
+        # Debug checkbox
+        debug_check = ttk.Checkbutton(self.ctrl, text='Debug Output', variable=self.debug_var)
+        debug_check.grid(row=3, column=1, padx=4, pady=4, sticky='w')
+        
         quit_btn = ttk.Button(self.ctrl, text='Quit (q)', command=self.quit)
-        quit_btn.grid(row=3, column=1, padx=8)
+        quit_btn.grid(row=3, column=2, padx=8)
 
 
         
@@ -519,8 +526,8 @@ class LayoutViewer:
             page_w, page_h, edge_gap, internal_gap
         )
         
-        # DEBUG: Print evaluation inputs for Page 2
-        if pageno == 2:
+        # DEBUG: Print evaluation inputs if debug flag is set
+        if self.debug_var.get():
             print(f"\n=== GUI Evaluation Debug for Page {pageno} ===")
             print(f"  Eval page: {eval_page_w} x {eval_page_h}")
             print(f"  Edge gap: {edge_gap}, Internal gap: {internal_gap}")
@@ -540,8 +547,8 @@ class LayoutViewer:
             undersized_penalty=self.undersized_penalty
         )
         
-        # DEBUG: Print evaluation results for Page 2
-        if pageno == 2:
+        # DEBUG: Print evaluation results if debug flag is set
+        if self.debug_var.get():
             print(f"=== GUI Evaluation Results for Page {pageno} ===")
             print(f"  Total cost: {cost.total_cost:.4f}")
             print(f"  Empty space cost: {cost.empty_space_cost:.4f}")
