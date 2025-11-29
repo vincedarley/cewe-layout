@@ -165,8 +165,9 @@ def _photos_to_rectangles(photos, mcf_base_folder, preferred_sizes=None, edge_ga
             slot_width = source_photo.get('area_width', 0)
             slot_height = source_photo.get('area_height', 0)
             if slot_width > 0 and slot_height > 0:
-                rect_width = float(slot_width)
-                rect_height = float(slot_height)
+                # Convert to gap-free space: add internal_gap to match evaluation coordinate system
+                rect_width = float(slot_width) + internal_gap
+                rect_height = float(slot_height) + internal_gap
             # else: fall through to use image dimensions
         
         # If not using slot, or slot dimensions were invalid, use image file dimensions
