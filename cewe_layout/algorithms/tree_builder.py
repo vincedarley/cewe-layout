@@ -12,7 +12,7 @@ from .base import TreeNode, LayoutRectangle
 def build_tree_from_layout(rectangles: List[LayoutRectangle], 
                            page_width: float, 
                            page_height: float,
-                           tolerance: float = 1.0) -> Optional[TreeNode]:
+                           tolerance: float = 10.0) -> Optional[TreeNode]:
     """Build a binary slicing tree from a layout.
     
     Algorithm:
@@ -25,7 +25,8 @@ def build_tree_from_layout(rectangles: List[LayoutRectangle],
         rectangles: List of LayoutRectangle objects with x, y, width, height set
         page_width: Width of the page/region
         page_height: Height of the page/region
-        tolerance: Tolerance for alignment (in same units as coordinates)
+        tolerance: Tolerance for alignment (in same units as coordinates).
+                   Default 10.0 allows for small overlaps/bleeds in layouts.
         
     Returns:
         Root TreeNode, or None if layout cannot be represented as a slicing tree
@@ -49,25 +50,53 @@ def build_tree_from_layout(rectangles: List[LayoutRectangle],
     direction, position, left_rects, right_rects = split
     
     # Build subtrees recursively
-    # For left/right splits, we need to compute the bounding box
+    # For left/right splits, we need to compute the bounding box and adjust coordinates
     if direction == 'V':
         # Vertical split at x=position
         # Left side: x from 0 to position
-        # Right side: x from position to page_width
+        # Right side: x from position to page_width - need to adjust x coords
         left_width = position
         right_width = page_width - position
         
+        # Adjust right side rectangles
+        adjusted_right = []
+        for idx, rect in right_rects:
+            adjusted_rect = LayoutRectangle(
+                item_id=rect.item_id,
+                width=rect.width,
+                height=rect.height,
+                preferred_size=rect.preferred_size,
+                preserve_aspect_ratio=rect.preserve_aspect_ratio,
+                x=rect.x - position,
+                y=rect.y
+            )
+            adjusted_right.append((idx, adjusted_rect))
+        
         left_tree = _build_tree_recursive(left_rects, left_width, page_height, tolerance)
-        right_tree = _build_tree_recursive(right_rects, right_width, page_height, tolerance)
+        right_tree = _build_tree_recursive(adjusted_right, right_width, page_height, tolerance)
     else:  # 'H'
         # Horizontal split at y=position
         # Top side: y from 0 to position  
-        # Bottom side: y from position to page_height
+        # Bottom side: y from position to page_height - need to adjust y coords
         top_height = position
         bottom_height = page_height - position
         
+        # Adjust bottom side rectangles
+        adjusted_bottom = []
+        for idx, rect in right_rects:
+            adjusted_rect = LayoutRectangle(
+                item_id=rect.item_id,
+                width=rect.width,
+                height=rect.height,
+                preferred_size=rect.preferred_size,
+                preserve_aspect_ratio=rect.preserve_aspect_ratio,
+                x=rect.x,
+                y=rect.y - position
+            )
+            adjusted_bottom.append((idx, adjusted_rect))
+        
         left_tree = _build_tree_recursive(left_rects, page_width, top_height, tolerance)
-        right_tree = _build_tree_recursive(right_rects, page_width, bottom_height, tolerance)
+        right_tree = _build_tree_recursive(adjusted_bottom, page_width, bottom_height, tolerance)
     
     if left_tree is None or right_tree is None:
         return None
@@ -212,9 +241,6 @@ def find_vertical_split(indexed_rects: List[Tuple[int, LayoutRectangle]],
     
     # Try each x-coordinate as a potential split
     for x in sorted(x_coords):
-        if x <= tolerance or x >= width - tolerance:
-            continue  # Skip edges
-        
         left = []
         right = []
         valid = True
@@ -259,9 +285,6 @@ def find_horizontal_split(indexed_rects: List[Tuple[int, LayoutRectangle]],
     
     # Try each y-coordinate as a potential split
     for y in sorted(y_coords):
-        if y <= tolerance or y >= height - tolerance:
-            continue  # Skip edges
-        
         top = []
         bottom = []
         valid = True

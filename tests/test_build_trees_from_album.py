@@ -108,7 +108,7 @@ def test_page_tree_construction(page_num, page_data):
         print(f"  [{i}] x={r.x:.1f}, y={r.y:.1f}, w={r.width:.1f}, h={r.height:.1f}")
     
     # Try to build tree
-    tree = build_tree_from_layout(rectangles, page_width, page_height, tolerance=5.0)
+    tree = build_tree_from_layout(rectangles, page_width, page_height, tolerance=10.0)
     
     if tree is None:
         print(f"  ✗ FAIL: Cannot build slicing tree for this layout")
