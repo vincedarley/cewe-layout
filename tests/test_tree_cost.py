@@ -73,11 +73,32 @@ def test_page_tree_cost(page_file: Path):
     )
     
     # Build original rectangles in gap-free space for tree building
+    # First, compute total gap-free area to normalize preferred sizes (like GUI does)
+    total_gf_area = 0.0
+    gf_areas = []
+    
+    for photo in page_data.photos:
+        slot_w, slot_h = photo['slot_width'], photo['slot_height']
+        gf_w = slot_w + gap_analysis.internal_gap
+        gf_h = slot_h + gap_analysis.internal_gap
+        gf_area = gf_w * gf_h
+        gf_areas.append(gf_area)
+        total_gf_area += gf_area
+    
+    for text in page_data.texts:
+        text_w, text_h = text['width'], text['height']
+        gf_w = text_w + gap_analysis.internal_gap
+        gf_h = text_h + gap_analysis.internal_gap
+        gf_area = gf_w * gf_h
+        gf_areas.append(gf_area)
+        total_gf_area += gf_area
+    
     original_rectangles = []
+    gf_idx = 0
+    
     for i, photo in enumerate(page_data.photos):
         pos_x, pos_y = photo['pos']
         slot_w, slot_h = photo['slot_width'], photo['slot_height']
-        img_w, img_h = photo['img_width'], photo['img_height']
         
         # Transform to gap-free coordinates
         gf_left, gf_top, gf_width, gf_height = transform_item_to_gapfree(
@@ -86,9 +107,10 @@ def test_page_tree_cost(page_file: Path):
             gap_analysis.internal_gap
         )
         
-        # Use image pixel area as preferred size (not slot area)
-        # This represents the user's intent for how important each photo is
-        preferred_size = img_w * img_h if (img_w > 0 and img_h > 0) else gf_width * gf_height
+        # Use normalized gap-free area scaled by 10× (matching GUI's approach)
+        # This represents the relative importance from the original layout
+        preferred_size = (gf_areas[gf_idx] / total_gf_area * 10.0) if total_gf_area > 0 else 1.0
+        gf_idx += 1
         
         rect = LayoutRectangle(
             item_id=f'photo_{i}',
@@ -113,8 +135,9 @@ def test_page_tree_cost(page_file: Path):
             gap_analysis.internal_gap
         )
         
-        # Use gap-free area as preferred size
-        preferred_size = gf_width * gf_height
+        # Use normalized gap-free area scaled by 10× (matching GUI)
+        preferred_size = (gf_areas[gf_idx] / total_gf_area * 10.0) if total_gf_area > 0 else 1.0
+        gf_idx += 1
         
         rect = LayoutRectangle(
             item_id=f'text_{i}',
