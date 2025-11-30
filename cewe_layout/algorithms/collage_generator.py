@@ -162,18 +162,16 @@ class CollageGeneratorAlgorithm(LayoutAlgorithm):
     (with dimensions from image metadata) and back.
     """
     
-    def __init__(self, temperature=1.0, threshold=1e-4, canvas_height_px=2048):
+    def __init__(self, temperature=1.0, threshold=1e-4):
         """
         Initialize collage-generator algorithm.
         
         Args:
             temperature: Boltzmann temperature for energy sampling (higher = more random).
             threshold: Target aspect ratio error threshold.
-            canvas_height_px: Virtual canvas height in pixels for layout computation.
         """
         self.temperature = temperature
         self.threshold = threshold
-        self.canvas_height_px = canvas_height_px
     
     def generate_layout(
         self,
@@ -200,10 +198,6 @@ class CollageGeneratorAlgorithm(LayoutAlgorithm):
             # Compute target aspect ratio for the page
             target_ratio = page_width / page_height if page_height > 0 else 1.0
             
-            # Virtual canvas size (pixels)
-            canvas_height = self.canvas_height_px
-            canvas_width = int(canvas_height * target_ratio)
-            
             # Generate collage tree directly from rectangles
             tree = _generate_best_tree(
                 rectangles, target_ratio,
@@ -211,64 +205,47 @@ class CollageGeneratorAlgorithm(LayoutAlgorithm):
                 temperature=self.temperature
             )
             
-            # Extract pixel layout from tree
-            pixel_rects = self._extract_pixel_layout(tree, canvas_width, canvas_height)
-            
-            # Map pixel layout to page coordinates and update rectangles in-place
-            self._map_pixel_layout_to_page(
-                pixel_rects, page_width, page_height,
-                canvas_width, canvas_height, rectangles
-            )
+            # Extract layout from tree and update rectangles in-place
+            self._extract_layout(tree, page_width, page_height, rectangles)
             
             return True, rectangles, ""
         
         except Exception as e:
             return False, [], f"Layout generation error: {e}"
     
-    def _extract_pixel_layout(self, tree_node, canvas_width, canvas_height):
-        """Extract pixel-based layout rectangles from tree."""
-        rects = []
+    def _extract_layout(self, tree_node, page_width, page_height, rectangles):
+        """Extract layout from tree and update rectangles in-place with page coordinates."""
+        rect_idx = [0]
         
-        def traverse(node, x, y, height, rect_idx):
+        def traverse(node, x, y, height):
             if node.rect is not None:
-                new_width = math.floor(node.alpha * height)
-                rects.append({
-                    'x': x, 'y': y, 'width': new_width, 'height': height,
-                    'rect_idx': rect_idx[0]
-                })
+                # Leaf node - assign position and size to the rectangle
+                new_width = node.alpha * height
+                if rect_idx[0] < len(rectangles):
+                    rect = rectangles[rect_idx[0]]
+                    rect.x = x
+                    rect.y = y
+                    rect.width = new_width
+                    rect.height = height
+                    # Collage-generator achieves the preferred size (no scaling)
+                    rect.actual_size = rect.preferred_size
                 rect_idx[0] += 1
                 return
             
+            # Internal node - recursively traverse children
             alpha = node.alpha
             l_alpha = node.left.alpha
             r_alpha = node.right.alpha
             width = alpha * height
             
             if node.split == "V":
-                traverse(node.left, x, y, height, rect_idx)
-                traverse(node.right, x + math.floor(width * l_alpha / alpha), y, height, rect_idx)
+                # Vertical split: left and right side by side
+                traverse(node.left, x, y, height)
+                traverse(node.right, x + width * l_alpha / alpha, y, height)
             else:
-                left_height = math.floor(height * alpha / l_alpha)
-                traverse(node.left, x, y, left_height, rect_idx)
-                traverse(node.right, x, y + left_height, math.floor(height * alpha / r_alpha), rect_idx)
+                # Horizontal split: left on top, right on bottom
+                left_height = height * alpha / l_alpha
+                traverse(node.left, x, y, left_height)
+                traverse(node.right, x, y + left_height, height * alpha / r_alpha)
         
-        traverse(tree_node, 0, 0, canvas_height, [0])
-        return rects
-    
-    def _map_pixel_layout_to_page(self, pixel_rects, page_width, page_height,
-                                   canvas_width_px, canvas_height_px, rectangles):
-        """Map pixel rectangles to page coordinates and update input rectangles in-place."""
-        scale_x = page_width / canvas_width_px
-        scale_y = page_height / canvas_height_px
-        
-        for pixel_rect in pixel_rects:
-            rect_idx = pixel_rect['rect_idx']
-            if rect_idx < len(rectangles):
-                rect = rectangles[rect_idx]
-                # Update position and size in page coordinates
-                rect.x = pixel_rect['x'] * scale_x
-                rect.y = pixel_rect['y'] * scale_y
-                rect.width = pixel_rect['width'] * scale_x
-                rect.height = pixel_rect['height'] * scale_y
-                # Collage-generator achieves the preferred size (no scaling)
-                rect.actual_size = rect.preferred_size
+        traverse(tree_node, 0, 0, page_height)
