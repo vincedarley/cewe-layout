@@ -16,6 +16,7 @@ from .algorithms.evaluator import evaluate_layout
 from .algorithms.collage_generator import CollageGeneratorAlgorithm
 from .algorithms.fan_layout import FanLayoutAlgorithm
 from .algorithms.tree_builder import TreeBuilderAlgorithm
+from .algorithms.gridify import GridifyAlgorithm
 from .gap_utils import (
     estimate_gap,
     estimate_gaps,
@@ -172,7 +173,7 @@ class LayoutViewer:
         algo_menu = ttk.OptionMenu(
             self.ctrl, self.algorithm_var,
             'Fan-GA',  # default
-            'Collage-Gen', 'Fan-GA', 'Tree-Builder'
+            'Collage-Gen', 'Fan-GA', 'Gridify', 'Tree-Builder'
         )
         algo_menu.grid(row=1, column=1, padx=(0, 8), pady=4, sticky='ew')
         
@@ -976,6 +977,8 @@ class LayoutViewer:
                     undersized_threshold=self.undersized_threshold,
                     undersized_penalty=self.undersized_penalty
                 )
+            elif algo_name == 'Gridify':
+                algorithm = GridifyAlgorithm()
             elif algo_name == 'Tree-Builder':
                 algorithm = TreeBuilderAlgorithm(tolerance=20.0)
             else:
