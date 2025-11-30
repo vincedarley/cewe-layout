@@ -488,3 +488,11 @@ class FanLayoutAlgorithm(LayoutAlgorithm):
         
         except Exception as e:
             return False, [], f"Layout generation error: {e}"
+    
+    def get_final_tree(self):
+        """Return the final tree as a TreeNode for visualization/analysis.
+        
+        Returns:
+            TreeNode representing the layout tree, or None if no layout generated yet.
+        """
+        return self.best_tree

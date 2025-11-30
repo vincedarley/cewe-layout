@@ -22,7 +22,7 @@ import random
 
 import numpy as np
 
-from .base import LayoutAlgorithm
+from .base import LayoutAlgorithm, TreeNode
 
 
 class Node:
@@ -172,6 +172,8 @@ class CollageGeneratorAlgorithm(LayoutAlgorithm):
         """
         self.temperature = temperature
         self.threshold = threshold
+        self._best_collage_tree = None
+        self._rectangles = None
     
     def generate_layout(
         self,
@@ -204,6 +206,10 @@ class CollageGeneratorAlgorithm(LayoutAlgorithm):
                 threshold=self.threshold,
                 temperature=self.temperature
             )
+            
+            # Store for get_final_tree()
+            self._best_collage_tree = tree
+            self._rectangles = rectangles
             
             # Extract layout from tree and update rectangles in-place
             self._extract_layout(tree, page_width, page_height, rectangles)
@@ -249,3 +255,36 @@ class CollageGeneratorAlgorithm(LayoutAlgorithm):
                 traverse(node.right, x, y + left_height, height * alpha / r_alpha)
         
         traverse(tree_node, 0, 0, page_height)
+    
+    def get_final_tree(self):
+        """Return the final tree as a TreeNode for visualization/analysis.
+        
+        Returns:
+            TreeNode representing the layout tree, or None if no layout generated yet.
+        """
+        if self._best_collage_tree is None or self._rectangles is None:
+            return None
+        return self._convert_to_tree_node(self._best_collage_tree, self._rectangles)
+    
+    def _convert_to_tree_node(self, collage_node, rectangles):
+        """Convert collage-generator's internal Node to TreeNode.
+        
+        Args:
+            collage_node: Internal Node from collage-generator algorithm
+            rectangles: List of LayoutRectangle objects
+            
+        Returns:
+            TreeNode with same structure but compatible with base TreeNode API
+        """
+        if collage_node.rect is not None:
+            # Leaf node - find the index of this rectangle
+            item_idx = rectangles.index(collage_node.rect)
+            return TreeNode(label=item_idx, is_leaf=True, item_idx=item_idx)
+        
+        # Internal node
+        tree_node = TreeNode(label=collage_node.split, is_leaf=False)
+        tree_node.left = self._convert_to_tree_node(collage_node.left, rectangles)
+        tree_node.right = self._convert_to_tree_node(collage_node.right, rectangles)
+        tree_node.left.parent = tree_node
+        tree_node.right.parent = tree_node
+        return tree_node

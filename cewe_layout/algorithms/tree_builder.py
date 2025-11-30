@@ -336,6 +336,7 @@ class TreeBuilderAlgorithm(LayoutAlgorithm):
                       Default 20.0 = 2.0mm.
         """
         self.tolerance = tolerance
+        self.final_tree = None
     
     def generate_layout(
         self,
@@ -368,6 +369,9 @@ class TreeBuilderAlgorithm(LayoutAlgorithm):
         if tree is None:
             return False, [], "Cannot build slicing tree from this layout (not tree-representable)"
         
+        # Store tree for get_final_tree()
+        self.final_tree = tree
+        
         # Compute layout from the tree
         tree.compute_aspect_ratios(rectangles)
         tree.compute_dimensions(page_width, page_height, rectangles)
@@ -395,3 +399,11 @@ class TreeBuilderAlgorithm(LayoutAlgorithm):
             output.append(output_rect)
         
         return True, output, ""
+    
+    def get_final_tree(self):
+        """Return the final tree as a TreeNode for visualization/analysis.
+        
+        Returns:
+            TreeNode representing the layout tree, or None if no layout generated yet.
+        """
+        return self.final_tree
