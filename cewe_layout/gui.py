@@ -85,13 +85,70 @@ class LayoutViewer:
 
         # Main window for page display
         self.root = root
+        # Extract photobook filename (the directory containing data.mcf, not data.mcf itself)
+        if mcf_file_path:
+            # Get the parent directory name (e.g., "Test-album.xmcf" not "data.mcf")
+            self.photobook_name = os.path.basename(os.path.dirname(mcf_file_path))
+        else:
+            self.photobook_name = 'Unknown'
         self.root.title('cewe-layout — Page Viewer')
 
-        self.canvas_w = 900
-        self.canvas_h = 1200
+        # Calculate canvas dimensions based on actual page size from first page
+        # Add 5mm (50 MCF units) margin on all sides
+        self.margin_mcf = 50.0
+        if self.pages:
+            _, first_page_info = self.pages[0]
+            page_w = first_page_info.get('page_width', 2100.0)
+            page_h = first_page_info.get('page_height', 2970.0)
+        else:
+            # Fallback if no pages
+            page_w = 2100.0
+            page_h = 2970.0
+        
+        # Total dimensions including margins (this is our fixed aspect ratio)
+        total_w_mcf = page_w + 2 * self.margin_mcf
+        total_h_mcf = page_h + 2 * self.margin_mcf
+        self.canvas_aspect_ratio = total_w_mcf / total_h_mcf
+        
+        # Get screen dimensions to fit window appropriately
+        screen_width = self.root.winfo_screenwidth()
+        screen_height = self.root.winfo_screenheight()
+        
+        # Target size: use 80% of screen width or height (whichever constrains more)
+        # leaving room for the controls window and window decorations
+        max_width = int(screen_width * 0.8)
+        max_height = int(screen_height * 0.8)
+        
+        # Calculate initial window size maintaining aspect ratio
+        if max_width / self.canvas_aspect_ratio <= max_height:
+            # Width is the constraint
+            initial_width = max_width
+            initial_height = int(max_width / self.canvas_aspect_ratio)
+        else:
+            # Height is the constraint
+            initial_height = max_height
+            initial_width = int(max_height * self.canvas_aspect_ratio)
+        
+        # Set minimum window size (e.g., 400 pixels on smaller dimension)
+        min_width = int(400 * self.canvas_aspect_ratio) if self.canvas_aspect_ratio > 1 else 400
+        min_height = int(400 / self.canvas_aspect_ratio) if self.canvas_aspect_ratio > 1 else 400
+        
+        # Configure window geometry and aspect ratio
+        self.root.geometry(f'{initial_width}x{initial_height}')
+        self.root.minsize(min_width, min_height)
+        
+        # Set aspect ratio constraint (num, denom format)
+        # Convert ratio to integers for Tk's aspect() method
+        ratio_num = int(self.canvas_aspect_ratio * 1000)
+        ratio_denom = 1000
+        self.root.aspect(ratio_num, ratio_denom, ratio_num, ratio_denom)
 
         self.img_label = ttk.Label(self.root)
         self.img_label.pack(fill='both', expand=True)
+        
+        # Bind window resize event to redraw
+        self.root.bind('<Configure>', self._on_window_resize)
+        self._resize_pending = False
 
         # Controls window
         self.ctrl = tk.Toplevel(self.root)
@@ -280,8 +337,24 @@ class LayoutViewer:
         # Clear status message when changing pages
         self.status_var.set('')
         
+        # Get current canvas dimensions from the window
+        self.root.update_idletasks()  # Ensure geometry is current
+        canvas_w = self.img_label.winfo_width()
+        canvas_h = self.img_label.winfo_height()
+        
+        # On initial render, dimensions may not be available yet
+        if canvas_w <= 1 or canvas_h <= 1:
+            canvas_w = self.root.winfo_width()
+            canvas_h = self.root.winfo_height()
+        
+        # Ensure minimum size
+        if canvas_w < 100:
+            canvas_w = 800
+        if canvas_h < 100:
+            canvas_h = int(800 / self.canvas_aspect_ratio)
+        
         if not self.pages:
-            img = Image.new('RGB', (self.canvas_w, self.canvas_h), 'white')
+            img = Image.new('RGB', (canvas_w, canvas_h), 'white')
             draw = ImageDraw.Draw(img)
             draw.text((10,10), 'No pages found', fill='black')
             self._show_image(img)
@@ -293,30 +366,37 @@ class LayoutViewer:
         photos = current_layout.photos if current_layout else info.get('photos', [])
         texts = current_layout.texts if current_layout else info.get('texts', [])
 
-        img = Image.new('RGB', (self.canvas_w, self.canvas_h), 'white')
+        # Update window title with photobook name and page info
+        text_label = 'text' if len(texts) == 1 else 'texts'
+        if texts:
+            title = f'{self.photobook_name} - Page {pageno} : {len(photos)} photos, {len(texts)} {text_label}'
+        else:
+            title = f'{self.photobook_name} - Page {pageno} : {len(photos)} photos'
+        self.root.title(title)
+        
+        img = Image.new('RGB', (canvas_w, canvas_h), 'white')
         draw = ImageDraw.Draw(img)
-
-        # Draw header
-        text_info = f', {len(texts)} text blocks' if texts else ''
-        draw.text((8,8), f'Page {pageno} — {len(photos)} photos{text_info}', fill='black')
 
         # Use page meta to map coordinates. page_width/height are in MCF units (0.1mm)
         page_w = info.get('page_width', 2100.0)
         page_h = info.get('page_height', 2970.0)
         origin_left = info.get('origin_left', 0.0)
 
-        margin = 20
-        header_offset = 50  # Extra space below header to prevent overlap with page number
-        # scale to fit width (maintain aspect ratio)
-        scale_x = (self.canvas_w - 2*margin) / page_w
-        scale_y = (self.canvas_h - 2*margin - header_offset) / page_h
-        scale = min(scale_x, scale_y)
+        # 5mm margin on all sides (50 MCF units)
+        margin_mcf = self.margin_mcf
+        
+        # Calculate scale to fit page + margins in canvas
+        # Canvas dimensions were set to match (page + 2*margin) aspect ratio
+        total_w_mcf = page_w + 2 * margin_mcf
+        total_h_mcf = page_h + 2 * margin_mcf
+        scale = min(canvas_w / total_w_mcf, canvas_h / total_h_mcf)
 
-        # Calculate frame position (draw it after photos/texts so it's on top in bleed situations)
+        # Calculate frame size and position
+        # Page frame starts at margin offset and has size of page
         frame_w = page_w * scale
         frame_h = page_h * scale
-        frame_x = margin
-        frame_y = margin + header_offset
+        frame_x = margin_mcf * scale
+        frame_y = margin_mcf * scale
 
         for i, p in enumerate(photos, start=1):
             left = p.get('area_left') or 0
@@ -806,6 +886,27 @@ class LayoutViewer:
 
     def quit(self):
         self.root.quit()
+    
+    def _on_window_resize(self, event):
+        """Handle window resize events by redrawing the page at the new scale.
+        
+        Use debouncing to avoid excessive redraws during continuous resizing.
+        """
+        # Only respond to resize events on the root window itself
+        if event.widget != self.root:
+            return
+        
+        # Cancel any pending resize render
+        if self._resize_pending:
+            self.root.after_cancel(self._resize_pending)
+        
+        # Schedule a new render after a short delay (debouncing)
+        self._resize_pending = self.root.after(100, self._do_resize_render)
+    
+    def _do_resize_render(self):
+        """Actually perform the render after resize."""
+        self._resize_pending = False
+        self.render_page()
     
     def show_status(self, message, error=False):
         """Display a status message in the UI.
