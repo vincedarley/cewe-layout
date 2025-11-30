@@ -171,7 +171,7 @@ class LayoutViewer:
         ttk.Label(self.ctrl, text='Algorithm:').grid(row=1, column=0, padx=(4, 2), pady=4, sticky='e')
         algo_menu = ttk.OptionMenu(
             self.ctrl, self.algorithm_var,
-            'Collage-Gen',  # default
+            'Fan-GA',  # default
             'Collage-Gen', 'Fan-GA', 'Tree-Builder'
         )
         algo_menu.grid(row=1, column=1, padx=(0, 8), pady=4, sticky='ew')
@@ -189,12 +189,9 @@ class LayoutViewer:
         orig_btn.grid(row=2, column=2, padx=4, pady=4)
         
         # Row 3: Additional options
-        weights_btn = ttk.Button(self.ctrl, text='Adjust Sizes', command=self.adjust_sizes)
-        weights_btn.grid(row=3, column=0, padx=4, pady=4)
-        
         # Debug checkbox
         debug_check = ttk.Checkbutton(self.ctrl, text='Debug Output', variable=self.debug_var)
-        debug_check.grid(row=3, column=1, padx=4, pady=4, sticky='w')
+        debug_check.grid(row=3, column=0, padx=4, pady=4, sticky='w')
         
         quit_btn = ttk.Button(self.ctrl, text='Quit (q)', command=self.quit)
         quit_btn.grid(row=3, column=2, padx=8)
@@ -223,7 +220,17 @@ class LayoutViewer:
         
         ttk.Label(photo_frame, text='Item', font=('TkDefaultFont', 9, 'bold')).grid(row=0, column=0, padx=2, pady=2, sticky='w')
         ttk.Label(photo_frame, text='Slot AR', font=('TkDefaultFont', 9, 'bold')).grid(row=0, column=1, padx=2, pady=2, sticky='w')
-        ttk.Label(photo_frame, text='Preferred', font=('TkDefaultFont', 9, 'bold')).grid(row=0, column=2, padx=2, pady=2, sticky='w')
+        # Preferred label with Equal/Original buttons below it
+        pref_container = ttk.Frame(photo_frame)
+        pref_container.grid(row=0, column=2, padx=2, pady=2, sticky='w')
+        ttk.Label(pref_container, text='Preferred', font=('TkDefaultFont', 9, 'bold')).pack()
+        btn_frame = ttk.Frame(pref_container)
+        btn_frame.pack()
+        # Use tk.Button (not ttk) for tighter control over padding
+        tk.Button(btn_frame, text='Equal', command=self.equal_sizes, 
+                  font=('TkDefaultFont', 7), padx=0, pady=0, bd=1, highlightthickness=0).pack(side='left', padx=0)
+        tk.Button(btn_frame, text='Original', command=self.stored_sizes, 
+                  font=('TkDefaultFont', 7), padx=0, pady=0, bd=1, highlightthickness=0).pack(side='left', padx=0)
         ttk.Label(photo_frame, text='Actual', font=('TkDefaultFont', 9, 'bold')).grid(row=0, column=3, padx=2, pady=2, sticky='w')
         
         # Item (photo/text) weight rows will be added dynamically to photo_frame
@@ -308,14 +315,6 @@ class LayoutViewer:
         self.undersized_penalty_entry.grid(row=4, column=1, sticky='w', padx=4, pady=2)
         self.undersized_penalty_entry.bind('<Return>', lambda e: self.on_undersized_penalty_changed())
         self.undersized_penalty_entry.bind('<FocusOut>', lambda e: self.on_undersized_penalty_changed())
-
-        # Equal sizes button
-        equal_btn = ttk.Button(param_frame, text='Equal sizes', command=self.equal_sizes)
-        equal_btn.grid(row=5, column=0, columnspan=2, sticky='ew', pady=(6,2))
-        
-        # Stored sizes button
-        stored_btn = ttk.Button(param_frame, text='Stored sizes', command=self.stored_sizes)
-        stored_btn.grid(row=6, column=0, columnspan=2, sticky='ew', pady=2)
         
         # Photo weight rows (will be populated dynamically)
         self.weight_widgets = []  # List of (item_label, desired_entry, actual_label) for photos and texts
@@ -1069,74 +1068,6 @@ class LayoutViewer:
         self.layout_mgr.clear_layouts(pageno)
         self.show_status(f'Layout for page {pageno} saved. Memory cleared.')
         self.render_page()
-
-    def adjust_sizes(self):
-        """Open dialog to adjust per-photo preferred sizes for layout generation."""
-        pageno, info = self.pages[self.index]
-        current_layout = self.layout_mgr.get_current(pageno)
-        photos = current_layout.photos if current_layout else info.get('photos', [])
-        
-        if not photos:
-            self.show_status('No photos on this page.')
-            return
-        
-        # Create top-level weight dialog
-        dialog = tk.Toplevel(self.root)
-        dialog.title(f'Photo Sizes - Page {pageno}')
-        dialog.geometry('400x500')
-        
-        # Header
-        tk.Label(dialog, text=f'Adjust preferred sizes for page {pageno} photos:', 
-                font=('Helvetica', 10, 'bold')).pack(pady=10)
-        
-        # Scrollable frame
-        canvas = tk.Canvas(dialog)
-        scrollbar = ttk.Scrollbar(dialog, orient='vertical', command=canvas.yview)
-        scrollable_frame = ttk.Frame(canvas)
-        
-        scrollable_frame.bind(
-            '<Configure>',
-            lambda e: canvas.configure(scrollregion=canvas.bbox('all'))
-        )
-        
-        canvas.create_window((0, 0), window=scrollable_frame, anchor='nw')
-        canvas.configure(yscrollcommand=scrollbar.set)
-        
-        # Weight controls for each photo
-        size_vars = {}
-        for i, photo in enumerate(photos):
-            fn = photo.get('filename', '').split('/')[-1]
-            current_size = self.layout_mgr.get_size(pageno, photo.get('filename', ''))
-            
-            frame = ttk.Frame(scrollable_frame)
-            frame.pack(fill='x', padx=5, pady=5)
-            
-            label = ttk.Label(frame, text=f'{i+1}. {fn[:30]}', width=35, anchor='w')
-            label.pack(side='left', padx=5)
-            
-            var = tk.DoubleVar(value=current_size)
-            size_vars[photo.get('filename', '')] = var
-            
-            spinbox = ttk.Spinbox(frame, from_=0.0, to=50.0, increment=0.5, 
-                                 textvariable=var, width=6)
-            spinbox.pack(side='right', padx=5)
-        
-        canvas.pack(side='left', fill='both', expand=True)
-        scrollbar.pack(side='right', fill='y')
-        
-        # OK/Cancel buttons
-        button_frame = ttk.Frame(dialog)
-        button_frame.pack(side='bottom', fill='x', padx=10, pady=10)
-        
-        def apply_sizes():
-            for fn, var in size_vars.items():
-                self.layout_mgr.set_size(pageno, fn, var.get())
-            dialog.destroy()
-            self.show_status('Photo preferred sizes updated. Use them in next layout generation.')
-            self.render_page()
-        
-        ttk.Button(button_frame, text='OK', command=apply_sizes).pack(side='left', padx=5)
-        ttk.Button(button_frame, text='Cancel', command=dialog.destroy).pack(side='left', padx=5)
 
     def equal_sizes(self):
         """Set all photos and texts to equal preferred size (10.0)."""
