@@ -61,3 +61,19 @@ Details:
 Collage-generator FAILED
 Error: Layout generation error: 'NoneType' object has no attribute 'height'
 
+
+=== Collage-Generator Layout Cost ===
+Total cost: 61310.10
+
+Tree structure: H[V[2,V[4,5]],V[1,V[0,3]]]
+
+Components:
+  Empty space cost: 1.38
+  Size mismatch cost: 61308.71
+    - Normal: 61308.71
+    - Undersized: 0.00
+
+Details:
+  Empty fraction: 0.0638 (6.38%)
+  Undersized count: 0
+
