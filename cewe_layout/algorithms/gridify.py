@@ -68,8 +68,9 @@ class GridifyAlgorithm(LayoutAlgorithm):
             
             # Calculate grid spacing based on smallest photo
             # How many times does smallest photo fit across/down the page?
-            grid_cols = max(1, round(page_width / smallest_photo.width))
-            grid_rows = max(1, round(page_height / smallest_photo.height))
+            # Use int(x + 0.5) for consistent "round half up" behavior (avoids banker's rounding)
+            grid_cols = max(1, int(page_width / smallest_photo.width + 0.5))
+            grid_rows = max(1, int(page_height / smallest_photo.height + 0.5))
             
             # Actual grid spacing
             grid_spacing_x = page_width / grid_cols
