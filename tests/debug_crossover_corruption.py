@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from test_helpers import read_page_file
+from samples_helpers import read_page_file
 from cewe_layout.algorithms.fan_layout import _generate_random_tree, _crossover_trees
 from cewe_layout.algorithms.base import LayoutRectangle
 from cewe_layout.gap_utils import analyze_gaps, transform_page_to_gapfree

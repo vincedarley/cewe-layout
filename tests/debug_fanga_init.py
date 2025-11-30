@@ -7,7 +7,7 @@ import random
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from test_helpers import read_page_file
+from samples_helpers import read_page_file
 from cewe_layout.algorithms.evaluator import evaluate_layout
 from cewe_layout.algorithms.fan_layout import _generate_random_tree, _evaluate_cost
 from cewe_layout.gap_utils import analyze_gaps, transform_page_to_gapfree

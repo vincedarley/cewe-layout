@@ -6,7 +6,7 @@ For each page, compute the edge gap and internal gap using core code routines.
 Write results to the page's results file.
 
 Usage:
-  python tests/test_gap_analysis.py [page_num]
+  python tests/samples_gap_analysis.py [page_num]
   
   If page_num is provided, only that page is tested.
   Otherwise all pages in tests/samples/ are tested.
@@ -18,7 +18,7 @@ from pathlib import Path
 # Add parent to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from test_helpers import read_page_file, write_result_section
+from samples_helpers import read_page_file, write_result_section
 from cewe_layout.gap_utils import analyze_gaps
 
 

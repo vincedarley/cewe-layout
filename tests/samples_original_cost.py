@@ -6,7 +6,7 @@ For each page, compute the cost of the original layout using core code routines.
 Write results to the page's results file.
 
 Usage:
-  python tests/test_original_cost.py [page_num]
+  python tests/samples_original_cost.py [page_num]
   
   If page_num is provided, only that page is tested.
   Otherwise all pages in tests/samples/ are tested.
@@ -18,7 +18,7 @@ from pathlib import Path
 # Add parent to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from test_helpers import read_page_file, write_result_section, page_data_to_rectangles
+from samples_helpers import read_page_file, write_result_section, page_data_to_rectangles
 from cewe_layout.algorithms.evaluator import evaluate_layout
 from cewe_layout.gap_utils import analyze_gaps
 from cewe_layout.gap_utils import transform_page_to_gapfree, transform_item_to_gapfree

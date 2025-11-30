@@ -60,7 +60,7 @@ Details:
 === Collage-Generator Layout Cost ===
 Total cost: 0.25
 
-Tree structure: H[V[0,1],V[2,3]]
+Tree structure: V[H[1,3],H[0,2]]
 
 Components:
   Empty space cost: 0.00

@@ -9,7 +9,7 @@ This test resolves the mystery: tree costs should be ~100-400 (small adjustments
 from tree constraints), not < 1 like original layouts.
 
 Usage:
-  python tests/test_tree_cost.py [page_num]
+  python tests/samples_tree_cost.py [page_num]
   
   If page_num is provided, only that page is tested.
   Otherwise all pages in tests/samples/ are tested.
@@ -21,7 +21,7 @@ from pathlib import Path
 # Add parent to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from test_helpers import read_page_file, write_result_section
+from samples_helpers import read_page_file, write_result_section
 from cewe_layout.algorithms.evaluator import evaluate_layout
 from cewe_layout.algorithms.tree_builder import build_tree_from_layout, TreeNode
 from cewe_layout.gap_utils import analyze_gaps, transform_page_to_gapfree, transform_item_to_gapfree

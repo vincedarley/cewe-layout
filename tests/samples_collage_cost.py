@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-Test 4: Fan-GA Layout Cost
+Test: Collage-Generator Layout Cost
 
-For each page, run the Fan-GA algorithm and evaluate the cost of the resulting layout.
-Compare with Tree Builder results to validate Fan-GA can produce comparable quality.
+For each page, run the Collage-Generator algorithm and evaluate the cost of the resulting layout.
+Compare with other algorithm results to validate collage-generator performance.
 
 Usage:
-  python tests/test_fanga_cost.py [page_num]
+  python tests/samples_collage_cost.py [page_num]
   
   If page_num is provided, only that page is tested.
   Otherwise all pages in tests/samples/ are tested.
@@ -18,16 +18,16 @@ from pathlib import Path
 # Add parent to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from test_helpers import read_page_file, write_result_section
+from samples_helpers import read_page_file, write_result_section
 from cewe_layout.algorithms.evaluator import evaluate_layout
-from cewe_layout.algorithms.fan_layout import FanLayoutAlgorithm
+from cewe_layout.algorithms.collage_generator import CollageGeneratorAlgorithm
 from cewe_layout.gap_utils import analyze_gaps, transform_page_to_gapfree
 from cewe_layout.algorithms.base import LayoutRectangle
 
 
-def test_page_fanga_cost(page_file: Path):
+def test_page_collage_cost(page_file: Path):
     """
-    Test Fan-GA layout cost for a single page.
+    Test Collage-Generator layout cost for a single page.
     
     Args:
         page_file: Path to Test-album-page-N.txt
@@ -71,17 +71,13 @@ def test_page_fanga_cost(page_file: Path):
         gap_analysis.internal_gap
     )
     
-    # Build input rectangles for Fan-GA
-    # Fan-GA operates in gap-free coordinate space
+    # Build input rectangles for Collage-Generator
+    # Collage-Generator operates in gap-free coordinate space
     input_rectangles = []
     
     for i, photo in enumerate(page_data.photos):
         pos_x, pos_y = photo['pos']
         slot_w, slot_h = photo['slot_width'], photo['slot_height']
-        
-        # Position: gap-free (subtract edge_gap)
-        gf_left = pos_x - gap_analysis.edge_gap
-        gf_top = pos_y - gap_analysis.edge_gap
         
         # Dimensions: gap-free slot dimensions (add internal_gap)
         rect_width = slot_w + gap_analysis.internal_gap
@@ -92,19 +88,13 @@ def test_page_fanga_cost(page_file: Path):
             width=rect_width,
             height=rect_height,
             preferred_size=0,  # Will be set below
-            preserve_aspect_ratio=True,
-            x=gf_left,
-            y=gf_top
+            preserve_aspect_ratio=True
         )
         input_rectangles.append(rect)
     
     for i, text in enumerate(page_data.texts):
         pos_x, pos_y = text['pos']
         text_w, text_h = text['width'], text['height']
-        
-        # Position: gap-free (subtract edge_gap)
-        gf_left = pos_x - gap_analysis.edge_gap
-        gf_top = pos_y - gap_analysis.edge_gap
         
         # Dimensions: gap-free (add internal_gap)
         rect_width = text_w + gap_analysis.internal_gap
@@ -115,9 +105,7 @@ def test_page_fanga_cost(page_file: Path):
             width=rect_width,
             height=rect_height,
             preferred_size=0,  # Will be set below
-            preserve_aspect_ratio=False,
-            x=gf_left,
-            y=gf_top
+            preserve_aspect_ratio=False
         )
         input_rectangles.append(rect)
     
@@ -132,51 +120,48 @@ def test_page_fanga_cost(page_file: Path):
         print(f' Skipping (no rectangles)')
         return
     
-    # Run Fan-GA algorithm with production parameters
-    fanga = FanLayoutAlgorithm(
-        population_size=50,
-        generations=100,
-        mutation_rate=0.2,
-        crossover_rate=0.8,
-        size_importance=100.0
+    # Run Collage-Generator algorithm
+    collage = CollageGeneratorAlgorithm(
+        temperature=1.0,
+        threshold=1e-4
     )
     
     try:
         # Run algorithm
-        success, result_rectangles, error_msg = fanga.generate_layout(
+        success, result_rectangles, error_msg = collage.generate_layout(
             page_width=eval_page_w,
             page_height=eval_page_h,
             rectangles=input_rectangles
         )
         
         if not success:
-            result = f'''Fan-GA FAILED
+            result = f'''Collage-Generator FAILED
 Error: {error_msg}
 '''
             results_file = page_file.parent / f'{page_file.stem}-results.txt'
-            write_result_section(results_file, 'Fan-GA Layout Cost', result)
+            write_result_section(results_file, 'Collage-Generator Layout Cost', result)
             print(f' FAILED ({error_msg})')
             return
         
         if not result_rectangles:
-            result = f'''Fan-GA FAILED
+            result = f'''Collage-Generator FAILED
 Algorithm returned no rectangles
 '''
             results_file = page_file.parent / f'{page_file.stem}-results.txt'
-            write_result_section(results_file, 'Fan-GA Layout Cost', result)
+            write_result_section(results_file, 'Collage-Generator Layout Cost', result)
             print(f' FAILED (no result rectangles)')
             return
         
     except Exception as e:
-        result = f'''Fan-GA FAILED
+        result = f'''Collage-Generator FAILED
 Exception: {str(e)}
 '''
         results_file = page_file.parent / f'{page_file.stem}-results.txt'
-        write_result_section(results_file, 'Fan-GA Layout Cost', result)
+        write_result_section(results_file, 'Collage-Generator Layout Cost', result)
         print(f' FAILED (exception: {str(e)})')
         return
     
-    # Evaluate Fan-GA layout
+    # Evaluate Collage-Generator layout
     cost_result = evaluate_layout(
         eval_page_w,
         eval_page_h,
@@ -187,8 +172,9 @@ Exception: {str(e)}
         undersized_penalty=5.0
     )
     
-    # Get tree structure
-    tree_structure = fanga.best_tree.to_compact_string() if fanga.best_tree else "N/A"
+    # Get tree structure from converted TreeNode
+    tree = collage.get_final_tree()
+    tree_structure = tree.to_compact_string() if tree else "N/A"
     
     # Format results
     result = f'''Total cost: {cost_result.total_cost:.2f}
@@ -208,7 +194,7 @@ Details:
     
     # Write to results file
     results_file = page_file.parent / f'{page_file.stem}-results.txt'
-    write_result_section(results_file, 'Fan-GA Layout Cost', result)
+    write_result_section(results_file, 'Collage-Generator Layout Cost', result)
     
     print(f' cost={cost_result.total_cost:.2f}, empty={cost_result.empty_space_fraction * 100:.2f}%, undersized={cost_result.undersized_count}')
 
@@ -219,7 +205,7 @@ def main():
         page_num = int(sys.argv[1])
         page_file = Path('tests/samples') / f'Test-album-page-{page_num}.txt'
         if page_file.exists():
-            test_page_fanga_cost(page_file)
+            test_page_collage_cost(page_file)
         else:
             print(f'Error: {page_file} not found')
             sys.exit(1)
@@ -230,7 +216,7 @@ def main():
                            if not f.stem.endswith('-results')])
         
         for page_file in page_files:
-            test_page_fanga_cost(page_file)
+            test_page_collage_cost(page_file)
 
 
 if __name__ == '__main__':
