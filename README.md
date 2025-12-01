@@ -1,6 +1,8 @@
 **cewe-layout or 'QLayout' for short**
 
-Utility to parse CEWE `.mcf` / `.xmcf` photobook files, inspect page photo slots and interactively generate new layouts.
+Utility to parse CEWE `.mcf` / `.xmcf` photobook files, inspect page photo and text slots and interactively generate new layouts.  It is intended to help you make great CEWE photobooks. It is not a replacement for the Cewe Creator software. You will absolutely need to use that as well as this tool.  The problem this tool aims to solve is that it is painful, slow and cumbersome to make nice photo layouts with 5 to 15 photos in Cewe Creator. The clever auto-layout tools provided by Cewe are (for my use cases) completely unhelpful. Hence this tool.
+
+The primary workflow step I aim to dramatically improve is this one: you have 11 photos you want to place on a single page. 2 of them are more important and should be approximately 3x the size of the others. Produce a nice-looking layout which achieves that aim, and where the photos collectively occupy most of the page (with edge gaps and internal gaps easily configurable).
 
 **Quickstart**
 
@@ -27,7 +29,7 @@ python run_qlayout.py --input /path/to/Test-album.xmcf --gui
 **Workflow**
 
 1) You have to work independely in QLayout vs in Cewe Creator.  In general you should only have one of the two applications open (with the same book.xmcf) at any one time.  So close one, work in the other, repeat until your book is done...
-2) In case you forget this "work independently" instruction, you should generally not worry about file corruption - but you should worry that important layout work you've done in one tool is going to be overwritten by the other.  So you will be wasting time and effort.
+2) In case you forget this "work independently" instruction, you should generally not worry about file corruption - but you should worry that important layout work you've done in one tool is going to be overwritten by the other.  So you will be wasting time and effort. 
 
 Details for the technically minded:
 - Saving a modified page layout in QLayout will successfully modify the data.mcf xml file inside your Cewe book project. BUT, if that book is already open in Cewe Creator (CC) application, then CC will NOT notice that the layout has changed. You will need to close the project and re-open it for CC to notice the layout changes.  Unfortunately this means that the workflow you adopt cannot efficiently include making adjustments to a Page in both QLayout and CC while moving back and forth between the two applications.
