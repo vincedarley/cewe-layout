@@ -10,7 +10,6 @@ It translates:
 Layout algorithms themselves know nothing about files, MCF, or paths.
 """
 
-import cv2
 from pathlib import Path
 from .algorithms.base import LayoutRectangle
 from .gap_utils import (
@@ -18,6 +17,7 @@ from .gap_utils import (
     transform_item_to_gapfree,
     transform_item_from_gapfree
 )
+from .photos import get_image_dimensions
 
 
 def generate_layout_for_page(photos, page_width_mcf, page_height_mcf, mcf_base_folder, 
@@ -173,15 +173,11 @@ def _photos_to_rectangles(photos, mcf_base_folder, preferred_sizes=None, edge_ga
                 return [], f"Image not found: {img_path}"
             
             # Load image to get its dimensions
-            arr = cv2.imread(str(img_path), cv2.IMREAD_COLOR)
-            if arr is None:
+            dims = get_image_dimensions(img_path)
+            if dims is None:
                 return [], f"Failed to load image: {img_path}"
             
-            # Image dimensions (height, width in OpenCV)
-            img_height, img_width = arr.shape[:2]
-            if img_height <= 0 or img_width <= 0:
-                return [], f"Invalid image dimensions: {img_path}"
-            
+            img_width, img_height = dims
             rect_width = float(img_width)
             rect_height = float(img_height)
         

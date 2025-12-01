@@ -17,6 +17,7 @@ from .algorithms.collage_generator import CollageGeneratorAlgorithm
 from .algorithms.fan_layout import FanLayoutAlgorithm
 from .algorithms.tree_builder import TreeBuilderAlgorithm
 from .algorithms.gridify import GridifyAlgorithm
+from .photos import get_image_dimensions
 from .gap_utils import (
     estimate_gap,
     estimate_gaps,
@@ -706,9 +707,9 @@ class LayoutViewer:
                             img_path = Path(self.mcf_base_folder) / safefn
                             if img_path.exists():
                                 try:
-                                    arr = cv2.imread(str(img_path), cv2.IMREAD_COLOR)
-                                    if arr is not None:
-                                        img_h, img_w = arr.shape[:2]
+                                    dims = get_image_dimensions(img_path)
+                                    if dims is not None:
+                                        img_w, img_h = dims
                                         if img_h > 0 and img_w > 0:
                                             img_aspect = img_w / img_h
                                             slot_aspect = slot_width / slot_height
