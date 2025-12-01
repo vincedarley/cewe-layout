@@ -16,6 +16,7 @@ from .algorithms.fan_layout import FanLayoutAlgorithm
 from .algorithms.tree_builder import TreeBuilderAlgorithm
 from .algorithms.gridify import GridifyAlgorithm
 from .photos import get_image_dimensions, load_thumbnail
+from .writer import update_page_layout
 from .gap_utils import (
     estimate_gaps,
     analyze_gaps,
@@ -1178,11 +1179,51 @@ class LayoutViewer:
             self.show_status('No more layouts to go back to.')
 
     def save_layout(self):
-        """Accept current layout and clear in-memory variants."""
+        """Write current layout to disk and clear in-memory variants.
+        
+        This function:
+        1. Gets the current layout (modified or original)
+        2. Writes it back to the MCF file (with backup)
+        3. Clears the in-memory layout history for this page
+        4. Keeps the layout visible (now matches what's on disk)
+        """
+        if not self.pages or not self.mcf_file_path:
+            self.show_status('Cannot save: no MCF file path', error=True)
+            return
+        
         pageno, info = self.pages[self.index]
-        self.layout_mgr.clear_layouts(pageno)
-        self.show_status(f'Layout for page {pageno} saved. Memory cleared.')
-        self.render_page()
+        
+        # Get current layout (modified or original)
+        current_layout = self.layout_mgr.get_current(pageno)
+        if not current_layout:
+            self.show_status('No layout to save', error=True)
+            return
+        
+        photos = current_layout.photos
+        texts = current_layout.texts
+        
+        try:
+            # Write to MCF file (makes backup automatically)
+            result = update_page_layout(
+                self.mcf_file_path, pageno, photos, texts, make_backup=True
+            )
+            
+            # Clear in-memory history for this page (layout now matches disk)
+            self.layout_mgr.clear_layouts(pageno)
+            
+            # Update status with backup info
+            backup_name = os.path.basename(result['backup_path']) if result['backup_path'] else 'none'
+            self.show_status(
+                f"Page {pageno} saved to disk ({result['modified_photos']} photos, "
+                f"{result['modified_texts']} texts). Backup: {backup_name}"
+            )
+            
+            # No need to re-render; layout is unchanged visually
+            # But update weights display to clear any pending changes indicator
+            self.update_weights_display()
+            
+        except Exception as e:
+            self.show_status(f'Save failed: {e}', error=True)
 
     def equal_sizes(self):
         """Set all photos and texts to equal preferred size (10.0)."""

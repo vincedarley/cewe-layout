@@ -49,6 +49,4 @@ See `LICENSE` for details.
   save the changes and Cewe will load/pick up those changes and there will be no file corruption/writing issues?
 
 Layout clean-up algorithms:
-- Where a row or column of photos is nearly lined up, line them up
-- Layout is good, but a little rough. Now tweak aspect ratios and positions to smarten everything up nicely - typically to achieve 0% empty.
-- One way to do that, with some layouts, is a "gridify" action: find smallest photo. Split page x and y into grid of that photo size (approx), then all photo corners must line up with closest grid point.
+- Gridify: done. Useful for fine-grained cleanup of many layouts.
