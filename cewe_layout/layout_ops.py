@@ -9,16 +9,16 @@ import copy
 
 class PageLayout:
     """In-memory representation of a page layout."""
-    def __init__(self, pageno, photos_with_areas, texts_with_areas=None, gap=0.0):
+    def __init__(self, pageno, photos_with_areas, texts_with_areas=None, internal_gap=0.0):
         self.pageno = pageno
         # photos_with_areas: list of photo dicts with area info
         self.photos = copy.deepcopy(photos_with_areas)
         # texts_with_areas: list of text block dicts with area info
         self.texts = copy.deepcopy(texts_with_areas) if texts_with_areas else []
-        self.gap = gap  # Uniform spacing in MCF units (0.1mm)
+        self.internal_gap = internal_gap  # Uniform spacing in MCF units (0.1mm)
 
     def clone(self):
-        return PageLayout(self.pageno, self.photos, self.texts, self.gap)
+        return PageLayout(self.pageno, self.photos, self.texts, self.internal_gap)
 
 
 class LayoutManager:
@@ -26,7 +26,8 @@ class LayoutManager:
     def __init__(self):
         self.page_layouts = defaultdict(list)  # pageno -> [PageLayout, ...]
         self.page_sizes = defaultdict(lambda: defaultdict(lambda: 1.0))  # pageno -> filename -> preferred_size
-        self.page_gaps = {}  # pageno -> gap (MCF units, 0.1mm)
+        self.page_internal_gaps = {}  # pageno -> internal_gap (MCF units, 0.1mm)
+        self.page_edge_gaps = {}  # pageno -> edge_gap (MCF units, 0.1mm)
         self.page_original = {}  # pageno -> PageLayout (read from file)
 
     def set_original(self, pageno, photos, texts=None):
@@ -91,8 +92,8 @@ class LayoutManager:
         if not orig or not orig.photos:
             return {}
         
-        # Get gap for this page (or estimate from layout)
-        gap = self.get_gap(pageno)
+        # Get internal gap for this page (or estimate from layout)
+        gap = self.get_internal_gap(pageno)
         if gap == 0.0 and orig.photos and page_width and page_height:
             # Estimate gap from original layout using origin_left for spread pages
             edge_gap, inter_gap = estimate_gaps(orig.photos, page_width, page_height, origin_left)
@@ -110,10 +111,33 @@ class LayoutManager:
             result[fn] = (area / total_area) * 10.0
         return result
 
-    def set_gap(self, pageno, gap):
-        """Set gap spacing for a page (MCF units, 0.1mm)."""
-        self.page_gaps[pageno] = gap
+    def set_internal_gap(self, pageno, internal_gap):
+        """Set internal gap spacing for a page (MCF units, 0.1mm)."""
+        self.page_internal_gaps[pageno] = internal_gap
 
-    def get_gap(self, pageno):
-        """Get gap spacing for a page (default 0.0)."""
-        return self.page_gaps.get(pageno, 0.0)
+    def get_internal_gap(self, pageno):
+        """Get internal gap spacing for a page (default 0.0)."""
+        return self.page_internal_gaps.get(pageno, 0.0)
+
+    def set_edge_gap(self, pageno, edge_gap):
+        """Set edge gap (margin) for a page (MCF units, 0.1mm). Can be negative for bleed."""
+        self.page_edge_gaps[pageno] = edge_gap
+
+    def get_edge_gap(self, pageno):
+        """Get edge gap (margin) for a page (default 0.0)."""
+        return self.page_edge_gaps.get(pageno, 0.0)
+    
+    def has_edge_gap(self, pageno):
+        """Check if edge gap has been set for a page."""
+        return pageno in self.page_edge_gaps
+    
+    def has_internal_gap(self, pageno):
+        """Check if internal gap has been set for a page."""
+        return pageno in self.page_internal_gaps
+    
+    def clear_gaps(self, pageno):
+        """Clear stored gap values for a page, forcing re-initialization from original layout."""
+        if pageno in self.page_internal_gaps:
+            del self.page_internal_gaps[pageno]
+        if pageno in self.page_edge_gaps:
+            del self.page_edge_gaps[pageno]

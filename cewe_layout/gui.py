@@ -17,11 +17,12 @@ from .algorithms.tree_builder import TreeBuilderAlgorithm
 from .algorithms.gridify import GridifyAlgorithm
 from .photos import get_image_dimensions, load_thumbnail
 from .gap_utils import (
-    estimate_gap,
     estimate_gaps,
     analyze_gaps,
     transform_page_to_gapfree,
-    transform_item_to_gapfree
+    transform_item_to_gapfree,
+    transform_item_from_gapfree,
+    transform_item_for_gap_change
 )
 
 
@@ -244,78 +245,82 @@ class LayoutViewer:
         right_col.grid(row=0, column=1, sticky='ne')
         
         # Cost display frame (top of right column)
-        # Use a simple frame (no redundant title)
-        cost_frame = ttk.Frame(right_col, padding=6)
-        cost_frame.grid(row=0, column=0, sticky='ew', pady=(0, 10))
+        # LabelFrame with total cost in title
+        self.cost_frame = ttk.LabelFrame(right_col, text='Total cost: --', padding=6)
+        self.cost_frame.grid(row=0, column=0, sticky='ew', pady=(0, 10))
         
-        ttk.Label(cost_frame, text='Total cost:', font=('TkDefaultFont', 11, 'bold')).grid(row=0, column=0, sticky='w', pady=1)
-        self.cost_total_label = ttk.Label(cost_frame, text='--', font=('TkDefaultFont', 11))
-        self.cost_total_label.grid(row=0, column=1, sticky='w', padx=4, pady=1)
+        cost_frame = self.cost_frame  # for compatibility with code below
         
-        ttk.Label(cost_frame, text='Empty space:', font=('TkDefaultFont', 10)).grid(row=1, column=0, sticky='w', pady=1)
+        ttk.Label(cost_frame, text='Empty space:', font=('TkDefaultFont', 10)).grid(row=0, column=0, sticky='w', pady=1)
         self.cost_empty_label = ttk.Label(cost_frame, text='--', font=('TkDefaultFont', 10))
-        self.cost_empty_label.grid(row=1, column=1, sticky='w', padx=4, pady=1)
+        self.cost_empty_label.grid(row=0, column=1, sticky='w', padx=4, pady=1)
         
-        ttk.Label(cost_frame, text='Size mismatch:', font=('TkDefaultFont', 10)).grid(row=2, column=0, sticky='w', pady=1)
+        ttk.Label(cost_frame, text='Size mismatch:', font=('TkDefaultFont', 10)).grid(row=1, column=0, sticky='w', pady=1)
         self.cost_size_label = ttk.Label(cost_frame, text='--', font=('TkDefaultFont', 10))
-        self.cost_size_label.grid(row=2, column=1, sticky='w', padx=4, pady=1)
+        self.cost_size_label.grid(row=1, column=1, sticky='w', padx=4, pady=1)
         
         # Indented sub-components of size mismatch
         self.cost_size_normal_heading = ttk.Label(cost_frame, text='  Normal:', font=('TkDefaultFont', 9))
-        self.cost_size_normal_heading.grid(row=3, column=0, sticky='w', pady=1)
+        self.cost_size_normal_heading.grid(row=2, column=0, sticky='w', pady=1)
         self.cost_size_normal_label = ttk.Label(cost_frame, text='--', font=('TkDefaultFont', 9))
-        self.cost_size_normal_label.grid(row=3, column=1, sticky='w', padx=4, pady=1)
+        self.cost_size_normal_label.grid(row=2, column=1, sticky='w', padx=4, pady=1)
         
         self.cost_size_undersized_heading = ttk.Label(cost_frame, text='  Undersized:', font=('TkDefaultFont', 9))
-        self.cost_size_undersized_heading.grid(row=4, column=0, sticky='w', pady=1)
+        self.cost_size_undersized_heading.grid(row=3, column=0, sticky='w', pady=1)
         self.cost_size_undersized_label = ttk.Label(cost_frame, text='--', font=('TkDefaultFont', 9))
-        self.cost_size_undersized_label.grid(row=4, column=1, sticky='w', padx=4, pady=1)
+        self.cost_size_undersized_label.grid(row=3, column=1, sticky='w', padx=4, pady=1)
 
         # Formula display: Total = Empty% + λ × SizeMismatch%-sq (normal) + λ × k × SizeMismatch%-sq (undersized)
         self.cost_formula_label = ttk.Label(cost_frame, text='', font=('TkDefaultFont', 10, 'italic'))
-        self.cost_formula_label.grid(row=5, column=0, columnspan=2, sticky='w', pady=(4,0))
+        self.cost_formula_label.grid(row=4, column=0, columnspan=2, sticky='w', pady=(4,0))
         
-        # Parameters frame (bottom of right column)
-        param_frame = ttk.LabelFrame(right_col, text='Parameters', padding=6)
-        param_frame.grid(row=1, column=0, sticky='ew')
-        
-        # Edge gap parameter (read-only display)
-        ttk.Label(param_frame, text='Edge gap (mm):').grid(row=0, column=0, sticky='w', pady=2)
-        self.edge_gap_var = tk.StringVar(value='0.0')
-        edge_gap_entry = ttk.Entry(param_frame, textvariable=self.edge_gap_var, width=8, state='readonly')
-        edge_gap_entry.grid(row=0, column=1, sticky='w', padx=4, pady=2)
-        
-        # Internal gap parameter (editable)
-        ttk.Label(param_frame, text='Internal gap (mm):').grid(row=1, column=0, sticky='w', pady=2)
-        self.gap_var = tk.StringVar(value='0.0')
-        self.gap_entry = ttk.Entry(param_frame, textvariable=self.gap_var, width=8)
-        self.gap_entry.grid(row=1, column=1, sticky='w', padx=4, pady=2)
-        self.gap_entry.bind('<Return>', lambda e: self.on_gap_changed())
-        self.gap_entry.bind('<FocusOut>', lambda e: self.on_gap_changed())
+        # Cost Parameters frame (middle of right column)
+        cost_param_frame = ttk.LabelFrame(right_col, text='Cost Parameters', padding=6)
+        cost_param_frame.grid(row=1, column=0, sticky='ew', pady=(0, 10))
         
         # Weight importance parameter
-        ttk.Label(param_frame, text='Size importance (λ):').grid(row=2, column=0, sticky='w', pady=2)
+        ttk.Label(cost_param_frame, text='Size importance (λ):').grid(row=0, column=0, sticky='w', pady=2)
         self.size_importance_var = tk.StringVar(value='100.0')
-        self.size_importance_entry = ttk.Entry(param_frame, textvariable=self.size_importance_var, width=8)
-        self.size_importance_entry.grid(row=2, column=1, sticky='w', padx=4, pady=2)
+        self.size_importance_entry = ttk.Entry(cost_param_frame, textvariable=self.size_importance_var, width=8)
+        self.size_importance_entry.grid(row=0, column=1, sticky='w', padx=4, pady=2)
         self.size_importance_entry.bind('<Return>', lambda e: self.on_size_importance_changed())
         self.size_importance_entry.bind('<FocusOut>', lambda e: self.on_size_importance_changed())
         
         # Undersized threshold parameter
-        ttk.Label(param_frame, text='Undersized threshold:').grid(row=3, column=0, sticky='w', pady=2)
+        ttk.Label(cost_param_frame, text='Undersized threshold:').grid(row=1, column=0, sticky='w', pady=2)
         self.undersized_threshold_var = tk.StringVar(value='0.5')
-        self.undersized_threshold_entry = ttk.Entry(param_frame, textvariable=self.undersized_threshold_var, width=8)
-        self.undersized_threshold_entry.grid(row=3, column=1, sticky='w', padx=4, pady=2)
+        self.undersized_threshold_entry = ttk.Entry(cost_param_frame, textvariable=self.undersized_threshold_var, width=8)
+        self.undersized_threshold_entry.grid(row=1, column=1, sticky='w', padx=4, pady=2)
         self.undersized_threshold_entry.bind('<Return>', lambda e: self.on_undersized_threshold_changed())
         self.undersized_threshold_entry.bind('<FocusOut>', lambda e: self.on_undersized_threshold_changed())
         
         # Undersized penalty parameter
-        ttk.Label(param_frame, text='Undersized penalty (k):').grid(row=4, column=0, sticky='w', pady=2)
+        ttk.Label(cost_param_frame, text='Undersized penalty (k):').grid(row=2, column=0, sticky='w', pady=2)
         self.undersized_penalty_var = tk.StringVar(value='5.0')
-        self.undersized_penalty_entry = ttk.Entry(param_frame, textvariable=self.undersized_penalty_var, width=8)
-        self.undersized_penalty_entry.grid(row=4, column=1, sticky='w', padx=4, pady=2)
+        self.undersized_penalty_entry = ttk.Entry(cost_param_frame, textvariable=self.undersized_penalty_var, width=8)
+        self.undersized_penalty_entry.grid(row=2, column=1, sticky='w', padx=4, pady=2)
         self.undersized_penalty_entry.bind('<Return>', lambda e: self.on_undersized_penalty_changed())
         self.undersized_penalty_entry.bind('<FocusOut>', lambda e: self.on_undersized_penalty_changed())
+        
+        # Margins frame (bottom of right column)
+        margins_frame = ttk.LabelFrame(right_col, text='Margins', padding=6)
+        margins_frame.grid(row=2, column=0, sticky='ew')
+        
+        # Edge gap parameter (now editable)
+        ttk.Label(margins_frame, text='Edge gap (mm):').grid(row=0, column=0, sticky='w', pady=2)
+        self.edge_gap_var = tk.StringVar(value='0.0')
+        self.edge_gap_entry = ttk.Entry(margins_frame, textvariable=self.edge_gap_var, width=8)
+        self.edge_gap_entry.grid(row=0, column=1, sticky='w', padx=4, pady=2)
+        self.edge_gap_entry.bind('<Return>', lambda e: self.on_edge_gap_changed())
+        self.edge_gap_entry.bind('<FocusOut>', lambda e: self.on_edge_gap_changed())
+        
+        # Internal gap parameter (editable)
+        ttk.Label(margins_frame, text='Internal gap (mm):').grid(row=1, column=0, sticky='w', pady=2)
+        self.gap_var = tk.StringVar(value='0.0')
+        self.gap_entry = ttk.Entry(margins_frame, textvariable=self.gap_var, width=8)
+        self.gap_entry.grid(row=1, column=1, sticky='w', padx=4, pady=2)
+        self.gap_entry.bind('<Return>', lambda e: self.on_internal_gap_changed())
+        self.gap_entry.bind('<FocusOut>', lambda e: self.on_internal_gap_changed())
         
         # Photo weight rows (will be populated dynamically)
         self.weight_widgets = []  # List of (item_label, desired_entry, actual_label) for photos and texts
@@ -488,38 +493,45 @@ class LayoutViewer:
         page_h = info.get('page_height', 2970.0)
         origin_left = info.get('origin_left', 0.0)
         
-        # Analyze gaps from ORIGINAL layout only (never from algorithm output)
-        # This ensures gap is a fixed parameter that algorithms don't modify
-        original_photos = info.get('photos', [])
-        original_texts = info.get('texts', [])
-        original_items = original_photos + original_texts
-        
-        edge_gap = 0.0
-        internal_gap = 0.0
-        if original_items:
-            analysis = analyze_gaps(original_items, page_w, page_h, origin_left)
-            edge_gap = analysis.edge_gap
-            internal_gap = analysis.internal_gap
+        # Initialize gaps from ORIGINAL layout on first visit to this page
+        # Check if gaps have been set (key exists, not value-based check)
+        if not self.layout_mgr.has_edge_gap(pageno) or not self.layout_mgr.has_internal_gap(pageno):
+            # Analyze gaps from original layout
+            original_photos = info.get('photos', [])
+            original_texts = info.get('texts', [])
+            original_items = original_photos + original_texts
             
-            # Display edge gap (or negative for bleed)
-            if analysis.bleed > 0:
-                self.edge_gap_var.set(f'-{analysis.bleed / 10.0:.1f}')
+            if original_items:
+                analysis = analyze_gaps(original_items, page_w, page_h, origin_left)
+                
+                # Set edge_gap: use negative value for bleed, positive for margin
+                if analysis.bleed > 0:
+                    # Bleed detected: use negative edge_gap
+                    self.layout_mgr.set_edge_gap(pageno, -analysis.bleed)
+                else:
+                    # No bleed: use positive edge_gap (margin)
+                    self.layout_mgr.set_edge_gap(pageno, analysis.edge_gap)
+                
+                # Set internal_gap: prefer internal, fallback to edge
+                if analysis.internal_gap > 0:
+                    self.layout_mgr.set_internal_gap(pageno, analysis.internal_gap)
+                else:
+                    # No internal gaps detected, use edge_gap as fallback
+                    self.layout_mgr.set_internal_gap(pageno, analysis.edge_gap)
             else:
-                self.edge_gap_var.set(f'{edge_gap / 10.0:.1f}')
-        else:
-            self.edge_gap_var.set('0.0')
+                # No items to analyze, set defaults
+                self.layout_mgr.set_edge_gap(pageno, 0.0)
+                self.layout_mgr.set_internal_gap(pageno, 0.0)
         
-        # Initialize gap from original layout once, then never change it
-        current_gap = self.layout_mgr.get_gap(pageno)
-        if current_gap == 0.0 and internal_gap > 0:
-            self.layout_mgr.set_gap(pageno, internal_gap)
-            current_gap = internal_gap
-        elif current_gap == 0.0 and edge_gap > 0:
-            self.layout_mgr.set_gap(pageno, edge_gap)
-            current_gap = edge_gap
+        # Get current gap values (now guaranteed to be set)
+        current_edge_gap = self.layout_mgr.get_edge_gap(pageno)
+        current_internal_gap = self.layout_mgr.get_internal_gap(pageno)
         
-        # Update internal gap display (convert MCF units to mm: 1 MCF unit = 0.1mm)
-        gap_mm = current_gap / 10.0
+        # Update gap displays (convert MCF units to mm: 1 MCF unit = 0.1mm)
+        edge_gap_mm = current_edge_gap / 10.0
+        self.edge_gap_var.set(f'{edge_gap_mm:.1f}')
+        
+        gap_mm = current_internal_gap / 10.0
         self.gap_var.set(f'{gap_mm:.1f}')
         
         # Clear existing weight widgets
@@ -529,16 +541,20 @@ class LayoutViewer:
         self.weight_widgets.clear()
         
         if not photos and not texts:
-            self.cost_total_label.config(text='--')
+            self.cost_frame.config(text='Total cost: --')
             self.cost_empty_label.config(text='No items')
             self.cost_size_label.config(text='--')
             self.cost_size_normal_label.config(text='--')
             self.cost_size_undersized_label.config(text='--')
             return
         
+        # Get current gaps from layout manager for evaluation
+        edge_gap = self.layout_mgr.get_edge_gap(pageno)
+        internal_gap = self.layout_mgr.get_internal_gap(pageno)
+        
         # Build LayoutRectangle list from CURRENT layout (photos and texts)
         # This is what we evaluate (algorithm output or original)
-        # But we use gaps from ORIGINAL layout (above) as fixed parameters
+        # But we use gaps from layout manager as fixed parameters
         # Transform to gap-free coordinate space (same as algorithm uses)
         from .algorithms.base import LayoutRectangle
         rectangles = []
@@ -642,7 +658,7 @@ class LayoutViewer:
             print()
         
         # Update cost labels with human-readable format
-        self.cost_total_label.config(text=f'{cost.total_cost:.1f}')
+        self.cost_frame.config(text=f'Total cost: {cost.total_cost:.1f}')
         
         # Empty space as percentage (fraction of page unused)
         empty_pct = cost.empty_space_fraction * 100
@@ -781,20 +797,139 @@ class LayoutViewer:
         except ValueError:
             pass  # Ignore invalid input
     
-    def on_gap_changed(self):
-        """Handle gap entry change."""
+    def on_edge_gap_changed(self):
+        """Handle edge gap entry change.
+        
+        When gap changes, transform layout: MCF → gap-free (old gaps) → MCF (new gaps).
+        This adjusts item positions/sizes to match the new gap values.
+        """
         if not self.pages:
             return
         try:
             pageno, info = self.pages[self.index]
-            gap_mm = float(self.gap_var.get())
-            # Convert mm to MCF units (1mm = 10 MCF units)
-            gap_mcf = gap_mm * 10.0
-            if 0.0 <= gap_mcf <= 200.0:  # Reasonable bounds (0-20mm)
-                self.layout_mgr.set_gap(pageno, gap_mcf)
-                self.update_weights_display()  # Refresh cost display
+            
+            # Get OLD gaps before changing
+            old_edge_gap = self.layout_mgr.get_edge_gap(pageno)
+            old_internal_gap = self.layout_mgr.get_internal_gap(pageno)
+            
+            # Parse and validate NEW edge gap
+            edge_gap_mm = float(self.edge_gap_var.get())
+            new_edge_gap = edge_gap_mm * 10.0  # Convert mm to MCF units
+            if not (-200.0 <= new_edge_gap <= 200.0):  # Reasonable bounds (-20mm to +20mm)
+                return  # Invalid value, abort
+            
+            # Transform current layout using gap change
+            self._transform_layout_for_gap_change(
+                pageno, old_edge_gap, old_internal_gap, new_edge_gap, old_internal_gap
+            )
+            
+            # Update stored gap value
+            self.layout_mgr.set_edge_gap(pageno, new_edge_gap)
+            
+            # Re-render with adjusted layout
+            self.render_page()
         except ValueError:
             pass  # Ignore invalid input
+    
+    def on_internal_gap_changed(self):
+        """Handle internal gap entry change.
+        
+        When gap changes, transform layout: MCF → gap-free (old gaps) → MCF (new gaps).
+        This adjusts item positions/sizes to match the new gap values.
+        """
+        if not self.pages:
+            return
+        try:
+            pageno, info = self.pages[self.index]
+            
+            # Get OLD gaps before changing
+            old_edge_gap = self.layout_mgr.get_edge_gap(pageno)
+            old_internal_gap = self.layout_mgr.get_internal_gap(pageno)
+            
+            # Parse and validate NEW internal gap
+            gap_mm = float(self.gap_var.get())
+            new_internal_gap = gap_mm * 10.0  # Convert mm to MCF units
+            if not (0.0 <= new_internal_gap <= 200.0):  # Reasonable bounds (0-20mm)
+                return  # Invalid value, abort
+            
+            # Transform current layout using gap change
+            self._transform_layout_for_gap_change(
+                pageno, old_edge_gap, old_internal_gap, old_edge_gap, new_internal_gap
+            )
+            
+            # Update stored gap value
+            self.layout_mgr.set_internal_gap(pageno, new_internal_gap)
+            
+            # Re-render with adjusted layout
+            self.render_page()
+        except ValueError:
+            pass  # Ignore invalid input
+    
+    def _transform_layout_for_gap_change(self, pageno, old_edge_gap, old_internal_gap,
+                                          new_edge_gap, new_internal_gap):
+        """Transform current layout when gaps change.
+        
+        Uses transform_item_for_gap_change() from gap_utils to handle the transformation.
+        See that function for detailed documentation of the algorithm.
+        
+        Args:
+            pageno: Page number
+            old_edge_gap: Previous edge gap in MCF units
+            old_internal_gap: Previous internal gap in MCF units
+            new_edge_gap: New edge gap in MCF units
+            new_internal_gap: New internal gap in MCF units
+        """
+        # Get current layout and page info
+        current_layout = self.layout_mgr.get_current(pageno)
+        if not current_layout:
+            return  # No layout to transform
+        
+        _, info = self.pages[self.index]
+        page_w = info.get('page_width', 2100.0)
+        page_h = info.get('page_height', 2970.0)
+        
+        # Transform photos using centralized helper
+        transformed_photos = []
+        for p in current_layout.photos:
+            left = p.get('area_left', 0)
+            top = p.get('area_top', 0)
+            width = p.get('area_width', 0)
+            height = p.get('area_height', 0)
+            
+            new_left, new_top, new_width, new_height = transform_item_for_gap_change(
+                left, top, width, height, page_w, page_h,
+                old_edge_gap, old_internal_gap, new_edge_gap, new_internal_gap
+            )
+            
+            updated_photo = p.copy()
+            updated_photo['area_left'] = new_left
+            updated_photo['area_top'] = new_top
+            updated_photo['area_width'] = new_width
+            updated_photo['area_height'] = new_height
+            transformed_photos.append(updated_photo)
+        
+        # Transform texts using centralized helper
+        transformed_texts = []
+        for t in current_layout.texts:
+            left = t.get('area_left', 0)
+            top = t.get('area_top', 0)
+            width = t.get('area_width', 0)
+            height = t.get('area_height', 0)
+            
+            new_left, new_top, new_width, new_height = transform_item_for_gap_change(
+                left, top, width, height, page_w, page_h,
+                old_edge_gap, old_internal_gap, new_edge_gap, new_internal_gap
+            )
+            
+            updated_text = t.copy()
+            updated_text['area_left'] = new_left
+            updated_text['area_top'] = new_top
+            updated_text['area_width'] = new_width
+            updated_text['area_height'] = new_height
+            transformed_texts.append(updated_text)
+        
+        # Push transformed layout (replaces current layout)
+        self.layout_mgr.push_layout(pageno, transformed_photos, transformed_texts)
     
     def on_size_importance_changed(self):
         """Handle size importance parameter change."""
@@ -938,24 +1073,12 @@ class LayoutViewer:
             page_w = info.get('page_width', 2100.0)
             page_h = info.get('page_height', 2970.0)
             
-            # Get current gap for this page
-            gap = self.layout_mgr.get_gap(pageno)
+            # Get current gaps for this page from layout manager
+            internal_gap = self.layout_mgr.get_internal_gap(pageno)
+            edge_gap = self.layout_mgr.get_edge_gap(pageno)
 
             # Get texts for this page
             texts = info.get('texts', [])
-
-            # Get gap analysis for this page from ORIGINAL layout
-            all_items = info.get('photos', []) + info.get('texts', [])
-            if all_items:
-                analysis = analyze_gaps(all_items, page_w, page_h, info.get('origin_left', 0.0))
-                edge_gap = analysis.edge_gap
-                internal_gap = analysis.internal_gap
-                # If there's bleed, edge_gap should be negative (photos extend beyond page)
-                if analysis.bleed > 0:
-                    edge_gap = -analysis.bleed
-            else:
-                edge_gap = 0.0
-                internal_gap = 0.0
             
             # Create algorithm instance based on selection
             algo_name = self.algorithm_var.get()
@@ -1102,6 +1225,7 @@ class LayoutViewer:
         """Discard current layout and revert to original from file."""
         pageno, info = self.pages[self.index]
         self.layout_mgr.clear_layouts(pageno)
+        self.layout_mgr.clear_gaps(pageno)  # Also reset gap values to original
         self.show_status(f'Reverted page {pageno} to original layout.')
         self.render_page()
 

@@ -3,6 +3,18 @@ Gap estimation and handling utilities.
 
 Handles uniform spacing (gaps) between photos and page edges.
 Separates edge gaps (margins) from internal gaps.
+
+KEY CONCEPT - Gaps and Coordinate Spaces:
+- MCF space: Coordinates as stored in the .mcf file, with actual gaps/margins
+- Gap-free space: Algorithm coordinate space where gaps are removed (items touch)
+
+Gaps are PARAMETERS that define transformations between these spaces:
+- edge_gap: Margin from page edge to first item (can be negative for bleed)
+- internal_gap: Spacing between adjacent items
+
+Cost calculations operate in GAP-FREE space and are unaware of gaps.
+Visual rendering operates in MCF space with gaps applied.
+Changing gaps transforms positions WITHOUT affecting gap-free coordinates or costs.
 """
 
 from typing import List, Dict, Any, Tuple, NamedTuple
@@ -194,24 +206,6 @@ def analyze_gaps(photos: List[Dict[str, Any]], page_width: float, page_height: f
     return GapAnalysis(edge_gap, inter_gap, bleed, edge_gaps, internal_gaps, bleed_margins)
 
 
-def estimate_gap(photos: List[Dict[str, Any]], page_width: float, page_height: float) -> float:
-    """
-    Legacy function for backward compatibility.
-    Returns the internal gap (or edge gap if no internal gaps found).
-    
-    Args:
-        photos: List of photo dicts with area_left, area_top, area_width, area_height.
-        page_width: Page width in MCF units.
-        page_height: Page height in MCF units.
-    
-    Returns:
-        Estimated gap in MCF units (0.1mm).
-    """
-    edge_gap, inter_gap = estimate_gaps(photos, page_width, page_height)
-    # Prefer internal gap; fall back to edge gap
-    return inter_gap if inter_gap > 0 else edge_gap
-
-
 def transform_page_to_gapfree(page_width: float, page_height: float,
                                edge_gap: float, internal_gap: float) -> Tuple[float, float]:
     """
@@ -297,3 +291,73 @@ def transform_item_from_gapfree(gapfree_left: float, gapfree_top: float,
     width = max(0, gapfree_width - internal_gap)
     height = max(0, gapfree_height - internal_gap)
     return left, top, width, height
+
+
+def transform_item_for_gap_change(
+    mcf_left: float, mcf_top: float, mcf_width: float, mcf_height: float,
+    page_width: float, page_height: float,
+    old_edge_gap: float, old_internal_gap: float,
+    new_edge_gap: float, new_internal_gap: float
+) -> Tuple[float, float, float, float]:
+    """
+    Transform an item when gap parameters change.
+    
+    When gaps change, the gap-free page size changes:
+    - Gap-free page = page - 2*edge_gap + internal_gap
+    - Changing edge_gap or internal_gap changes this size
+    
+    To maintain the same relative layout in gap-free space, items must scale
+    proportionally with the gap-free page size change.
+    
+    Transformation process:
+    1. Transform MCF → gap-free using OLD gaps
+    2. Scale gap-free coordinates by (new_gf_page / old_gf_page)
+    3. Transform gap-free → MCF using NEW gaps
+    
+    This preserves the relative layout while adapting to new gap parameters.
+    
+    Args:
+        mcf_left: Item left in MCF space (with old gaps)
+        mcf_top: Item top in MCF space (with old gaps)
+        mcf_width: Item width in MCF space (with old gaps)
+        mcf_height: Item height in MCF space (with old gaps)
+        page_width: Page width in MCF units
+        page_height: Page height in MCF units
+        old_edge_gap: Previous edge gap in MCF units
+        old_internal_gap: Previous internal gap in MCF units
+        new_edge_gap: New edge gap in MCF units
+        new_internal_gap: New internal gap in MCF units
+    
+    Returns:
+        Tuple (new_left, new_top, new_width, new_height) in MCF units with new gaps
+    """
+    # Calculate old and new gap-free page sizes
+    old_gf_page_w, old_gf_page_h = transform_page_to_gapfree(
+        page_width, page_height, old_edge_gap, old_internal_gap
+    )
+    new_gf_page_w, new_gf_page_h = transform_page_to_gapfree(
+        page_width, page_height, new_edge_gap, new_internal_gap
+    )
+    
+    # Calculate scale factors
+    scale_w = new_gf_page_w / old_gf_page_w if old_gf_page_w > 0 else 1.0
+    scale_h = new_gf_page_h / old_gf_page_h if old_gf_page_h > 0 else 1.0
+    
+    # Step 1: Transform to gap-free space using OLD gaps
+    gf_left, gf_top, gf_width, gf_height = transform_item_to_gapfree(
+        mcf_left, mcf_top, mcf_width, mcf_height, old_edge_gap, old_internal_gap
+    )
+    
+    # Step 2: Scale to fit new gap-free page size
+    scaled_gf_left = gf_left * scale_w
+    scaled_gf_top = gf_top * scale_h
+    scaled_gf_width = gf_width * scale_w
+    scaled_gf_height = gf_height * scale_h
+    
+    # Step 3: Transform back to MCF space using NEW gaps
+    new_left, new_top, new_width, new_height = transform_item_from_gapfree(
+        scaled_gf_left, scaled_gf_top, scaled_gf_width, scaled_gf_height,
+        new_edge_gap, new_internal_gap
+    )
+    
+    return new_left, new_top, new_width, new_height

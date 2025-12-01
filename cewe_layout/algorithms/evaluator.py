@@ -2,13 +2,19 @@
 
 Provides functions to compute a cost (badness) for a given layout based on:
   (a) Empty space on the page (typically acceptable: 5-10%)
-    (b) How well the layout matches preferred photo sizes
+  (b) How well the layout matches preferred photo sizes
 
 Cost computation:
 - Size mismatch: sum of squared differences between preferred sizes (normalized
     to sum to 1.0) and actual area fractions (each photo's area / page area).
 - Empty space: penalizes unused page area above acceptable threshold.
-- Total cost: weighted sum with weight mismatch as primary consideration.
+- Total cost: weighted sum with size mismatch as primary consideration.
+
+IMPORTANT: All evaluation happens in GAP-FREE coordinate space.
+- Gaps (edge_gap, internal_gap) are parameters that define coordinate transformations
+- They do NOT affect cost calculations directly
+- Caller must transform to gap-free space BEFORE calling evaluate_layout()
+- Cost calculation is completely unaware of gaps; it only sees gap-free coordinates
 
 All functions operate on the abstract `LayoutRectangle` and page dimensions
 and do not depend on MCF or file paths.
