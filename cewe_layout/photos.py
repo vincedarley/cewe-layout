@@ -7,8 +7,10 @@ collage_wrapper (for layout algorithm inputs).
 """
 
 import cv2
+import traceback
 from pathlib import Path
 from typing import Tuple, Optional
+from PIL import Image, ImageOps
 
 
 def resolve_photo_path(filename: str, mcf_base_folder: Path, image_folder_attr: str = '') -> Optional[Path]:
@@ -92,3 +94,73 @@ def get_image_aspect_ratio(img_path: Path) -> Optional[float]:
         return width / height
     
     return None
+
+
+def load_thumbnail(path: Path, width: int, height: int, verbose: bool = True) -> Optional[Image.Image]:
+    """
+    Load an image and create a thumbnail of specified size.
+    
+    The image is loaded with EXIF orientation applied, converted to RGB,
+    and thumbnailed to fit within the specified dimensions. The thumbnail
+    is centered on a white background of exactly the requested size.
+    
+    Args:
+        path: Path to the image file
+        width: Target thumbnail width in pixels
+        height: Target thumbnail height in pixels
+        verbose: If True, print diagnostic messages on failures
+    
+    Returns:
+        PIL Image of size (width, height), or None if load fails
+    """
+    if width <= 0 or height <= 0:
+        return None
+    
+    if not path or not Path(path).exists():
+        return None
+    
+    # Try PIL first
+    try:
+        im = Image.open(path)
+        # Auto-rotate based on EXIF orientation (support older Pillow)
+        exif_transpose = getattr(Image, 'exif_transpose', None) or getattr(ImageOps, 'exif_transpose', None)
+        if exif_transpose:
+            try:
+                im = exif_transpose(im)
+            except Exception:
+                # If transpose fails, continue without raising noisy traceback
+                pass
+        im = im.convert('RGB')
+        im.thumbnail((width, height), Image.LANCZOS)
+        # Create a background image exactly the size of slot and paste centered
+        bg = Image.new('RGB', (width, height), 'white')
+        x = max(0, (width - im.width) // 2)
+        y = max(0, (height - im.height) // 2)
+        bg.paste(im, (x, y))
+        return bg
+    except Exception as e:
+        # Detailed diagnostic for failures: print exception and try OpenCV fallback
+        if verbose:
+            print(f"[thumb] PIL failed to open {path}: {e}")
+            traceback.print_exc()
+        
+        # Try OpenCV fallback
+        try:
+            arr = cv2.imread(str(path), cv2.IMREAD_COLOR)
+            if arr is None:
+                if verbose:
+                    print(f"[thumb] OpenCV failed to read {path} (imread returned None)")
+                return None
+            arr = cv2.cvtColor(arr, cv2.COLOR_BGR2RGB)
+            im2 = Image.fromarray(arr)
+            im2.thumbnail((width, height), Image.LANCZOS)
+            bg = Image.new('RGB', (width, height), 'white')
+            x = max(0, (width - im2.width) // 2)
+            y = max(0, (height - im2.height) // 2)
+            bg.paste(im2, (x, y))
+            return bg
+        except Exception as e2:
+            if verbose:
+                print(f"[thumb] OpenCV fallback also failed for {path}: {e2}")
+                traceback.print_exc()
+            return None

@@ -1,13 +1,11 @@
 """Simple Tkinter UI to browse pages and display layout rectangles."""
 import tkinter as tk
 from tkinter import ttk
-from PIL import Image, ImageDraw, ImageTk, ImageOps
+from PIL import Image, ImageDraw, ImageTk
 import math
 import os
 from pathlib import Path
 import threading
-import traceback
-import cv2
 
 from .parser import extract_pages_info, parse_mcf_from_path
 from .layout_ops import LayoutManager
@@ -17,7 +15,7 @@ from .algorithms.collage_generator import CollageGeneratorAlgorithm
 from .algorithms.fan_layout import FanLayoutAlgorithm
 from .algorithms.tree_builder import TreeBuilderAlgorithm
 from .algorithms.gridify import GridifyAlgorithm
-from .photos import get_image_dimensions
+from .photos import get_image_dimensions, load_thumbnail
 from .gap_utils import (
     estimate_gap,
     estimate_gaps,
@@ -813,53 +811,28 @@ class LayoutViewer:
             pass  # Ignore invalid input
 
     def _get_thumbnail(self, path, w, h):
+        """Get thumbnail for an image, using cache if available.
+        
+        Args:
+            path: Path to the image file
+            w: Thumbnail width in pixels
+            h: Thumbnail height in pixels
+        
+        Returns:
+            PIL Image of size (w, h), or None if load fails
+        """
         # Avoid creating huge thumbnails; enforce minimums
         if w <= 0 or h <= 0:
             return None
         key = (path, w, h)
         if key in self.thumb_cache:
             return self.thumb_cache[key]
-        try:
-            im = Image.open(path)
-            # Auto-rotate based on EXIF orientation (support older Pillow)
-            exif_transpose = getattr(Image, 'exif_transpose', None) or getattr(ImageOps, 'exif_transpose', None)
-            if exif_transpose:
-                try:
-                    im = exif_transpose(im)
-                except Exception:
-                    # If transpose fails, continue without raising noisy traceback
-                    pass
-            im = im.convert('RGB')
-            im.thumbnail((w, h), Image.LANCZOS)
-            # create a background image exactly the size of slot and paste centered
-            bg = Image.new('RGB', (w, h), 'white')
-            x = max(0, (w - im.width) // 2)
-            y = max(0, (h - im.height) // 2)
-            bg.paste(im, (x, y))
-            self.thumb_cache[key] = bg
-            return bg
-        except Exception as e:
-            # Detailed diagnostic for failures: print exception and try OpenCV fallback
-            print(f"[thumb] PIL failed to open {path}: {e}")
-            traceback.print_exc()
-            try:
-                arr = cv2.imread(str(path), cv2.IMREAD_COLOR)
-                if arr is None:
-                    print(f"[thumb] OpenCV failed to read {path} (imread returned None)")
-                    return None
-                arr = cv2.cvtColor(arr, cv2.COLOR_BGR2RGB)
-                im2 = Image.fromarray(arr)
-                im2.thumbnail((w, h), Image.LANCZOS)
-                bg = Image.new('RGB', (w, h), 'white')
-                x = max(0, (w - im2.width) // 2)
-                y = max(0, (h - im2.height) // 2)
-                bg.paste(im2, (x, y))
-                self.thumb_cache[key] = bg
-                return bg
-            except Exception as e2:
-                print(f"[thumb] OpenCV fallback also failed for {path}: {e2}")
-                traceback.print_exc()
-                return None
+        
+        # Load thumbnail using shared function
+        thumb = load_thumbnail(Path(path), w, h, verbose=True)
+        if thumb is not None:
+            self.thumb_cache[key] = thumb
+        return thumb
 
     def prev_page(self):
         if self.index > 0:
