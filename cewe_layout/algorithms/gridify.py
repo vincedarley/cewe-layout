@@ -27,9 +27,13 @@ class GridifyAlgorithm(LayoutAlgorithm):
     smallest photo's dimensions.
     """
     
-    def __init__(self):
-        """Initialize Gridify algorithm."""
-        pass
+    def __init__(self, debug=False):
+        """Initialize Gridify algorithm.
+        
+        Args:
+            debug: Enable debug output
+        """
+        self.debug = debug
     
     def generate_layout(
         self,
@@ -58,19 +62,27 @@ class GridifyAlgorithm(LayoutAlgorithm):
                 if rect.x is None or rect.y is None or rect.width is None or rect.height is None:
                     return False, [], f"Rectangle {i} missing position/size (x={rect.x}, y={rect.y}, w={rect.width}, h={rect.height})"
             
-            # Find the smallest photo by area (ignore text blocks)
+            # Find the smallest layout slot by area (ignore text blocks)
             photos = [r for r in rectangles if r.preserve_aspect_ratio]
             if not photos:
                 # No photos, just return rectangles as-is
                 return True, rectangles, ""
             
-            smallest_photo = min(photos, key=lambda r: r.width * r.height)
+            smallest_slot = min(photos, key=lambda r: r.width * r.height)
             
-            # Calculate grid spacing based on smallest photo
-            # How many times does smallest photo fit across/down the page?
+            if self.debug:
+                print(f"\n=== Gridify Debug ===")
+                print(f"Page: {page_width} x {page_height}")
+                print(f"Smallest slot: {smallest_slot.width} x {smallest_slot.height}")
+                print(f"\nBEFORE snapping:")
+                for i, rect in enumerate(rectangles):
+                    print(f"  {i}: x={rect.x:.2f}, y={rect.y:.2f}, w={rect.width:.2f}, h={rect.height:.2f}")
+            
+            # Calculate grid spacing based on smallest layout slot
+            # How many times does smallest slot fit across/down the page?
             # Use int(x + 0.5) for consistent "round half up" behavior (avoids banker's rounding)
-            grid_cols = max(1, int(page_width / smallest_photo.width + 0.5))
-            grid_rows = max(1, int(page_height / smallest_photo.height + 0.5))
+            grid_cols = max(1, int(page_width / smallest_slot.width + 0.5))
+            grid_rows = max(1, int(page_height / smallest_slot.height + 0.5))
             
             # Actual grid spacing
             grid_spacing_x = page_width / grid_cols
@@ -90,18 +102,28 @@ class GridifyAlgorithm(LayoutAlgorithm):
                 snapped_right = self._snap_to_grid(right, grid_spacing_x)
                 snapped_bottom = self._snap_to_grid(bottom, grid_spacing_y)
                 
-                # Update rectangle with snapped corners
-                # Ensure minimum dimensions (at least one grid cell)
-                new_width = max(grid_spacing_x, snapped_right - snapped_left)
-                new_height = max(grid_spacing_y, snapped_bottom - snapped_top)
+                # Calculate new dimensions
+                new_width = snapped_right - snapped_left
+                new_height = snapped_bottom - snapped_top
                 
+                # If corners snapped to same line, expand to at least one grid cell
+                # (this should be very rare for already reasonable layouts)
+                if new_width <= 0:
+                    new_width = grid_spacing_x
+                if new_height <= 0:
+                    new_height = grid_spacing_y
+                
+                # Update rectangle with snapped values
                 rect.x = snapped_left
                 rect.y = snapped_top
                 rect.width = new_width
                 rect.height = new_height
-                
-                # Update actual_size
-                rect.actual_size = rect.preferred_size  # Gridify doesn't change relative sizes
+            
+            if self.debug:
+                print(f"\nAFTER snapping:")
+                for i, rect in enumerate(rectangles):
+                    print(f"  {i}: x={rect.x:.2f}, y={rect.y:.2f}, w={rect.width:.2f}, h={rect.height:.2f}")
+                print()
             
             return True, rectangles, ""
         

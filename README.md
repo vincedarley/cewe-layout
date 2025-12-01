@@ -38,3 +38,17 @@ License
 
 This project is distributed under the terms of the GNU General Public License v3.0.
 See `LICENSE` for details.
+
+**TO DO and Decisions**
+
+- Workflow: do we continue to use MacOS Photos as an efficient way to examine photos? Or just for tagging, and then mass export?
+- It would be smoother workflow to add photos inside this python app, rather than in Cewe, if there is uncertainty as to whether a
+  layout will work or not. Because there would be lots of context switching.  Unless of course both could operate on the same
+  xml file description at the same time. But that seems worrying?
+- Test joint workflow first. Can I have an album open in Cewe, add photos to a page, then optimise that page's layout in Python,  
+  save the changes and Cewe will load/pick up those changes and there will be no file corruption/writing issues?
+
+Layout clean-up algorithms:
+- Where a row or column of photos is nearly lined up, line them up
+- Layout is good, but a little rough. Now tweak aspect ratios and positions to smarten everything up nicely - typically to achieve 0% empty.
+- One way to do that, with some layouts, is a "gridify" action: find smallest photo. Split page x and y into grid of that photo size (approx), then all photo corners must line up with closest grid point.

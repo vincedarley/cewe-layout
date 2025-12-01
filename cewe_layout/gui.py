@@ -978,7 +978,7 @@ class LayoutViewer:
                     undersized_penalty=self.undersized_penalty
                 )
             elif algo_name == 'Gridify':
-                algorithm = GridifyAlgorithm()
+                algorithm = GridifyAlgorithm(debug=self.debug_var.get())
             elif algo_name == 'Tree-Builder':
                 algorithm = TreeBuilderAlgorithm(tolerance=20.0)
             else:
@@ -1009,7 +1009,8 @@ class LayoutViewer:
                 photos, page_w, page_h, Path(self.mcf_base_folder), 
                 algorithm=algorithm, edge_gap=edge_gap, internal_gap=internal_gap, texts=texts,
                 preferred_sizes=preferred_sizes,
-                use_slot_aspect=use_slot_aspect_for_photos, original_photos=original_photos
+                use_slot_aspect=use_slot_aspect_for_photos, original_photos=original_photos,
+                origin_left=info.get('origin_left', 0.0)
             )
             
             # MCF stores area_left as absolute coordinates relative to the full spread.

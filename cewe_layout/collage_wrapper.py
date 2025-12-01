@@ -13,7 +13,6 @@ Layout algorithms themselves know nothing about files, MCF, or paths.
 import cv2
 from pathlib import Path
 from .algorithms.base import LayoutRectangle
-from .algorithms.collage_generator import CollageGeneratorAlgorithm
 from .gap_utils import (
     transform_page_to_gapfree,
     transform_item_to_gapfree,
@@ -22,9 +21,10 @@ from .gap_utils import (
 
 
 def generate_layout_for_page(photos, page_width_mcf, page_height_mcf, mcf_base_folder, 
-                           algorithm=None, temperature=1.0, preferred_sizes=None, gap=None,
+                           algorithm, preferred_sizes=None,
                            edge_gap=0.0, internal_gap=0.0,
-                           texts=None, use_slot_aspect=None, original_photos=None, **kwargs):
+                           texts=None, use_slot_aspect=None, original_photos=None, 
+                           origin_left=0.0, **kwargs):
     """
     High-level function to generate a new layout for a page.
     
@@ -36,22 +36,19 @@ def generate_layout_for_page(photos, page_width_mcf, page_height_mcf, mcf_base_f
         page_width_mcf: Page width in MCF units (0.1mm).
         page_height_mcf: Page height in MCF units (0.1mm).
         mcf_base_folder: Base folder for resolving image paths.
-        algorithm: LayoutAlgorithm instance (defaults to CollageGeneratorAlgorithm).
-        temperature: Temperature for randomness (if supported by algorithm).
+        algorithm: LayoutAlgorithm instance.
         preferred_sizes: Optional dict mapping filename or TEXT_<idx> -> preferred_size (0.5 to 2.0).
-        gap: DEPRECATED. Use edge_gap and internal_gap instead. If provided, used for both.
         edge_gap: Edge gap (margin) in MCF units. Default 0.0.
         internal_gap: Internal gap (spacing between items) in MCF units. Default 0.0.
         texts: Optional list of MCF text block dicts (with 'area_width', 'area_height').
         use_slot_aspect: Optional dict mapping photo_idx -> bool. If True, use slot aspect ratio instead of image aspect ratio.
         original_photos: Optional list of original MCF photo dicts (for slot dimensions when use_slot_aspect=True).
+        origin_left: Origin offset for right-side pages in MCF units. Default 0.0.
         **kwargs: Additional algorithm-specific parameters.
     
     Returns:
         Tuple (success: bool, updated_photos: list, updated_texts: list, error_msg: str).
     """
-    if algorithm is None:
-        algorithm = CollageGeneratorAlgorithm(temperature=temperature)
     
     if texts is None:
         texts = []
@@ -59,19 +56,14 @@ def generate_layout_for_page(photos, page_width_mcf, page_height_mcf, mcf_base_f
     if use_slot_aspect is None:
         use_slot_aspect = {}
     
-    # TreeBuilderAlgorithm MUST use slot dimensions (rectangle dimensions) to reconstruct the tree
-    # It operates on the layout structure, not on individual image aspect ratios
-    # Cost evaluation happens separately and can use image dimensions if needed
+    # TreeBuilderAlgorithm and GridifyAlgorithm MUST use slot dimensions
+    # TreeBuilder: operates on layout structure, not image aspect ratios
+    # Gridify: refines existing layout by snapping to grid, needs actual slot dimensions
     from .algorithms.tree_builder import TreeBuilderAlgorithm
-    if isinstance(algorithm, TreeBuilderAlgorithm):
-        # Force all photos to use slot aspect ratio for tree building
-        # The tree structure is based on layout slots, not image aspect ratios
+    from .algorithms.gridify import GridifyAlgorithm
+    if isinstance(algorithm, (TreeBuilderAlgorithm, GridifyAlgorithm)):
+        # Force all photos to use slot dimensions
         use_slot_aspect = {i: True for i in range(len(photos))}
-    
-    # Handle deprecated gap parameter
-    if gap is not None:
-        edge_gap = gap
-        internal_gap = gap
     
     # Transform page to gap-free space (algorithm operates in gap-free coordinates)
     algo_page_width, algo_page_height = transform_page_to_gapfree(
@@ -80,12 +72,12 @@ def generate_layout_for_page(photos, page_width_mcf, page_height_mcf, mcf_base_f
     
     # Step 1: Translate MCF photos and texts to abstract layout rectangles
     photo_rects, error = _photos_to_rectangles(
-        photos, mcf_base_folder, preferred_sizes, edge_gap, internal_gap, use_slot_aspect, original_photos
+        photos, mcf_base_folder, preferred_sizes, edge_gap, internal_gap, use_slot_aspect, original_photos, origin_left
     )
     if error:
         return False, [], [], error
     
-    text_rects, error = _texts_to_rectangles(texts, preferred_sizes, edge_gap, internal_gap)
+    text_rects, error = _texts_to_rectangles(texts, preferred_sizes, edge_gap, internal_gap, origin_left)
     if error:
         return False, [], [], error
     
@@ -121,7 +113,7 @@ def generate_layout_for_page(photos, page_width_mcf, page_height_mcf, mcf_base_f
     return True, updated_photos, updated_texts, ""
 
 
-def _photos_to_rectangles(photos, mcf_base_folder, preferred_sizes=None, edge_gap=0.0, internal_gap=0.0, use_slot_aspect=None, original_photos=None):
+def _photos_to_rectangles(photos, mcf_base_folder, preferred_sizes=None, edge_gap=0.0, internal_gap=0.0, use_slot_aspect=None, original_photos=None, origin_left=0.0):
     """
     Convert MCF photo list to abstract LayoutRectangle objects in gap-free space.
     
@@ -136,6 +128,7 @@ def _photos_to_rectangles(photos, mcf_base_folder, preferred_sizes=None, edge_ga
         internal_gap: Internal gap (spacing between items) in MCF units.
         use_slot_aspect: Optional dict mapping photo_idx -> bool. If True, use slot dimensions instead of image dimensions.
         original_photos: Optional list of original MCF photo dicts (used for slot dimensions when use_slot_aspect=True).
+        origin_left: Origin offset for right-side pages in MCF units.
     
     Returns:
         Tuple (rectangles: list, error: str).
@@ -198,14 +191,15 @@ def _photos_to_rectangles(photos, mcf_base_folder, preferred_sizes=None, edge_ga
         if preferred_sizes and fn in preferred_sizes:
             preferred_size = preferred_sizes[fn]
         
-        # Extract position from MCF if available (needed for TreeBuilder)
+        # Extract position from MCF if available (needed for TreeBuilder and Gridify)
         # Use original_photos if available (for consistent positions across iterations)
         source_photo = original_photos[photo_idx] if original_photos and photo_idx < len(original_photos) else photo
         rect_x = None
         rect_y = None
         if 'area_left' in source_photo and 'area_top' in source_photo:
-            # Adjust from MCF coordinates (with edge gap) to algorithm coordinates (gap-free)
-            rect_x = float(source_photo['area_left']) - edge_gap
+            # Adjust from MCF coordinates (with edge gap and origin offset) to algorithm coordinates (gap-free, page-relative)
+            # Subtract origin_left to convert from spread coordinates to page coordinates
+            rect_x = float(source_photo['area_left']) - origin_left - edge_gap
             rect_y = float(source_photo['area_top']) - edge_gap
         
         # Use determined dimensions (either image or slot)
@@ -223,7 +217,7 @@ def _photos_to_rectangles(photos, mcf_base_folder, preferred_sizes=None, edge_ga
     return rectangles, ""
 
 
-def _texts_to_rectangles(texts, preferred_sizes=None, edge_gap=0.0, internal_gap=0.0):
+def _texts_to_rectangles(texts, preferred_sizes=None, edge_gap=0.0, internal_gap=0.0, origin_left=0.0):
     """
     Convert MCF text block list to abstract LayoutRectangle objects in gap-free space.
     
@@ -235,6 +229,7 @@ def _texts_to_rectangles(texts, preferred_sizes=None, edge_gap=0.0, internal_gap
         preferred_sizes: Optional dict mapping TEXT_<idx> -> preferred_size.
         edge_gap: Edge gap (margin) in MCF units.
         internal_gap: Internal gap (spacing between items) in MCF units.
+        origin_left: Origin offset for right-side pages in MCF units.
     
     Returns:
         Tuple (rectangles: list, error: str).
@@ -254,12 +249,13 @@ def _texts_to_rectangles(texts, preferred_sizes=None, edge_gap=0.0, internal_gap
         if preferred_sizes and item_id in preferred_sizes:
             preferred_size = preferred_sizes[item_id]
         
-        # Extract position from MCF if available (needed for TreeBuilder)
+        # Extract position from MCF if available (needed for TreeBuilder and Gridify)
         rect_x = None
         rect_y = None
         if 'area_left' in text and 'area_top' in text:
-            # Adjust from MCF coordinates (with edge gap) to algorithm coordinates (gap-free)
-            rect_x = float(text['area_left']) - edge_gap
+            # Adjust from MCF coordinates (with edge gap and origin offset) to algorithm coordinates (gap-free, page-relative)
+            # Subtract origin_left to convert from spread coordinates to page coordinates
+            rect_x = float(text['area_left']) - origin_left - edge_gap
             rect_y = float(text['area_top']) - edge_gap
         
         # Use MCF dimensions directly (algorithm will scale to fit)
