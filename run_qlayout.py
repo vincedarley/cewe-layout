@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Simple runner for cewe-layout that ensures the package can be imported.
+"""QLayout - runner for cewe-layout that ensures the package can be imported.
 
 Run with:
-    python run_cewe_layout.py --input path/to/album.mcf [--gui]
-    python run_cewe_layout.py --input path/to/album.mcf --patch
-    python run_cewe_layout.py --input path/to/album.mcf --unpatch
+    python run_qlayout.py --input path/to/album.mcf [--gui]
+    python run_qlayout.py --input path/to/album.mcf --patch
+    python run_qlayout.py --input path/to/album.mcf --unpatch
 """
 import os
 import sys

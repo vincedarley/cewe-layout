@@ -15,7 +15,7 @@ pip install -r requirements.txt
 
 2. Run the GUI for manual testing:
 ```bash
-python run_cewe_layout.py --input path/to/test/album.xmcf --gui
+python run_qlayout.py --input path/to/test/album.xmcf --gui
 ```
 
 ## Code Organization

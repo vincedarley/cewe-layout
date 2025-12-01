@@ -157,7 +157,7 @@ class LayoutViewer:
 
         # Controls window
         self.ctrl = tk.Toplevel(self.root)
-        self.ctrl.title('Controls')
+        self.ctrl.title('QLayout Controls')
         self.ctrl.geometry('+50+50')
 
         # Row 0: Navigation
