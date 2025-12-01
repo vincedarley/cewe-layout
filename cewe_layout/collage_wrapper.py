@@ -24,7 +24,7 @@ def generate_layout_for_page(photos, page_width_mcf, page_height_mcf, mcf_base_f
                            algorithm, preferred_sizes=None,
                            edge_gap=0.0, internal_gap=0.0,
                            texts=None, use_slot_aspect=None, original_photos=None, 
-                           origin_left=0.0, **kwargs):
+                           origin_left=0.0, photo_dimensions=None, **kwargs):
     """
     High-level function to generate a new layout for a page.
     
@@ -44,6 +44,7 @@ def generate_layout_for_page(photos, page_width_mcf, page_height_mcf, mcf_base_f
         use_slot_aspect: Optional dict mapping photo_idx -> bool. If True, use slot aspect ratio instead of image aspect ratio.
         original_photos: Optional list of original MCF photo dicts (for slot dimensions when use_slot_aspect=True).
         origin_left: Origin offset for right-side pages in MCF units. Default 0.0.
+        photo_dimensions: Optional dict mapping filename -> (width, height) in pixels. If provided, avoids re-loading images.
         **kwargs: Additional algorithm-specific parameters.
     
     Returns:
@@ -72,7 +73,7 @@ def generate_layout_for_page(photos, page_width_mcf, page_height_mcf, mcf_base_f
     
     # Step 1: Translate MCF photos and texts to abstract layout rectangles
     photo_rects, error = _photos_to_rectangles(
-        photos, mcf_base_folder, preferred_sizes, edge_gap, internal_gap, use_slot_aspect, original_photos, origin_left
+        photos, mcf_base_folder, preferred_sizes, edge_gap, internal_gap, use_slot_aspect, original_photos, origin_left, photo_dimensions
     )
     if error:
         return False, [], [], error
@@ -113,7 +114,7 @@ def generate_layout_for_page(photos, page_width_mcf, page_height_mcf, mcf_base_f
     return True, updated_photos, updated_texts, ""
 
 
-def _photos_to_rectangles(photos, mcf_base_folder, preferred_sizes=None, edge_gap=0.0, internal_gap=0.0, use_slot_aspect=None, original_photos=None, origin_left=0.0):
+def _photos_to_rectangles(photos, mcf_base_folder, preferred_sizes=None, edge_gap=0.0, internal_gap=0.0, use_slot_aspect=None, original_photos=None, origin_left=0.0, photo_dimensions=None):
     """
     Convert MCF photo list to abstract LayoutRectangle objects in gap-free space.
     
@@ -129,6 +130,7 @@ def _photos_to_rectangles(photos, mcf_base_folder, preferred_sizes=None, edge_ga
         use_slot_aspect: Optional dict mapping photo_idx -> bool. If True, use slot dimensions instead of image dimensions.
         original_photos: Optional list of original MCF photo dicts (used for slot dimensions when use_slot_aspect=True).
         origin_left: Origin offset for right-side pages in MCF units.
+        photo_dimensions: Optional dict mapping filename -> (width, height) in pixels. If provided, avoids re-loading images.
     
     Returns:
         Tuple (rectangles: list, error: str).
@@ -165,21 +167,27 @@ def _photos_to_rectangles(photos, mcf_base_folder, preferred_sizes=None, edge_ga
         
         # If not using slot, or slot dimensions were invalid, use image file dimensions
         if rect_width is None or rect_height is None:
-            # Resolve image path
-            safefn = fn.replace('safecontainer:/', '').lstrip('/')
-            img_path = mcf_base / safefn
-            
-            if not img_path.exists():
-                return [], f"Image not found: {img_path}"
-            
-            # Load image to get its dimensions
-            dims = get_image_dimensions(img_path)
-            if dims is None:
-                return [], f"Failed to load image: {img_path}"
-            
-            img_width, img_height = dims
-            rect_width = float(img_width)
-            rect_height = float(img_height)
+            # Check cache first if provided
+            if photo_dimensions and fn in photo_dimensions:
+                img_width, img_height = photo_dimensions[fn]
+                rect_width = float(img_width)
+                rect_height = float(img_height)
+            else:
+                # Resolve image path and load dimensions
+                safefn = fn.replace('safecontainer:/', '').lstrip('/')
+                img_path = mcf_base / safefn
+                
+                if not img_path.exists():
+                    return [], f"Image not found: {img_path}"
+                
+                # Load image to get its dimensions
+                dims = get_image_dimensions(img_path)
+                if dims is None:
+                    return [], f"Failed to load image: {img_path}"
+                
+                img_width, img_height = dims
+                rect_width = float(img_width)
+                rect_height = float(img_height)
         
         # Create LayoutRectangle
         item_id = str(photo_idx)

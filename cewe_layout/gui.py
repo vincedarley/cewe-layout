@@ -44,6 +44,9 @@ class LayoutViewer:
         
         # Track which photos should use slot aspect ratio (dict: {(pageno, photo_idx): BooleanVar})
         self.use_slot_aspect = {}
+        
+        # Cache photo dimensions: {filename: (width, height)} to avoid re-reading images
+        self.photo_dimensions = {}
 
         # initialize layout manager with originals from file
         for pageno, info in self.pages:
@@ -701,22 +704,35 @@ class LayoutViewer:
                         # Load image to get its actual aspect ratio
                         fn = photo.get('filename', '')
                         if fn:
-                            safefn = fn.replace('safecontainer:/', '').lstrip('/')
-                            img_path = Path(self.mcf_base_folder) / safefn
-                            if img_path.exists():
-                                try:
-                                    dims = get_image_dimensions(img_path)
-                                    if dims is not None:
-                                        img_w, img_h = dims
-                                        if img_h > 0 and img_w > 0:
-                                            img_aspect = img_w / img_h
-                                            slot_aspect = slot_width / slot_height
-                                            # Auto-check if aspect ratios differ by more than 30%
-                                            aspect_diff = abs(img_aspect - slot_aspect) / slot_aspect
-                                            if aspect_diff > 0.30:
-                                                should_auto_check = True
-                                except Exception:
-                                    pass
+                            # Check cache first
+                            if fn in self.photo_dimensions:
+                                img_w, img_h = self.photo_dimensions[fn]
+                                img_aspect = img_w / img_h
+                                slot_aspect = slot_width / slot_height
+                                # Auto-check if aspect ratios differ by more than 30%
+                                aspect_diff = abs(img_aspect - slot_aspect) / slot_aspect
+                                if aspect_diff > 0.30:
+                                    should_auto_check = True
+                            else:
+                                # Load and cache dimensions
+                                safefn = fn.replace('safecontainer:/', '').lstrip('/')
+                                img_path = Path(self.mcf_base_folder) / safefn
+                                if img_path.exists():
+                                    try:
+                                        dims = get_image_dimensions(img_path)
+                                        if dims is not None:
+                                            img_w, img_h = dims
+                                            # Cache for future use
+                                            self.photo_dimensions[fn] = (img_w, img_h)
+                                            if img_h > 0 and img_w > 0:
+                                                img_aspect = img_w / img_h
+                                                slot_aspect = slot_width / slot_height
+                                                # Auto-check if aspect ratios differ by more than 30%
+                                                aspect_diff = abs(img_aspect - slot_aspect) / slot_aspect
+                                                if aspect_diff > 0.30:
+                                                    should_auto_check = True
+                                    except Exception:
+                                        pass
                     
                     self.use_slot_aspect[checkbox_key] = tk.BooleanVar(value=should_auto_check)
                 
@@ -984,7 +1000,8 @@ class LayoutViewer:
                 algorithm=algorithm, edge_gap=edge_gap, internal_gap=internal_gap, texts=texts,
                 preferred_sizes=preferred_sizes,
                 use_slot_aspect=use_slot_aspect_for_photos, original_photos=original_photos,
-                origin_left=info.get('origin_left', 0.0)
+                origin_left=info.get('origin_left', 0.0),
+                photo_dimensions=self.photo_dimensions
             )
             
             # MCF stores area_left as absolute coordinates relative to the full spread.
