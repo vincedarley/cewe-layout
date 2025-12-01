@@ -996,12 +996,11 @@ class LayoutViewer:
                 preferred_sizes[text_id] = self.layout_mgr.get_size(pageno, text_id)
             
             success, updated_photos, updated_texts, error_msg = generate_layout_for_page(
-                photos, page_w, page_h, Path(self.mcf_base_folder), 
+                photos, page_w, page_h, self.photo_dimensions,
                 algorithm=algorithm, edge_gap=edge_gap, internal_gap=internal_gap, texts=texts,
                 preferred_sizes=preferred_sizes,
                 use_slot_aspect=use_slot_aspect_for_photos, original_photos=original_photos,
-                origin_left=info.get('origin_left', 0.0),
-                photo_dimensions=self.photo_dimensions
+                origin_left=info.get('origin_left', 0.0)
             )
             
             # MCF stores area_left as absolute coordinates relative to the full spread.
