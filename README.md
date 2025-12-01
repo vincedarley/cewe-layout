@@ -1,8 +1,8 @@
-cewe-layout
+**cewe-layout or 'QLayout' for short**
 
 Utility to parse CEWE `.mcf` / `.xmcf` photobook files, inspect page photo slots and interactively generate new layouts.
 
-Quickstart
+**Quickstart**
 
 1. Create a virtual environment and install dependencies:
 
@@ -18,7 +18,7 @@ pip install -r requirements.txt
 python run_qlayout.py --input /path/to/Test-album.xmcf
 ```
 
-3. Run the GUI viewer against an unpacked `.xmcf` folder or `.mcf` file. Now you can use the GUI to modify layouts in your photobook:
+3. Run the full tool (with GUI) against an unpacked `.xmcf` folder or `.mcf` file. Now you can use the GUI to interactively and algorithmically modify layouts in your photobook, and save them, etc:
 
 ```bash
 python run_qlayout.py --input /path/to/Test-album.xmcf --gui
@@ -40,13 +40,9 @@ Details for the technically minded:
 
 - Workflow: do we continue to use MacOS Photos as an efficient way to examine photos? Or just for tagging, and then mass export?
 - Because you can't use both CC and QLayout at the same time, it would be smoother workflow to add photos inside QLayout app, rather than in Cewe, if we believe the layout tools in QLayout are "better". Obviously you will always return to CC at the end to refine many things.
-
-Layout clean-up algorithms:
-- Gridify: done. Useful for fine-grained cleanup of many layouts.
+- More layout clean-up algorithms? (beyond Gridify)
 
 **Layout Algorithms**
-
-- `cewe-layout/cewe_layout/algorithms/base.py` — abstract layout algorithm interface using unified `LayoutRectangle` I/O model. If you want to write your own algorithms for creating and improving Page layouts, this is where you should start.
 
 - **[Fan Layout](cewe_layout/algorithms/fan_layout.py)** — Genetic algorithm-based layout using binary slicing trees with O(N) fast evaluation, based on [Fan, Jian (2012)](https://ieeexplore.ieee.org/document/6267282). Uses crossover and mutation operators to explore the layout space, balancing canvas coverage and photo size distribution. Best for generating completely new layouts from scratch.
 
@@ -55,6 +51,8 @@ Layout clean-up algorithms:
 - **[Tree Builder](cewe_layout/algorithms/tree_builder.py)** — Reverse-engineers existing layouts into binary slicing tree representations by finding splitting lines. Useful for analyzing existing Cewe layouts or converting manual layouts into tree structures that can be mutated. Operates on layouts with positioned rectangles and reconstructs the underlying tree structure.
 
 - **[Gridify](cewe_layout/algorithms/gridify.py)** — Cleanup algorithm that snaps an existing layout to a regular grid determined by the smallest photo's dimensions. Takes a messy layout with near-aligned photos and aligns all corners precisely to grid points. Best for fine-tuning layouts that are already reasonably well-organized.
+
+- `cewe-layout/cewe_layout/algorithms/base.py` — abstract layout algorithm interface using unified `LayoutRectangle` I/O model. If you want to write your own algorithms for creating and improving Page layouts, this is where you should start.
 
 **For architectural details and API design, see [`API_DESIGN.md`](API_DESIGN.md).**
 
