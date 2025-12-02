@@ -1,23 +1,21 @@
 NOTICE
 ======
 
-This project (cewe-layout) includes and adapts code from the following third-party projects. We provide this NOTICE to document authorship and licensing obligations.
+This project (cewe-layout / QLayout) includes and adapts ideas and algorithms from the following sources. We provide this NOTICE to document authorship and attribution.
 
-1) cewe2pdf
-- Repository: https://github.com/bash0/cewe2pdf
-- Source included/used in this workspace: `cewe2pdf/`.
-- License: GNU General Public License (GPL).
-- Effect: Parts of this project include or are derived from `cewe2pdf` code. Because `cewe2pdf` is GPL-licensed, this project is distributed under GPLv3 to respect compatibility and license obligations.
+1) Algorithm Implementations Based on Published Research
 
-2) collage-generator (n-gao)
-- Repository: https://github.com/n-gao/collage-generator
-- Author: n-gao
-- License: MIT (original project)
-- Usage: The `cewe_layout/algorithms/collage_generator.py` module adapts the collage-generator algorithm and tree-based layout approach. Attribution to `n-gao` is included in the module docstring.
+- **Fan Layout Algorithm**: Based on "Photo layout with a fast evaluation method and genetic algorithm" by Jian Fan (2012 IEEE ICMEW). Implementation in `cewe_layout/algorithms/fan_layout.py` follows the published algorithm design.
 
-Third-party dependencies and licenses
-- See `requirements.txt` and each dependency's license for details.
+- **Collage Generator Algorithm**: Based on "Very fast generation of content-preserved photo collage under canvas size constraint" by Wu, Zhipeng, and Kiyoharu Aizawa (Multimedia Tools and Applications, 2016). The implementation in `cewe_layout/algorithms/collage_generator.py` adapts concepts from the reference implementation by n-gao (https://github.com/n-gao/collage-generator), which is MIT licensed.
 
-If you redistribute or modify this project, please follow the license terms of the included projects (GPLv3, MIT, and other dependencies). For GPL obligations, provide source and reproduce this NOTICE and the `LICENSE` file.
+2) Third-Party Dependencies
 
-If you believe an attribution is missing or incorrect, please open an issue or submit a patch to update this NOTICE.
+- See `requirements.txt` for all Python dependencies and their respective licenses.
+- Notable dependencies include: lxml, opencv-python, numpy, pillow, and tkinter (Python standard library).
+
+3) Acknowledgments
+
+This project was partially inspired by the cewe2pdf project (https://github.com/bash0/cewe2pdf) (which is used for turning CEWE files into complete detailed PDF files). However the use-case is very different, and no code was directly copied.
+
+If you believe an attribution is missing or incorrect, please open an issue or submit a pull request to update this NOTICE.

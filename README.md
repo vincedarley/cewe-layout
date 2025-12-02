@@ -28,7 +28,7 @@ python run_qlayout.py --input /path/to/Test-album.xmcf --gui
 
 **Workflow**
 
-1) You have to work independely in QLayout vs in Cewe Creator.  In general you should only have one of the two applications open (with the same book.xmcf) at any one time.  So close one, work in the other, repeat until your book is done...
+1) You have to work indepedently in QLayout vs in Cewe Creator.  In general you should only have one of the two applications open (with the same book.xmcf) at any one time.  So close one, work in the other, repeat until your book is done...
 2) In case you forget this "work independently" instruction, you should generally not worry about file corruption - but you should worry that important layout work you've done in one tool is going to be overwritten by the other.  So you will be wasting time and effort. 
 
 Details for the technically minded:
@@ -42,6 +42,9 @@ Details for the technically minded:
 
 - Workflow: do we continue to use MacOS Photos as an efficient way to examine photos? Or just for tagging, and then mass export?
 - Because you can't use both CC and QLayout at the same time, it would be smoother workflow to add photos inside QLayout app, rather than in Cewe, if we believe the layout tools in QLayout are "better". Obviously you will always return to CC at the end to refine many things.
+
+- Perhaps drag-drop a number of photos into QLayout. Allow you to select from them and auto-layout. Or drag them directly onto a page. No selection needed. Get python to tag them in MacOS Photos as "used"
+
 - More layout clean-up algorithms? (beyond Gridify)
 
 **Layout Algorithms**
@@ -56,10 +59,10 @@ Details for the technically minded:
 
 - `cewe-layout/cewe_layout/algorithms/base.py` — abstract layout algorithm interface using unified `LayoutRectangle` I/O model. If you want to write your own algorithms for creating and improving Page layouts, this is where you should start.
 
-**For architectural details and API design, see [`API_DESIGN.md`](API_DESIGN.md).**
+**For architectural details and API design, see [`API_DESIGN.md`](docs/API_DESIGN.md).**
 
-License
+**License**
 
-This project is distributed under the terms of the GNU General Public License v3.0.
+This project is licensed under the MIT License.
 See `LICENSE` for details.
 

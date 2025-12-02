@@ -20,20 +20,15 @@ python run_qlayout.py --input path/to/test/album.xmcf --gui
 
 ## Code Organization
 
-- `cewe-layout/cewe_layout/parser.py` — XML parsing and page/photo extraction.
-- `cewe-layout/cewe_layout/gui.py` — Tkinter UI for browsing and interaction.
-- `cewe-layout/cewe_layout/layout_ops.py` — In-memory layout history and weight management.
-- `cewe-layout/cewe_layout/algorithms/` — Pluggable layout generation algorithms.
-- `cewe-layout/cewe_layout/collage_wrapper.py` — Glue between GUI and algorithms.
-@@- `cewe_layout/parser.py` — XML parsing and page/photo extraction.
-@@- `cewe_layout/gui.py` — Tkinter UI for browsing and interaction.
-@@- `cewe_layout/layout_ops.py` — In-memory layout history and weight management.
-@@- `cewe_layout/algorithms/` — Pluggable layout generation algorithms.
-@@- `cewe_layout/collage_wrapper.py` — Glue between GUI and algorithms.
+- `cewe_layout/parser.py` — XML parsing and page/photo extraction.
+- `cewe_layout/gui.py` — Tkinter UI for browsing and interaction.
+- `cewe_layout/layout_ops.py` — In-memory layout history and weight management.
+- `cewe_layout/algorithms/` — Pluggable layout generation algorithms.
+- `cewe_layout/collage_wrapper.py` — Glue between GUI and algorithms.
 
 ## Adding a New Layout Algorithm
 
-1. Create a new file in `cewe-layout/cewe_layout/algorithms/`, e.g., `my_algorithm.py`.
+1. Create a new file in `cewe_layout/algorithms/`, e.g., `my_algorithm.py`.
 2. Subclass `LayoutAlgorithm` from `cewe_layout/algorithms/base.py` and implement `generate_layout()`.
 3. Update imports in `cewe_layout/collage_wrapper.py` if needed; algorithms are typically selected by caller.
 4. Include attribution and license info in your algorithm module docstring.
@@ -52,4 +47,4 @@ For new algorithms, verify:
 
 ## Licensing
 
-All contributions are under the same license as the project (MIT). If you include external code, include proper attribution and ensure compatibility.
+All contributions are licensed under the MIT License (same as the project). If you include external code or algorithms, include proper attribution and ensure license compatibility.
