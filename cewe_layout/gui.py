@@ -567,8 +567,8 @@ class LayoutViewer:
         
         layout_photos = self._create_initial_layout(all_photos, page_w, page_h, origin_left)
         
-        # Update layout manager with new layout
-        self.layout_mgr.update_layout(pageno, layout_photos, existing_texts)
+        # Store new layout in layout manager
+        self.layout_mgr.push_layout(pageno, layout_photos, existing_texts)
         
         # Set preferred sizes for new photos based on EXIF data
         for photo in new_photos:
