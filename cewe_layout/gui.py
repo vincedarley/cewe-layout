@@ -496,17 +496,9 @@ class LayoutViewer:
         except (ImportError, AttributeError, Exception) as e:
             # tkinterdnd2 not available or failed to initialize
             print(f"[Drag-drop] tkinterdnd2 not available ({e}), using Cmd+O fallback")
-            self._setup_basic_drop()
-    
-    def _setup_basic_drop(self):
-        """Setup basic drag-and-drop using macOS AppleScript events."""
-        # On macOS, we can use <<DropEvent>> for file drops
-        # This requires launching with pythonw or special setup
-        # For now, just bind a keyboard shortcut to add photos
+        # allow cmd-O under all circumstances
         self.root.bind('<Command-o>', lambda e: self._prompt_add_photos())
-        # Also show info message about drag-drop
-        print("[Drag-drop] tkinterdnd2 not available. Use Cmd+O to add photos.")
-    
+        
     def _prompt_add_photos(self):
         """Prompt user to select photos to add to current page."""
         from tkinter import filedialog
@@ -542,6 +534,10 @@ class LayoutViewer:
             self.show_status('No JPEG files found in selection', error=True)
             return
         
+        # Show loading message
+        self.show_status(f'Loading {len(photo_files)} photo(s)...')
+        self.root.update_idletasks()  # Force UI update to show message
+        
         pageno, info = self.pages[self.index]
         
         # Copy photos to image folder and build new photo list
@@ -555,8 +551,11 @@ class LayoutViewer:
         existing_photos = current_layout.photos if current_layout else info.get('photos', [])
         existing_texts = current_layout.texts if current_layout else info.get('texts', [])
         
-        # Combine existing and new photos
-        all_photos = list(existing_photos) + new_photos
+        # Filter out empty photo slots (photos with no filename)
+        non_empty_photos = [p for p in existing_photos if p.get('filename')]
+        
+        # Combine non-empty existing photos and new photos
+        all_photos = list(non_empty_photos) + new_photos
         
         # Create initial layout rectangles for all photos
         page_w = info.get('page_width', 2100.0)
@@ -568,9 +567,13 @@ class LayoutViewer:
         # Store new layout in layout manager
         self.layout_mgr.push_layout(pageno, layout_photos, existing_texts)
         
-        # Set preferred sizes for new photos based on EXIF data
-        for photo in new_photos:
+        # Set preferred sizes for ALL photos (existing + new) based on EXIF data
+        # and populate photo_dimensions cache for algorithm use
+        for photo in all_photos:
             filename = photo.get('filename', '')
+            if not filename:
+                continue
+            
             # Resolve photo path to read EXIF
             safefn = filename.replace('safecontainer:/', '').lstrip('/')
             if self.image_folder_attr:
@@ -580,6 +583,10 @@ class LayoutViewer:
             
             if img_path.exists():
                 preferred_size = get_photo_preferred_size(img_path)
+                # Populate dimensions cache for algorithm
+                dims = get_image_dimensions(img_path)
+                if dims:
+                    self.photo_dimensions[filename] = dims
             else:
                 preferred_size = 1.0
             
@@ -677,7 +684,7 @@ class LayoutViewer:
         base_height = page_h / 10.0
         
         # Horizontal spacing between photos: 1mm = 10 MCF units
-        x_spacing = 10.0
+        x_spacing = 100.0
         
         # Starting position
         current_x = origin_left + edge_gap
@@ -711,9 +718,10 @@ class LayoutViewer:
             # Target area = base_width * base_height * size_multiplier
             target_area = base_width * base_height * size_multiplier
             # width * height = target_area, width/height = aspect_ratio
-            # width = sqrt(target_area * aspect_ratio)
+            # Solve: w * h = target_area, w/h = aspect_ratio
+            # => w = sqrt(target_area * aspect_ratio), h = sqrt(target_area / aspect_ratio)
             slot_width = math.sqrt(target_area * aspect_ratio)
-            slot_height = slot_width / aspect_ratio
+            slot_height = math.sqrt(target_area / aspect_ratio)
             
             # Create photo dict with layout position
             photo_copy = photo.copy()

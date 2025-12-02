@@ -16,7 +16,7 @@ from PIL.ExifTags import TAGS
 
 def get_iptc_keywords(img_path: Path) -> List[str]:
     """
-    Extract IPTC keywords from image metadata.
+    Extract IPTC keywords from image metadata using exiftool.
     
     Args:
         img_path: Path to the image file
@@ -28,61 +28,19 @@ def get_iptc_keywords(img_path: Path) -> List[str]:
         return []
     
     try:
-        from PIL import Image
-        from PIL.ExifTags import TAGS
-        
-        img = Image.open(img_path)
-        
-        # Try to get IPTC data from APP13 segment
-        # IPTC keywords are stored in tag 25 (0x19) of the IPTC dataset
-        if hasattr(img, 'app'):
-            # Check for IPTC in APP13
-            app13 = img.app.get('APP13')
-            if app13:
-                # Parse IPTC data (basic implementation)
-                # IPTC keywords field is 2:25
-                keywords = []
-                # This is a simplified parser - full IPTC parsing is complex
-                # For now, try the simpler approach via getexif()
-        
-        # Try via EXIF data which may contain XMP or IPTC
-        exif = img.getexif()
-        if exif:
-            # IPTC keywords might be in tag 0x9c9e (XPKeywords) or embedded in other tags
-            # Try common tags that might contain keywords
-            for tag_id, value in exif.items():
-                tag_name = TAGS.get(tag_id, tag_id)
-                if isinstance(tag_name, str) and 'keyword' in tag_name.lower():
-                    if isinstance(value, str):
-                        return [kw.strip() for kw in value.split(';') if kw.strip()]
-                    elif isinstance(value, bytes):
-                        try:
-                            decoded = value.decode('utf-16le').rstrip('\x00')
-                            return [kw.strip() for kw in decoded.split(';') if kw.strip()]
-                        except:
-                            pass
-        
-        # Try using exiftool via subprocess if available (more reliable for IPTC)
-        try:
-            import subprocess
-            result = subprocess.run(
-                ['exiftool', '-Keywords', '-s', '-s', '-s', str(img_path)],
-                capture_output=True,
-                text=True,
-                timeout=2
-            )
-            if result.returncode == 0 and result.stdout.strip():
-                # Keywords are comma-separated in exiftool output
-                keywords = [kw.strip() for kw in result.stdout.strip().split(',')]
-                return keywords
-        except (FileNotFoundError, subprocess.TimeoutExpired, Exception):
-            # exiftool not available or failed, continue with other methods
-            pass
-        
+        import subprocess
+        result = subprocess.run(
+            ['exiftool', '-Keywords', '-s3', str(img_path)],
+            capture_output=True,
+            text=True,
+            timeout=1
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            # Keywords are comma-separated in exiftool output
+            return [kw.strip() for kw in result.stdout.strip().split(',')]
         return []
-    
-    except Exception as e:
-        # Silently fail - keywords are optional
+    except Exception:
+        # exiftool not available or failed
         return []
 
 
