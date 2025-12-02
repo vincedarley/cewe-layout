@@ -2,3 +2,6 @@ lxml>=4.4.1
 Pillow>=9.0.0
 opencv-python>=4.5.0
 numpy>=1.19.0
+
+# Optional: for drag-and-drop support on macOS/Windows
+# tkinterdnd2>=0.3.0

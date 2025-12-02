@@ -29,7 +29,20 @@ python run_qlayout.py --input /path/to/Test-album.xmcf --gui
 **Workflow**
 
 1) You have to work indepedently in QLayout vs in Cewe Creator.  In general you should only have one of the two applications open (with the same book.xmcf) at any one time.  So close one, work in the other, repeat until your book is done...
-2) In case you forget this "work independently" instruction, you should generally not worry about file corruption - but you should worry that important layout work you've done in one tool is going to be overwritten by the other.  So you will be wasting time and effort. 
+2) In case you forget this "work independently" instruction, you should generally not worry about file corruption - but you should worry that important layout work you've done in one tool is going to be overwritten by the other.  So you will be wasting time and effort.
+
+**Adding Photos to a Page**
+
+You can add new photos to the current page by:
+- **Drag-and-drop** (if tkinterdnd2 is installed): Drag JPEG files from Finder directly onto the main window
+- **Keyboard shortcut**: Press `Cmd+O` to open a file picker and select photos
+
+When photos are added:
+1. They are copied to the album's image folder
+2. Initial layout rectangles are created (overlapping at the top of the page for easy visibility)
+3. You can then use any layout algorithm (Collage-Gen, Fan-GA, etc.) to arrange them nicely
+
+*Note: Photo importance (size preference) will be determined from EXIF data in a future update.*
 
 Details for the technically minded:
 - Saving a modified page layout in QLayout will successfully modify the data.mcf xml file inside your Cewe book project. BUT, if that book is already open in Cewe Creator (CC) application, then CC will NOT notice that the layout has changed. You will need to close the project and re-open it for CC to notice the layout changes.  Unfortunately this means that the workflow you adopt cannot efficiently include making adjustments to a Page in both QLayout and CC while moving back and forth between the two applications.
@@ -40,11 +53,8 @@ Details for the technically minded:
 
 **TO DO and Decisions**
 
+- Implement EXIF-based photo importance detection (read rating or keywords to determine preferred sizes: 1.0, 3.0, or 5.0)
 - Workflow: do we continue to use MacOS Photos as an efficient way to examine photos? Or just for tagging, and then mass export?
-- Because you can't use both CC and QLayout at the same time, it would be smoother workflow to add photos inside QLayout app, rather than in Cewe, if we believe the layout tools in QLayout are "better". Obviously you will always return to CC at the end to refine many things.
-
-- Perhaps drag-drop a number of photos into QLayout. Allow you to select from them and auto-layout. Or drag them directly onto a page. No selection needed. Get python to tag them in MacOS Photos as "used"
-
 - More layout clean-up algorithms? (beyond Gridify)
 
 **Layout Algorithms**

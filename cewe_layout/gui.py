@@ -6,6 +6,7 @@ import math
 import os
 from pathlib import Path
 import threading
+import shutil
 
 from .parser import extract_pages_info, parse_mcf_from_path
 from .layout_ops import LayoutManager
@@ -15,7 +16,7 @@ from .algorithms.collage_generator import CollageGeneratorAlgorithm
 from .algorithms.fan_layout import FanLayoutAlgorithm
 from .algorithms.tree_builder import TreeBuilderAlgorithm
 from .algorithms.gridify import GridifyAlgorithm
-from .photos import get_image_dimensions, load_thumbnail
+from .photos import get_image_dimensions, load_thumbnail, get_photo_preferred_size
 from .writer import update_page_layout
 from .gap_utils import (
     estimate_gaps,
@@ -150,6 +151,9 @@ class LayoutViewer:
 
         self.img_label = ttk.Label(self.root)
         self.img_label.pack(fill='both', expand=True)
+        
+        # Enable drag-and-drop for photo files
+        self._setup_drag_and_drop()
         
         # Bind window resize event to redraw
         self.root.bind('<Configure>', self._on_window_resize)
@@ -479,6 +483,253 @@ class LayoutViewer:
     def _show_image(self, pil_img):
         self.photo_image = ImageTk.PhotoImage(pil_img)
         self.img_label.configure(image=self.photo_image)
+    
+    def _setup_drag_and_drop(self):
+        """Setup drag-and-drop handlers for photo files."""
+        # macOS drag-and-drop support using tkinterdnd2 or fallback
+        try:
+            from tkinterdnd2 import DND_FILES, TkinterDnD
+            # Try to enable DnD on existing root window
+            if hasattr(self.root, 'drop_target_register'):
+                self.root.drop_target_register(DND_FILES)
+                self.root.dnd_bind('<<Drop>>', self._on_drop)
+            else:
+                # Fallback: use basic file event binding
+                self._setup_basic_drop()
+        except ImportError:
+            # tkinterdnd2 not available, use basic approach
+            self._setup_basic_drop()
+    
+    def _setup_basic_drop(self):
+        """Setup basic drag-and-drop using macOS AppleScript events."""
+        # On macOS, we can use <<DropEvent>> for file drops
+        # This requires launching with pythonw or special setup
+        # For now, just bind a keyboard shortcut to add photos
+        self.root.bind('<Command-o>', lambda e: self._prompt_add_photos())
+        # Also show info message about drag-drop
+        print("[Drag-drop] tkinterdnd2 not available. Use Cmd+O to add photos.")
+    
+    def _prompt_add_photos(self):
+        """Prompt user to select photos to add to current page."""
+        from tkinter import filedialog
+        filetypes = [
+            ('JPEG Images', '*.jpg;*.jpeg;*.JPG;*.JPEG'),
+            ('All Files', '*.*')
+        ]
+        files = filedialog.askopenfilenames(
+            title='Select photos to add to current page',
+            filetypes=filetypes
+        )
+        if files:
+            self._handle_dropped_files(list(files))
+    
+    def _on_drop(self, event):
+        """Handle file drop event from tkinterdnd2."""
+        # Parse dropped file paths
+        files = self.root.tk.splitlist(event.data)
+        self._handle_dropped_files(files)
+        return event.action
+    
+    def _handle_dropped_files(self, file_paths):
+        """Process dropped/selected photo files and add to current page."""
+        if not self.pages:
+            self.show_status('No pages available', error=True)
+            return
+        
+        # Filter for image files only
+        image_exts = {'.jpg', '.jpeg', '.JPG', '.JPEG'}
+        photo_files = [f for f in file_paths if Path(f).suffix in image_exts]
+        
+        if not photo_files:
+            self.show_status('No JPEG files found in selection', error=True)
+            return
+        
+        pageno, info = self.pages[self.index]
+        
+        # Copy photos to image folder and build new photo list
+        new_photos = self._copy_photos_to_album(photo_files)
+        if not new_photos:
+            self.show_status('Failed to copy photos to album', error=True)
+            return
+        
+        # Get current layout (may include existing photos)
+        current_layout = self.layout_mgr.get_current(pageno)
+        existing_photos = current_layout.photos if current_layout else info.get('photos', [])
+        existing_texts = current_layout.texts if current_layout else info.get('texts', [])
+        
+        # Combine existing and new photos
+        all_photos = list(existing_photos) + new_photos
+        
+        # Create initial layout rectangles for all photos
+        page_w = info.get('page_width', 2100.0)
+        page_h = info.get('page_height', 2970.0)
+        origin_left = info.get('origin_left', 0.0)
+        
+        layout_photos = self._create_initial_layout(all_photos, page_w, page_h, origin_left)
+        
+        # Update layout manager with new layout
+        self.layout_mgr.update_layout(pageno, layout_photos, existing_texts)
+        
+        # Set preferred sizes for new photos based on EXIF data
+        for photo in new_photos:
+            filename = photo.get('filename', '')
+            # Resolve photo path to read EXIF
+            safefn = filename.replace('safecontainer:/', '').lstrip('/')
+            if self.image_folder_attr:
+                img_path = Path(self.mcf_base_folder) / self.image_folder_attr / safefn
+            else:
+                img_path = Path(self.mcf_base_folder) / safefn
+            
+            if img_path.exists():
+                preferred_size = get_photo_preferred_size(img_path)
+            else:
+                preferred_size = 1.0
+            
+            self.layout_mgr.set_size(pageno, filename, preferred_size)
+        
+        # Re-render page to show new photos
+        self.render_page()
+        self.show_status(f'Added {len(new_photos)} photo(s) to page {pageno}')
+    
+    def _copy_photos_to_album(self, photo_paths):
+        """Copy photo files to album's image folder and return photo data dicts."""
+        if not self.mcf_base_folder:
+            return []
+        
+        # Determine image folder (use imagedir attribute or create default)
+        if self.image_folder_attr:
+            img_folder = Path(self.mcf_base_folder) / self.image_folder_attr
+        else:
+            # Create default image folder
+            img_folder = Path(self.mcf_base_folder) / 'images'
+        
+        img_folder.mkdir(parents=True, exist_ok=True)
+        
+        new_photos = []
+        for src_path in photo_paths:
+            src = Path(src_path)
+            if not src.exists():
+                continue
+            
+            # Use original filename (ensure unique)
+            dst_name = src.name
+            dst_path = img_folder / dst_name
+            counter = 1
+            while dst_path.exists():
+                # Add counter to make unique
+                stem = src.stem
+                suffix = src.suffix
+                dst_name = f"{stem}_{counter}{suffix}"
+                dst_path = img_folder / dst_name
+                counter += 1
+            
+            # Copy file
+            try:
+                shutil.copy2(src, dst_path)
+            except Exception as e:
+                print(f"[drag-drop] Failed to copy {src} to {dst_path}: {e}")
+                continue
+            
+            # Create photo data dict with safecontainer path format
+            relative_path = dst_path.relative_to(self.mcf_base_folder)
+            filename = f"safecontainer:/{relative_path.as_posix()}"
+            
+            # Get image dimensions
+            dims = get_image_dimensions(dst_path)
+            if dims:
+                img_width, img_height = dims
+            else:
+                img_width, img_height = 4000, 3000  # fallback
+            
+            photo_data = {
+                'filename': filename,
+                'image_width': img_width,
+                'image_height': img_height,
+                # Initial layout position (will be set by _create_initial_layout)
+                'area_left': 0,
+                'area_top': 0,
+                'area_width': 100,
+                'area_height': 100,
+            }
+            new_photos.append(photo_data)
+        
+        return new_photos
+    
+    def _create_initial_layout(self, photos, page_w, page_h, origin_left):
+        """Create initial overlapping layout rectangles for photos.
+        
+        Args:
+            photos: List of photo dicts with filename, image_width, image_height
+            page_w: Page width in MCF units
+            page_h: Page height in MCF units
+            origin_left: Origin offset for right pages
+        
+        Returns:
+            List of photo dicts with area_left, area_top, area_width, area_height set
+        """
+        if not photos:
+            return []
+        
+        # Edge gap: 5mm = 50 MCF units
+        edge_gap = 50.0
+        
+        # Base size for small photo (1.0): approximately page_width/10 x page_height/10
+        # but with correct aspect ratio from photo
+        base_width = page_w / 10.0
+        base_height = page_h / 10.0
+        
+        # Horizontal spacing between photos: 1mm = 10 MCF units
+        x_spacing = 10.0
+        
+        # Starting position
+        current_x = origin_left + edge_gap
+        y_pos = edge_gap
+        
+        layout_photos = []
+        for photo in photos:
+            # Get photo aspect ratio
+            img_w = photo.get('image_width', 4000)
+            img_h = photo.get('image_height', 3000)
+            aspect_ratio = img_w / img_h if img_h > 0 else 4.0/3.0
+            
+            # Determine size multiplier from photo file
+            filename = photo.get('filename', '')
+            if filename and self.mcf_base_folder:
+                # Resolve photo path
+                safefn = filename.replace('safecontainer:/', '').lstrip('/')
+                if self.image_folder_attr:
+                    img_path = Path(self.mcf_base_folder) / self.image_folder_attr / safefn
+                else:
+                    img_path = Path(self.mcf_base_folder) / safefn
+                
+                if img_path.exists():
+                    size_multiplier = get_photo_preferred_size(img_path)
+                else:
+                    size_multiplier = 1.0
+            else:
+                size_multiplier = 1.0
+            
+            # Calculate slot dimensions maintaining aspect ratio
+            # Target area = base_width * base_height * size_multiplier
+            target_area = base_width * base_height * size_multiplier
+            # width * height = target_area, width/height = aspect_ratio
+            # width = sqrt(target_area * aspect_ratio)
+            slot_width = math.sqrt(target_area * aspect_ratio)
+            slot_height = slot_width / aspect_ratio
+            
+            # Create photo dict with layout position
+            photo_copy = photo.copy()
+            photo_copy['area_left'] = current_x
+            photo_copy['area_top'] = y_pos
+            photo_copy['area_width'] = slot_width
+            photo_copy['area_height'] = slot_height
+            
+            layout_photos.append(photo_copy)
+            
+            # Move x position for next photo (overlapping)
+            current_x += x_spacing
+        
+        return layout_photos
     
     def update_weights_display(self):
         """Update the weights and cost display for the current page."""

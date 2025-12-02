@@ -13,6 +13,29 @@ from typing import Tuple, Optional
 from PIL import Image, ImageOps
 
 
+def get_photo_preferred_size(img_path: Path) -> float:
+    """
+    Get preferred size multiplier for a photo based on EXIF data.
+    
+    This is a placeholder implementation that returns 1.0 for all photos.
+    Future enhancement: read EXIF rating or keywords to determine size.
+    
+    Args:
+        img_path: Path to the image file
+    
+    Returns:
+        Size multiplier: 1.0 (normal), 3.0 (medium importance), or 5.0 (high importance)
+    """
+    # TODO: Implement EXIF reading logic
+    # For example:
+    # - Read EXIF rating field (0-5 stars)
+    # - Map rating to size: 0-2 stars -> 1.0, 3 stars -> 3.0, 4-5 stars -> 5.0
+    # - Or read keywords for tags like "featured", "important", etc.
+    
+    # For now, return default size
+    return 1.0
+
+
 def resolve_photo_path(filename: str, mcf_base_folder: Path, image_folder_attr: str = '') -> Optional[Path]:
     """
     Resolve a photo filename to its full path.
