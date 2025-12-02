@@ -489,15 +489,13 @@ class LayoutViewer:
         # macOS drag-and-drop support using tkinterdnd2 or fallback
         try:
             from tkinterdnd2 import DND_FILES, TkinterDnD
-            # Try to enable DnD on existing root window
-            if hasattr(self.root, 'drop_target_register'):
-                self.root.drop_target_register(DND_FILES)
-                self.root.dnd_bind('<<Drop>>', self._on_drop)
-            else:
-                # Fallback: use basic file event binding
-                self._setup_basic_drop()
-        except ImportError:
-            # tkinterdnd2 not available, use basic approach
+            # Register the label widget for drag-and-drop
+            self.img_label.drop_target_register(DND_FILES)
+            self.img_label.dnd_bind('<<Drop>>', self._on_drop)
+            print("[Drag-drop] tkinterdnd2 enabled - drag JPEG files onto window")
+        except (ImportError, AttributeError, Exception) as e:
+            # tkinterdnd2 not available or failed to initialize
+            print(f"[Drag-drop] tkinterdnd2 not available ({e}), using Cmd+O fallback")
             self._setup_basic_drop()
     
     def _setup_basic_drop(self):
@@ -1524,6 +1522,14 @@ class LayoutViewer:
 
 def launch_gui(mcf_path):
     root_el = parse_mcf_from_path(mcf_path)
-    root = tk.Tk()
+    
+    # Try to use TkinterDnD.Tk for drag-and-drop support
+    try:
+        from tkinterdnd2 import TkinterDnD
+        root = TkinterDnD.Tk()
+    except ImportError:
+        # Fall back to regular Tk
+        root = tk.Tk()
+    
     app = LayoutViewer(root, root_el, mcf_path)
     root.mainloop()
