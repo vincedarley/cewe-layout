@@ -73,27 +73,45 @@ The implementation supports two modes:
    - Select multiple JPEG files
    - Files are processed the same way
 
-## Future Enhancements
+## IPTC Keyword-Based Photo Importance
 
-### EXIF-Based Photo Importance
+### Implementation
 
-Currently `get_photo_preferred_size()` returns 1.0 for all photos. Future implementation:
+The `get_photo_preferred_size()` function reads IPTC keywords from photo metadata:
 
 ```python
 def get_photo_preferred_size(img_path: Path) -> float:
-    # Read EXIF rating (0-5 stars)
-    rating = read_exif_rating(img_path)
+    keywords = get_iptc_keywords(img_path)
+    keywords_lower = [kw.lower() for kw in keywords]
     
-    # Map rating to size multiplier
-    if rating >= 4:
-        return 5.0  # Featured/important photos
-    elif rating == 3:
+    if '5 star' in keywords_lower or '5star' in keywords_lower:
+        return 5.0  # High importance
+    elif '4 star' in keywords_lower or '4star' in keywords_lower:
         return 3.0  # Medium importance
     else:
         return 1.0  # Normal size
 ```
 
-Alternative approach: Read EXIF keywords for tags like "featured", "hero", "important".
+### Keyword Reading Methods
+
+The implementation tries multiple methods to read IPTC keywords:
+
+1. **PIL/Pillow EXIF data** - checks for keyword tags in EXIF metadata
+2. **exiftool** (if installed) - uses external tool for reliable IPTC reading
+3. Case-insensitive matching - supports "5 star", "5 STAR", "5star", etc.
+
+### Adding Keywords to Photos
+
+You can add IPTC keywords to your photos using:
+- macOS Photos app (add keywords in the info panel)
+- Adobe Lightroom (keyword panel)
+- exiftool command line: `exiftool -Keywords="5 star" photo.jpg`
+- Any photo management software that writes IPTC metadata
+
+### Future Enhancements
+
+- Support for additional star ratings (1-3 stars) if needed
+- Alternative keyword schemes (e.g., "hero", "featured", "important")
 
 ## Testing
 

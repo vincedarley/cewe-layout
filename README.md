@@ -39,10 +39,12 @@ You can add new photos to the current page by:
 
 When photos are added:
 1. They are copied to the album's image folder
-2. Initial layout rectangles are created (overlapping at the top of the page for easy visibility)
-3. You can then use any layout algorithm (Collage-Gen, Fan-GA, etc.) to arrange them nicely
-
-*Note: Photo importance (size preference) will be determined from EXIF data in a future update.*
+2. Photo importance is determined from IPTC keywords:
+   - "5 star" keyword → size 5.0 (high importance, ~5× larger)
+   - "4 star" keyword → size 3.0 (medium importance, ~3× larger)
+   - No star keyword → size 1.0 (normal)
+3. Initial layout rectangles are created (overlapping at the top of the page for easy visibility)
+4. You can then use any layout algorithm (Collage-Gen, Fan-GA, etc.) to arrange them nicely
 
 Details for the technically minded:
 - Saving a modified page layout in QLayout will successfully modify the data.mcf xml file inside your Cewe book project. BUT, if that book is already open in Cewe Creator (CC) application, then CC will NOT notice that the layout has changed. You will need to close the project and re-open it for CC to notice the layout changes.  Unfortunately this means that the workflow you adopt cannot efficiently include making adjustments to a Page in both QLayout and CC while moving back and forth between the two applications.
@@ -53,9 +55,9 @@ Details for the technically minded:
 
 **TO DO and Decisions**
 
-- Implement EXIF-based photo importance detection (read rating or keywords to determine preferred sizes: 1.0, 3.0, or 5.0)
 - Workflow: do we continue to use MacOS Photos as an efficient way to examine photos? Or just for tagging, and then mass export?
 - More layout clean-up algorithms? (beyond Gridify)
+- Consider adding support for other star ratings (1-3 stars) if needed
 
 **Layout Algorithms**
 
