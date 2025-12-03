@@ -13,6 +13,13 @@ from typing import Tuple, Optional, List
 from datetime import datetime
 from PIL import Image, ImageOps
 from PIL.ExifTags import TAGS
+import logging
+
+logger = logging.getLogger(__name__)
+
+# Module-level flags to track first-time failures
+_exiftool_failure_logged = False
+_image_load_failures = set()  # Track which files have been logged
 
 
 def get_iptc_keywords(img_path: Path) -> List[str]:
@@ -40,8 +47,12 @@ def get_iptc_keywords(img_path: Path) -> List[str]:
             # Keywords are comma-separated in exiftool output
             return [kw.strip() for kw in result.stdout.strip().split(',')]
         return []
-    except Exception:
-        # exiftool not available or failed
+    except Exception as e:
+        # Log first-time exiftool failure only
+        global _exiftool_failure_logged
+        if not _exiftool_failure_logged:
+            logger.warning(f"exiftool not available or failed (this warning shown once): {e}")
+            _exiftool_failure_logged = True
         return []
 
 
@@ -166,8 +177,12 @@ def get_photo_creation_date(img_path: Path) -> Optional[datetime]:
             except ValueError:
                 return None
     
-    except Exception:
-        # exiftool not available or failed
+    except Exception as e:
+        # Log first-time exiftool failure only
+        global _exiftool_failure_logged
+        if not _exiftool_failure_logged:
+            logger.warning(f"exiftool not available or failed (this warning shown once): {e}")
+            _exiftool_failure_logged = True
         return None
 
 
@@ -219,17 +234,28 @@ def get_image_dimensions(img_path: Path) -> Optional[Tuple[int, int]]:
     try:
         arr = cv2.imread(str(img_path), cv2.IMREAD_COLOR)
         if arr is None:
+            # Log first-time failure for this specific file
+            if str(img_path) not in _image_load_failures:
+                logger.warning(f"Failed to read image dimensions for: {img_path}")
+                _image_load_failures.add(str(img_path))
             return None
         
         # OpenCV returns (height, width, channels)
         img_height, img_width = arr.shape[:2]
         
         if img_height <= 0 or img_width <= 0:
+            if str(img_path) not in _image_load_failures:
+                logger.warning(f"Image has invalid dimensions ({img_width}x{img_height}): {img_path}")
+                _image_load_failures.add(str(img_path))
             return None
         
         return (img_width, img_height)
     
-    except Exception:
+    except Exception as e:
+        # Log first-time failure for this specific file
+        if str(img_path) not in _image_load_failures:
+            logger.warning(f"Exception reading image dimensions for {img_path}: {e}")
+            _image_load_failures.add(str(img_path))
         return None
 
 
@@ -297,17 +323,19 @@ def load_thumbnail(path: Path, width: int, height: int, verbose: bool = True) ->
         bg.paste(im, (x, y))
         return bg
     except Exception as e:
-        # Detailed diagnostic for failures: print exception and try OpenCV fallback
-        if verbose:
-            print(f"[thumb] PIL failed to open {path}: {e}")
-            traceback.print_exc()
+        # Always log first-time failures for specific paths
+        if str(path) not in _image_load_failures:
+            logger.warning(f"PIL failed to load thumbnail for {path}: {e}")
+            _image_load_failures.add(str(path))
+            if verbose:
+                traceback.print_exc()
         
         # Try OpenCV fallback
         try:
             arr = cv2.imread(str(path), cv2.IMREAD_COLOR)
             if arr is None:
-                if verbose:
-                    print(f"[thumb] OpenCV failed to read {path} (imread returned None)")
+                if verbose and str(path) not in _image_load_failures:
+                    logger.warning(f"OpenCV also failed to read {path} (imread returned None)")
                 return None
             arr = cv2.cvtColor(arr, cv2.COLOR_BGR2RGB)
             im2 = Image.fromarray(arr)
@@ -318,7 +346,9 @@ def load_thumbnail(path: Path, width: int, height: int, verbose: bool = True) ->
             bg.paste(im2, (x, y))
             return bg
         except Exception as e2:
-            if verbose:
-                print(f"[thumb] OpenCV fallback also failed for {path}: {e2}")
-                traceback.print_exc()
+            if str(path) not in _image_load_failures:
+                logger.warning(f"OpenCV fallback also failed for {path}: {e2}")
+                _image_load_failures.add(str(path))
+                if verbose:
+                    traceback.print_exc()
             return None

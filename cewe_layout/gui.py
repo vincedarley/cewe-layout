@@ -7,6 +7,9 @@ import os
 from pathlib import Path
 import threading
 import shutil
+import logging
+
+logger = logging.getLogger(__name__)
 
 from .parser import extract_pages_info, parse_mcf_from_path
 from .layout_ops import LayoutManager
@@ -19,8 +22,8 @@ from .algorithms.gridify import GridifyAlgorithm
 from .photos import get_image_dimensions, load_thumbnail, get_photo_preferred_size
 from .writer import update_page_layout
 from .gap_utils import (
-    estimate_gaps,
     analyze_gaps,
+    analyze_gap_details,
     transform_page_to_gapfree,
     transform_item_to_gapfree,
     transform_item_from_gapfree,
@@ -64,7 +67,7 @@ class LayoutViewer:
             
             # Estimate gap to compute gap-free areas (matching evaluation coordinate space)
             # Use internal gap preferentially
-            edge_gap, inter_gap = estimate_gaps(all_items, page_w, page_h, origin_left) if all_items else (0.0, 0.0)
+            edge_gap, inter_gap = analyze_gaps(all_items, page_w, page_h, origin_left) if all_items else (0.0, 0.0)
             gap = inter_gap if inter_gap > 0 else edge_gap
             
             # Compute total area in gap-free space (add gap to each photo dimension)
@@ -608,14 +611,21 @@ class LayoutViewer:
     def _setup_drag_and_drop(self):
         """Setup drag-and-drop handlers for photo files."""
         # macOS drag-and-drop support using tkinterdnd2 or fallback
+        drag_drop_available = False
         try:
             from tkinterdnd2 import DND_FILES, TkinterDnD
             # Register the label widget for drag-and-drop
             self.img_label.drop_target_register(DND_FILES)
             self.img_label.dnd_bind('<<Drop>>', self._on_drop)
+            drag_drop_available = True
         except (ImportError, AttributeError, Exception) as e:
             # tkinterdnd2 not available or failed to initialize
-            pass  # Silent fallback to Cmd+O
+            logger.info(f"Drag-and-drop not available ({e}). Use Cmd+O to open photos.")
+        
+        # Show one-time info if drag-drop is not available
+        if not drag_drop_available:
+            self.show_status("Drag-and-drop unavailable. Use Cmd+O to add photos.", duration_ms=3000)
+        
         # allow cmd-O under all circumstances
         self.root.bind('<Command-o>', lambda e: self._prompt_add_photos())
         
@@ -892,7 +902,7 @@ class LayoutViewer:
             original_items = original_photos + original_texts
             
             if original_items:
-                analysis = analyze_gaps(original_items, page_w, page_h, origin_left)
+                analysis = analyze_gap_details(original_items, page_w, page_h, origin_left)
                 
                 # Set edge_gap: use negative value for bleed, positive for margin
                 if analysis.bleed > 0:
@@ -1206,7 +1216,10 @@ class LayoutViewer:
             edge_gap_mm = float(self.edge_gap_var.get())
             new_edge_gap = edge_gap_mm * 10.0  # Convert mm to MCF units
             if not (-200.0 <= new_edge_gap <= 200.0):  # Reasonable bounds (-20mm to +20mm)
-                return  # Invalid value, abort
+                self.show_status(f"Invalid edge gap: {edge_gap_mm:.1f}mm (must be -20 to +20mm)", error=True)
+                # Restore previous valid value
+                self.edge_gap_var.set(f"{old_edge_gap / 10.0:.1f}")
+                return
             
             # Transform current layout using gap change
             self._transform_layout_for_gap_change(
@@ -1218,8 +1231,10 @@ class LayoutViewer:
             
             # Re-render with adjusted layout
             self.render_page()
-        except ValueError:
-            pass  # Ignore invalid input
+        except ValueError as e:
+            # Show error and restore previous value
+            self.show_status(f"Invalid edge gap value: {self.edge_gap_var.get()}", error=True)
+            self.edge_gap_var.set(f"{old_edge_gap / 10.0:.1f}")
     
     def on_internal_gap_changed(self):
         """Handle internal gap entry change.
@@ -1240,7 +1255,10 @@ class LayoutViewer:
             gap_mm = float(self.gap_var.get())
             new_internal_gap = gap_mm * 10.0  # Convert mm to MCF units
             if not (0.0 <= new_internal_gap <= 200.0):  # Reasonable bounds (0-20mm)
-                return  # Invalid value, abort
+                self.show_status(f"Invalid internal gap: {gap_mm:.1f}mm (must be 0 to 20mm)", error=True)
+                # Restore previous valid value
+                self.gap_var.set(f"{old_internal_gap / 10.0:.1f}")
+                return
             
             # Transform current layout using gap change
             self._transform_layout_for_gap_change(
@@ -1252,8 +1270,10 @@ class LayoutViewer:
             
             # Re-render with adjusted layout
             self.render_page()
-        except ValueError:
-            pass  # Ignore invalid input
+        except ValueError as e:
+            # Show error and restore previous value
+            self.show_status(f"Invalid internal gap value: {self.gap_var.get()}", error=True)
+            self.gap_var.set(f"{old_internal_gap / 10.0:.1f}")
     
     def _transform_layout_for_gap_change(self, pageno, old_edge_gap, old_internal_gap,
                                           new_edge_gap, new_internal_gap):
@@ -1456,8 +1476,8 @@ class LayoutViewer:
         # disable the button immediately to prevent double clicks
         try:
             self.gen_btn.config(state='disabled')
-        except Exception:
-            pass
+        except Exception as e:
+            logger.error(f"Failed to disable Generate Layout button: {e}")
         
         # Show "Running..." status
         self.show_status('Running...')
@@ -1525,7 +1545,7 @@ class LayoutViewer:
                 algorithm=algorithm, edge_gap=edge_gap, internal_gap=internal_gap, texts=texts,
                 preferred_sizes=preferred_sizes,
                 use_slot_aspect=use_slot_aspect_for_photos, original_photos=original_photos,
-                origin_left=info.get('origin_left', 0.0)
+                origin_left=info.get('origin_left', 0.0), pageno=pageno
             )
             
             # MCF stores area_left as absolute coordinates relative to the full spread.
@@ -1552,8 +1572,8 @@ class LayoutViewer:
                 # re-enable button
                 try:
                     self.gen_btn.config(state='normal')
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.error(f"Failed to re-enable Generate Layout button: {e}")
 
                 if not success:
                     self.show_status(f'Layout generation failed: {error_msg}', error=True)

@@ -2,6 +2,9 @@
 from lxml import etree
 import os
 import glob
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 def parse_mcf_from_path(path: str):
@@ -46,7 +49,8 @@ def _is_normal_page(page_el):
     try:
         n = int(pagenr)
         return n >= 1
-    except Exception:
+    except Exception as e:
+        logger.warning(f"Failed to parse page number '{pagenr}': {e}")
         return False
 
 
@@ -63,14 +67,15 @@ def extract_pages_info(fotobook_root):
             continue
         pagenr = int(page.get('pagenr'))
 
-        # determine spread width/height: look for bundlesize, otherwise assume two A4 pages (4200x2970 in mcf units)
+        # determine spread width/height from bundlesize (required in MCF)
         bundlesize = page.find('./bundlesize')
+        if bundlesize is None:
+            raise ValueError(f"Page {pagenr} missing bundlesize element - MCF file format may have changed")
         try:
-            spread_w = float(bundlesize.get('width')) if bundlesize is not None else 4200.0
-            spread_h = float(bundlesize.get('height')) if bundlesize is not None else 2970.0
-        except Exception:
-            spread_w = 4200.0
-            spread_h = 2970.0
+            spread_w = float(bundlesize.get('width'))
+            spread_h = float(bundlesize.get('height'))
+        except (TypeError, ValueError, AttributeError) as e:
+            raise ValueError(f"Page {pagenr} has invalid bundlesize: {e} - MCF file format may have changed") from e
         half = spread_w / 2.0
 
         for area in page.findall('.//area'):
@@ -83,11 +88,12 @@ def extract_pages_info(fotobook_root):
                 area_width = float(pos.get('width').replace(',', '.'))
                 area_height = float(pos.get('height').replace(',', '.'))
                 area_rot = float(pos.get('rotation').replace(',', '.'))
-            except Exception:
-                area_left = area_top = area_width = area_height = area_rot = None
+            except (TypeError, ValueError, AttributeError) as e:
+                logger.error(f"Page {pagenr}: Failed to parse area position coordinates: {e} - MCF file format may have changed")
+                raise ValueError(f"Page {pagenr}: Invalid area position data") from e
 
             # decide which logical page the area belongs to by its horizontal centre
-            center_x = (area_left or 0) + (area_width or 0) / 2.0
+            center_x = area_left + area_width / 2.0
             # If the page element represents the left side (even pagenr) then left->pagenr, right->pagenr+1
             # otherwise (odd pagenr) left->pagenr-1, right->pagenr
             if (pagenr % 2) == 0:
@@ -120,8 +126,7 @@ def extract_pages_info(fotobook_root):
                 pages_map[owner]['texts'].append(text_info)
             else:
                 # Image area (photos)
-                    # Image area (photos)
-                for imageTag in list(area.findall('image')) + list(area.findall('imagebackground')):
+                for imageTag in area.findall('image'):
                     info = {
                         'filename': imageTag.get('filename'),
                         'area_left': area_left,
@@ -137,7 +142,8 @@ def extract_pages_info(fotobook_root):
                             ctop = cut.get('top')
                             cscale = cut.get('scale')
                             info['cutout'] = {'left': cleft, 'top': ctop, 'scale': cscale}
-                        except Exception:
+                        except (TypeError, AttributeError) as e:
+                            logger.warning(f"Page {pagenr}: Failed to parse cutout data: {e}")
                             info['cutout'] = None
                     else:
                         info['cutout'] = None

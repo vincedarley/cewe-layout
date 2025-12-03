@@ -22,7 +22,7 @@ def generate_layout_for_page(photos, page_width_mcf, page_height_mcf, photo_dime
                            algorithm, preferred_sizes=None,
                            edge_gap=0.0, internal_gap=0.0,
                            texts=None, use_slot_aspect=None, original_photos=None, 
-                           origin_left=0.0, **kwargs):
+                           origin_left=0.0, pageno=None, **kwargs):
     """
     High-level function to generate a new layout for a page.
     
@@ -42,6 +42,7 @@ def generate_layout_for_page(photos, page_width_mcf, page_height_mcf, photo_dime
         use_slot_aspect: Optional dict mapping photo_idx -> bool. If True, use slot aspect ratio instead of image aspect ratio.
         original_photos: Optional list of original MCF photo dicts (for slot dimensions when use_slot_aspect=True).
         origin_left: Origin offset for right-side pages in MCF units. Default 0.0.
+        pageno: Optional page number for error messages. Default None.
         **kwargs: Additional algorithm-specific parameters.
     
     Returns:
@@ -75,7 +76,7 @@ def generate_layout_for_page(photos, page_width_mcf, page_height_mcf, photo_dime
     if error:
         return False, [], [], error
     
-    text_rects, error = _texts_to_rectangles(texts, preferred_sizes, edge_gap, internal_gap, origin_left)
+    text_rects, error = _texts_to_rectangles(texts, preferred_sizes, edge_gap, internal_gap, origin_left, pageno)
     if error:
         return False, [], [], error
     
@@ -99,6 +100,53 @@ def generate_layout_for_page(photos, page_width_mcf, page_height_mcf, photo_dime
     for rect in positioned_rects:
         if rect.x is None or rect.y is None:
             return False, [], [], f"Algorithm error: Item {rect.item_id} was not positioned (x={rect.x}, y={rect.y})"
+    
+    # VALIDATION: Check algorithm output quality
+    warnings = []
+    
+    # 1. Check page bounds (critical - should not exceed page)
+    for rect in positioned_rects:
+        if rect.x < 0 or rect.y < 0:
+            page_context = f"Page {pageno}: " if pageno else ""
+            warnings.append(f"{page_context}WARNING: Item {rect.item_id} has negative position ({rect.x:.1f}, {rect.y:.1f})")
+        if rect.x + rect.width > algo_page_width + 1.0:  # Allow 0.1mm tolerance
+            page_context = f"Page {pageno}: " if pageno else ""
+            warnings.append(f"{page_context}WARNING: Item {rect.item_id} exceeds page width (right edge at {rect.x + rect.width:.1f}, page width {algo_page_width:.1f})")
+        if rect.y + rect.height > algo_page_height + 1.0:  # Allow 0.1mm tolerance
+            page_context = f"Page {pageno}: " if pageno else ""
+            warnings.append(f"{page_context}WARNING: Item {rect.item_id} exceeds page height (bottom edge at {rect.y + rect.height:.1f}, page height {algo_page_height:.1f})")
+    
+    # 2. Check aspect ratio preservation (informative - some algorithms may intentionally distort)
+    for rect in positioned_rects:
+        if rect.preserve_aspect_ratio and hasattr(rect, '_original_width') and hasattr(rect, '_original_height'):
+            original_aspect = rect._original_width / rect._original_height if rect._original_height > 0 else 1.0
+            final_aspect = rect.width / rect.height if rect.height > 0 else 1.0
+            aspect_diff = abs(original_aspect - final_aspect) / original_aspect if original_aspect > 0 else 0
+            if aspect_diff > 0.01:  # More than 1% aspect ratio change
+                page_context = f"Page {pageno}: " if pageno else ""
+                warnings.append(f"{page_context}INFO: Item {rect.item_id} aspect ratio changed by {aspect_diff*100:.1f}% (may be intentional)")
+    
+    # 3. Check for overlaps (informative - some layouts may intentionally overlap)
+    overlap_count = 0
+    for i, rect1 in enumerate(positioned_rects):
+        for rect2 in positioned_rects[i+1:]:
+            # Check for rectangle overlap (allowing small tolerance for floating point)
+            if (rect1.x < rect2.x + rect2.width - 1.0 and
+                rect1.x + rect1.width > rect2.x + 1.0 and
+                rect1.y < rect2.y + rect2.height - 1.0 and
+                rect1.y + rect1.height > rect2.y + 1.0):
+                overlap_count += 1
+    
+    if overlap_count > 0:
+        page_context = f"Page {pageno}: " if pageno else ""
+        warnings.append(f"{page_context}INFO: {overlap_count} overlapping item pair(s) detected (may be intentional)")
+    
+    # Log warnings if any
+    if warnings:
+        import logging
+        logger = logging.getLogger(__name__)
+        for warning in warnings:
+            logger.warning(warning)
     
     # Step 3: Translate results back to MCF coordinates (apply gaps)
     # Split by item_id prefix: numeric = photo, TEXT_ = text
@@ -201,7 +249,7 @@ def _photos_to_rectangles(photos, photo_dimensions, preferred_sizes=None, edge_g
     return rectangles, ""
 
 
-def _texts_to_rectangles(texts, preferred_sizes=None, edge_gap=0.0, internal_gap=0.0, origin_left=0.0):
+def _texts_to_rectangles(texts, preferred_sizes=None, edge_gap=0.0, internal_gap=0.0, origin_left=0.0, pageno=None):
     """
     Convert MCF text block list to abstract LayoutRectangle objects in gap-free space.
     
@@ -214,6 +262,7 @@ def _texts_to_rectangles(texts, preferred_sizes=None, edge_gap=0.0, internal_gap
         edge_gap: Edge gap (margin) in MCF units.
         internal_gap: Internal gap (spacing between items) in MCF units.
         origin_left: Origin offset for right-side pages in MCF units.
+        pageno: Optional page number for error messages.
     
     Returns:
         Tuple (rectangles: list, error: str).
@@ -225,7 +274,8 @@ def _texts_to_rectangles(texts, preferred_sizes=None, edge_gap=0.0, internal_gap
         area_height = text.get('area_height', 0)
         
         if area_width <= 0 or area_height <= 0:
-            return [], f"Text block {text_idx} has invalid dimensions: {area_width}x{area_height}"
+            page_context = f"Page {pageno}: " if pageno else ""
+            return [], f"{page_context}Text block {text_idx} has invalid dimensions: {area_width}x{area_height}"
         
         # Use TEXT_<idx> as item_id for reversal later
         item_id = f"TEXT_{text_idx}"

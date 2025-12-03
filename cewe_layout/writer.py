@@ -29,10 +29,12 @@ def _calculate_cutout(slot_width_mcf, slot_height_mcf, image_width_px, image_hei
             - scale: scale factor (MCF units per pixel)
             - cutout_left: horizontal offset in MCF units (negative = crop from left)
             - cutout_top: vertical offset in MCF units (negative = crop from top)
+    
+    Raises:
+        ValueError: If image dimensions are invalid (<=0)
     """
     if image_width_px <= 0 or image_height_px <= 0:
-        # Fallback for invalid dimensions
-        return (1.0, 0.0, 0.0)
+        raise ValueError(f"Invalid image dimensions: {image_width_px}x{image_height_px} pixels")
     
     # Calculate scale factors needed to fill slot width and height
     scale_for_width = slot_width_mcf / image_width_px
@@ -138,6 +140,16 @@ def update_page_layout(path: str, pageno: int, photos: List[Dict[str, Any]],
     deleted_photos = deleted_photos or []
     new_photos_set = set(new_photos)
     deleted_photos_set = set(deleted_photos)
+    
+    # CRITICAL: Validate ALL photos have dimensions BEFORE making any changes
+    for photo in photos:
+        filename = photo.get('filename', '')
+        if not filename:
+            continue
+        if 'image_width' not in photo or 'image_height' not in photo:
+            raise ValueError(f"Photo {filename} missing image dimensions. All photos must have width/height before saving.")
+        if photo['image_width'] <= 0 or photo['image_height'] <= 0:
+            raise ValueError(f"Photo {filename} has invalid dimensions: {photo['image_width']}x{photo['image_height']}")
     
     # Parse the MCF file
     tree = etree.parse(path)
@@ -255,9 +267,9 @@ def update_page_layout(path: str, pageno: int, photos: List[Dict[str, Any]],
             # Photo not in current layout - could be deleted or error
             continue
         
-        # Get image dimensions for scale calculation
-        image_width = matching_photo.get('image_width', 4000)
-        image_height = matching_photo.get('image_height', 3000)
+        # Get image dimensions for scale calculation (validated at function entry)
+        image_width = matching_photo['image_width']
+        image_height = matching_photo['image_height']
         
         # Get new slot dimensions
         slot_width = matching_photo.get('area_width', 0)
@@ -335,9 +347,9 @@ def update_page_layout(path: str, pageno: int, photos: List[Dict[str, Any]],
         if not filename or filename not in new_photos_set:
             continue
         
-        # Get image dimensions for scale calculation
-        image_width = photo.get('image_width', 4000)  # fallback to reasonable default
-        image_height = photo.get('image_height', 3000)
+        # Get image dimensions for scale calculation (validated at function entry)
+        image_width = photo['image_width']
+        image_height = photo['image_height']
         
         # Get slot dimensions
         slot_width = photo.get('area_width', 0)
@@ -442,15 +454,6 @@ def update_page_layout(path: str, pageno: int, photos: List[Dict[str, Any]],
     if processed_count != expected_photo_count:
         msg = f"WARNING: Expected to save {expected_photo_count} photos but only processed {processed_count} ({modified_photos} modified + {added_photos} added)"
         warnings.append(msg)
-    
-    # Check for photos with missing dimensions
-    for photo in photos:
-        filename = photo.get('filename', '')
-        if not filename:
-            continue
-        if 'image_width' not in photo or 'image_height' not in photo:
-            msg = f"WARNING: Photo {filename} missing image dimensions, may have incorrect scale"
-            warnings.append(msg)
     
     # Write updated tree back to original path
     # Use pretty_print=False to preserve manual whitespace formatting

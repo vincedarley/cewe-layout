@@ -88,7 +88,7 @@ class LayoutManager:
             page_height: Page height in MCF units (for gap estimation).
             origin_left: For right-hand pages, the absolute X offset (default 0.0).
         """
-        from .gap_utils import estimate_gaps
+        from .gap_utils import analyze_gaps
         
         orig = self.get_original(pageno)
         if not orig or not orig.photos:
@@ -98,7 +98,7 @@ class LayoutManager:
         gap = self.get_internal_gap(pageno)
         if gap == 0.0 and orig.photos and page_width and page_height:
             # Estimate gap from original layout using origin_left for spread pages
-            edge_gap, inter_gap = estimate_gaps(orig.photos, page_width, page_height, origin_left)
+            edge_gap, inter_gap = analyze_gaps(orig.photos, page_width, page_height, origin_left)
             gap = inter_gap if inter_gap > 0 else edge_gap
         
         # Compute total area in gap-free space (add gap to each photo dimension)

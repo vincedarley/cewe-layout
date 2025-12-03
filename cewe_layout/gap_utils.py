@@ -30,7 +30,7 @@ class GapAnalysis(NamedTuple):
     bleed_margins: List[float]  # All negative edge margins (absolute values)
 
 
-def estimate_gaps(photos: List[Dict[str, Any]], page_width: float, page_height: float, 
+def analyze_gaps(photos: List[Dict[str, Any]], page_width: float, page_height: float, 
                   origin_left: float = 0.0) -> Tuple[float, float]:
     """
     Estimate edge gap and internal gap separately.
@@ -45,11 +45,11 @@ def estimate_gaps(photos: List[Dict[str, Any]], page_width: float, page_height: 
         Tuple (edge_gap, internal_gap) in MCF units (0.1mm).
         Returns (0.0, 0.0) if gaps cannot be reliably estimated.
     """
-    analysis = analyze_gaps(photos, page_width, page_height, origin_left)
+    analysis = analyze_gap_details(photos, page_width, page_height, origin_left)
     return analysis.edge_gap, analysis.internal_gap
 
 
-def analyze_gaps(photos: List[Dict[str, Any]], page_width: float, page_height: float,
+def analyze_gap_details(photos: List[Dict[str, Any]], page_width: float, page_height: float,
                  origin_left: float = 0.0) -> GapAnalysis:
     """
     Analyze gaps in detail, including bleed (negative margins).
