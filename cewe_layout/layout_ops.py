@@ -29,6 +29,8 @@ class LayoutManager:
         self.page_internal_gaps = {}  # pageno -> internal_gap (MCF units, 0.1mm)
         self.page_edge_gaps = {}  # pageno -> edge_gap (MCF units, 0.1mm)
         self.page_original = {}  # pageno -> PageLayout (read from file)
+        self.new_photos = defaultdict(set)  # pageno -> set of filenames added after original
+        self.deleted_photos = defaultdict(set)  # pageno -> set of filenames deleted from original
 
     def set_original(self, pageno, photos, texts=None):
         """Store the original layout read from the file."""
@@ -141,3 +143,34 @@ class LayoutManager:
             del self.page_internal_gaps[pageno]
         if pageno in self.page_edge_gaps:
             del self.page_edge_gaps[pageno]
+    
+    def mark_photo_as_new(self, pageno, filename):
+        """Mark a photo as newly added to the page (not in original layout)."""
+        self.new_photos[pageno].add(filename)
+        # If photo was previously deleted, remove from deleted set
+        if filename in self.deleted_photos[pageno]:
+            self.deleted_photos[pageno].remove(filename)
+    
+    def mark_photo_as_deleted(self, pageno, filename):
+        """Mark a photo as deleted from the page."""
+        # If photo was newly added (not in original), just remove from new set
+        if filename in self.new_photos[pageno]:
+            self.new_photos[pageno].remove(filename)
+        else:
+            # Photo was in original layout, mark as deleted
+            self.deleted_photos[pageno].add(filename)
+    
+    def get_new_photos(self, pageno):
+        """Get set of filenames for photos newly added to this page."""
+        return self.new_photos[pageno]
+    
+    def get_deleted_photos(self, pageno):
+        """Get set of filenames for photos deleted from this page."""
+        return self.deleted_photos[pageno]
+    
+    def clear_photo_tracking(self, pageno):
+        """Clear new/deleted photo tracking for a page (call after successful save)."""
+        if pageno in self.new_photos:
+            self.new_photos[pageno].clear()
+        if pageno in self.deleted_photos:
+            self.deleted_photos[pageno].clear()

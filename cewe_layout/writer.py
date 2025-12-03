@@ -9,6 +9,51 @@ import os
 from typing import List, Dict, Any
 
 
+def _calculate_cutout(slot_width_mcf, slot_height_mcf, image_width_px, image_height_px):
+    """Calculate scale and cutout offsets for fitting an image into a slot.
+    
+    CEWE uses a scale factor that determines how image pixels map to MCF units.
+    The formula is: image_pixel_width × scale = slot_width_mcf
+    
+    When the aspect ratios differ, the image must be scaled to COVER the entire slot,
+    then cropped (cutout offsets determine which part is visible).
+    
+    Args:
+        slot_width_mcf: Slot width in MCF units (0.1mm)
+        slot_height_mcf: Slot height in MCF units (0.1mm)
+        image_width_px: Image width in pixels
+        image_height_px: Image height in pixels
+    
+    Returns:
+        tuple: (scale, cutout_left, cutout_top) where:
+            - scale: scale factor (MCF units per pixel)
+            - cutout_left: horizontal offset in MCF units (negative = crop from left)
+            - cutout_top: vertical offset in MCF units (negative = crop from top)
+    """
+    if image_width_px <= 0 or image_height_px <= 0:
+        # Fallback for invalid dimensions
+        return (1.0, 0.0, 0.0)
+    
+    # Calculate scale factors needed to fill slot width and height
+    scale_for_width = slot_width_mcf / image_width_px
+    scale_for_height = slot_height_mcf / image_height_px
+    
+    # Use the LARGER scale so image covers the entire slot
+    # (smaller scale would leave gaps)
+    scale = max(scale_for_width, scale_for_height)
+    
+    # Calculate scaled image dimensions in MCF units
+    scaled_width_mcf = image_width_px * scale
+    scaled_height_mcf = image_height_px * scale
+    
+    # Calculate how much to crop (center the image in the slot)
+    # cutout values are NEGATIVE when cropping from left/top edge
+    cutout_left = -(scaled_width_mcf - slot_width_mcf) / 2.0
+    cutout_top = -(scaled_height_mcf - slot_height_mcf) / 2.0
+    
+    return (scale, cutout_left, cutout_top)
+
+
 def _next_backup_name(path: str) -> str:
     base, ext = os.path.splitext(path)
     for i in range(1, 10000):
@@ -60,7 +105,8 @@ def restore_mcf_backup(path: str) -> dict:
 
 
 def update_page_layout(path: str, pageno: int, photos: List[Dict[str, Any]], 
-                       texts: List[Dict[str, Any]], make_backup: bool = True) -> dict:
+                       texts: List[Dict[str, Any]], make_backup: bool = True,
+                       new_photos: List[str] = None, deleted_photos: List[str] = None) -> dict:
     """Update a specific page's photo and text layout in the MCF file.
     
     This function handles the MCF structure where a single <page> element can represent
@@ -74,9 +120,12 @@ def update_page_layout(path: str, pageno: int, photos: List[Dict[str, Any]],
         photos: List of photo dicts with keys: filename, area_left, area_top, area_width, area_height
         texts: List of text dicts with keys: area_left, area_top, area_width, area_height
         make_backup: If True, rename original file to path-N.mcf before writing
+        new_photos: Optional list of filenames that are newly added (need new <area> elements)
+        deleted_photos: Optional list of filenames that were deleted (remove <area> elements)
     
     Returns:
-        Dict with keys: path, backup_path (or None), modified_photos, modified_texts
+        Dict with keys: path, backup_path (or None), modified_photos, modified_texts, 
+                       added_photos, deleted_photos
     
     Raises:
         FileNotFoundError: If path doesn't exist
@@ -84,6 +133,11 @@ def update_page_layout(path: str, pageno: int, photos: List[Dict[str, Any]],
     """
     if not os.path.exists(path):
         raise FileNotFoundError(path)
+    
+    new_photos = new_photos or []
+    deleted_photos = deleted_photos or []
+    new_photos_set = set(new_photos)
+    deleted_photos_set = set(deleted_photos)
     
     # Parse the MCF file
     tree = etree.parse(path)
@@ -149,8 +203,13 @@ def update_page_layout(path: str, pageno: int, photos: List[Dict[str, Any]],
         center_x = area_left + area_width / 2.0
         return x_min <= center_x < x_max
     
-    # Update photo positions
+    # Track statistics
     modified_photos = 0
+    added_photos = 0
+    deleted_photos_count = 0
+    
+    # First pass: Update existing photo areas and mark deleted ones for removal
+    areas_to_remove = []
     
     for area in page_elem.findall('.//area'):
         # Check if this area belongs to our logical page
@@ -175,6 +234,14 @@ def update_page_layout(path: str, pageno: int, photos: List[Dict[str, Any]],
         # Get filename from image element
         filename = image.get('filename', '')
         if not filename:
+            # Empty slot - mark for removal
+            areas_to_remove.append(area)
+            continue
+        
+        # Check if this photo was deleted
+        if filename in deleted_photos_set:
+            areas_to_remove.append(area)
+            deleted_photos_count += 1
             continue
         
         # Find matching photo in our layout
@@ -185,14 +252,145 @@ def update_page_layout(path: str, pageno: int, photos: List[Dict[str, Any]],
                 break
         
         if matching_photo is None:
-            continue  # Photo not in our layout
+            # Photo not in current layout - could be deleted or error
+            continue
+        
+        # Get image dimensions for scale calculation
+        image_width = matching_photo.get('image_width', 4000)
+        image_height = matching_photo.get('image_height', 3000)
+        
+        # Get new slot dimensions
+        slot_width = matching_photo.get('area_width', 0)
+        slot_height = matching_photo.get('area_height', 0)
+        
+        # Calculate correct scale and cutout values
+        scale, cutout_left, cutout_top = _calculate_cutout(
+            slot_width, slot_height, image_width, image_height
+        )
         
         # Update position with new values
         pos.set('left', f"{matching_photo.get('area_left', 0):.2f}")
         pos.set('top', f"{matching_photo.get('area_top', 0):.2f}")
         pos.set('width', f"{matching_photo.get('area_width', 0):.2f}")
         pos.set('height', f"{matching_photo.get('area_height', 0):.2f}")
+        
+        # Update cutout values in the image element
+        cutout_elem = image.find('cutout')
+        if cutout_elem is not None:
+            cutout_elem.set('left', f"{cutout_left:.6f}")
+            cutout_elem.set('scale', f"{scale:.6f}")
+            cutout_elem.set('top', f"{cutout_top:.6f}")
+        else:
+            # Create cutout if it doesn't exist
+            cutout_elem = etree.SubElement(image, 'cutout')
+            cutout_elem.set('left', f"{cutout_left:.6f}")
+            cutout_elem.set('scale', f"{scale:.6f}")
+            cutout_elem.set('top', f"{cutout_top:.6f}")
+        
+        # Ensure proper formatting for existing elements
+        if pos.tail is None or not pos.tail.strip():
+            pos.tail = '\n            '
+        
+        decoration = area.find('decoration')
+        if decoration is not None and (decoration.tail is None or not decoration.tail.strip()):
+            decoration.tail = '\n            '
+        
+        if image.text is None or not image.text.strip():
+            image.text = '\n                '
+        if image.tail is None or not image.tail.strip():
+            image.tail = '\n        '
+        
+        if cutout_elem.tail is None or not cutout_elem.tail.strip():
+            cutout_elem.tail = '\n                '
+        
+        quality = image.find('quality')
+        if quality is not None and (quality.tail is None or not quality.tail.strip()):
+            quality.tail = '\n            '
+        
+        if area.tail is None or not area.tail.strip():
+            area.tail = '\n        '
+        
         modified_photos += 1
+    
+    # Remove deleted/empty photo areas
+    for area in areas_to_remove:
+        parent = area.getparent()
+        if parent is not None:
+            parent.remove(area)
+    
+    # Second pass: Add new photo areas
+    # Find a template area to copy structure from
+    template_area = None
+    for area in page_elem.findall('.//area'):
+        image = area.find('image')
+        if image is not None:
+            template_area = area
+            break
+    
+    # Find the parent element to add new areas to
+    areas_parent = template_area.getparent() if template_area is not None else page_elem
+    
+    for photo in photos:
+        filename = photo.get('filename', '')
+        if not filename or filename not in new_photos_set:
+            continue
+        
+        # Get image dimensions for scale calculation
+        image_width = photo.get('image_width', 4000)  # fallback to reasonable default
+        image_height = photo.get('image_height', 3000)
+        
+        # Get slot dimensions
+        slot_width = photo.get('area_width', 0)
+        slot_height = photo.get('area_height', 0)
+        
+        # Calculate correct scale and cutout values
+        scale, cutout_left, cutout_top = _calculate_cutout(
+            slot_width, slot_height, image_width, image_height
+        )
+        
+        # Create new <area> element
+        new_area = etree.Element('area', areatype='imagearea')
+        new_area.text = '\n            '  # Indent for <position>
+        
+        # Create <position> child (MCF format: height, left, rotation, top, width, zposition)
+        position = etree.SubElement(new_area, 'position')
+        position.set('height', f"{photo.get('area_height', 0):.2f}")
+        position.set('left', f"{photo.get('area_left', 0):.2f}")
+        position.set('rotation', '0')
+        position.set('top', f"{photo.get('area_top', 0):.2f}")
+        position.set('width', f"{photo.get('area_width', 0):.2f}")
+        position.set('zposition', '100')  # Default z-position
+        position.tail = '\n            '  # Newline after <position>
+        
+        # Create <decoration/> child (required in MCF format)
+        decoration = etree.SubElement(new_area, 'decoration')
+        decoration.tail = '\n            '  # Newline after <decoration/>
+        
+        # Create <image> child
+        image_elem = etree.SubElement(new_area, 'image')
+        image_elem.set('filename', filename)
+        image_elem.set('useABK', '1')  # Standard attribute in MCF
+        image_elem.text = '\n                '  # Indent for <cutout>
+        image_elem.tail = '\n        '  # Newline after </image>
+        
+        # Create <cutout> child inside <image> with calculated values
+        cutout = etree.SubElement(image_elem, 'cutout')
+        cutout.set('left', f"{cutout_left:.6f}")
+        cutout.set('scale', f"{scale:.6f}")
+        cutout.set('top', f"{cutout_top:.6f}")
+        cutout.tail = '\n                '  # Newline after <cutout/>
+        
+        # Create <quality> child inside <image> (default values)
+        quality = etree.SubElement(image_elem, 'quality')
+        quality.set('noise', '100')
+        quality.set('sharpness', '100')
+        quality.set('texture', '100')
+        quality.tail = '\n            '  # Newline after <quality/>
+        
+        # Add to parent with proper tail indentation
+        new_area.tail = '\n        '  # Newline after </area>
+        areas_parent.append(new_area)
+        added_photos += 1
     
     # Update text positions
     modified_texts = 0
@@ -236,12 +434,42 @@ def update_page_layout(path: str, pageno: int, photos: List[Dict[str, Any]],
         backup_path = _next_backup_name(path)
         os.rename(path, backup_path)
     
-    # Write updated tree back to original path
-    tree.write(path, encoding='utf-8', xml_declaration=True, pretty_print=True)
+    # Validate that we processed all expected photos
+    warnings = []
+    expected_photo_count = len(photos)
+    processed_count = modified_photos + added_photos
     
-    return {
+    if processed_count != expected_photo_count:
+        msg = f"WARNING: Expected to save {expected_photo_count} photos but only processed {processed_count} ({modified_photos} modified + {added_photos} added)"
+        warnings.append(msg)
+    
+    # Check for photos with missing dimensions
+    for photo in photos:
+        filename = photo.get('filename', '')
+        if not filename:
+            continue
+        if 'image_width' not in photo or 'image_height' not in photo:
+            msg = f"WARNING: Photo {filename} missing image dimensions, may have incorrect scale"
+            warnings.append(msg)
+    
+    # Write updated tree back to original path
+    # Use pretty_print=False to preserve manual whitespace formatting
+    try:
+        tree.write(path, encoding='utf-8', xml_declaration=True, pretty_print=False)
+    except Exception as e:
+        # Restore backup if write failed
+        if backup_path and os.path.exists(backup_path):
+            os.rename(backup_path, path)
+        raise RuntimeError(f"Failed to write MCF file: {e}") from e
+    
+    result = {
         'path': path,
         'backup_path': backup_path,
         'modified_photos': modified_photos,
-        'modified_texts': modified_texts
+        'modified_texts': modified_texts,
+        'added_photos': added_photos,
+        'deleted_photos_count': deleted_photos_count,
+        'warnings': warnings
     }
+    
+    return result
