@@ -2,13 +2,120 @@
 import argparse
 import os
 import sys
+import re
+from pathlib import Path
+from collections import defaultdict
 from .parser import parse_mcf_from_path, extract_pages_info
+from .photos import get_photo_creation_date, get_photo_star_rating
+
+
+def natural_sort_key(path):
+    """Generate a key for natural (human) sorting of file paths.
+    
+    Converts numeric parts to integers for proper ordering:
+    'file1.jpg' < 'file2.jpg' < 'file10.jpg'
+    """
+    def convert(text):
+        return int(text) if text.isdigit() else text.lower()
+    
+    return [convert(c) for c in re.split('([0-9]+)', path.name)]
+
+
+def rename_photos(directory, name_prefix):
+    """Rename photos in directory with structured naming based on creation date and star rating.
+    
+    Args:
+        directory: Path to directory containing photos
+        name_prefix: Prefix to use for renamed files
+    """
+    photo_dir = Path(directory)
+    if not photo_dir.exists() or not photo_dir.is_dir():
+        print(f'Error: {directory} is not a valid directory', file=sys.stderr)
+        sys.exit(1)
+    
+    # Supported image extensions
+    image_exts = {'.jpg', '.jpeg', '.JPG', '.JPEG'}
+    
+    # Get list of all photos
+    photos = [f for f in photo_dir.iterdir() if f.is_file() and f.suffix in image_exts]
+    
+    if not photos:
+        print(f'No JPEG photos found in {directory}', file=sys.stderr)
+        sys.exit(1)
+    
+    print(f'Found {len(photos)} photos in {directory}')
+    
+    # Sort photos naturally (by name)
+    photos = sorted(photos, key=natural_sort_key)
+    
+    # Group photos by creation date and process
+    date_counters = defaultdict(int)  # Track counter per date
+    renamed_count = 0
+    
+    for photo in photos:
+        # Get creation date
+        creation_date = get_photo_creation_date(photo)
+        if not creation_date:
+            print(f'Warning: Could not extract creation date from {photo.name}, skipping', file=sys.stderr)
+            continue
+        
+        # Format date as yyyy-mm-dd
+        date_str = creation_date.strftime('%Y-%m-%d')
+        
+        # Increment counter for this date
+        date_counters[date_str] += 1
+        counter = date_counters[date_str]
+        
+        # Build base name: nameprefix-yyyy-mm-dd-pnnn
+        new_name = f"{name_prefix}-{date_str}-p{counter:03d}"
+        
+        # Add star rating suffix if present
+        star_rating = get_photo_star_rating(photo)
+        if star_rating == 5:
+            new_name += "-5star"
+        elif star_rating == 4:
+            new_name += "-4star"
+        
+        # Add extension
+        new_name += ".jpeg"
+        
+        # Build new path
+        new_path = photo.parent / new_name
+        
+        # Check for conflicts
+        if new_path.exists() and new_path != photo:
+            print(f'Warning: {new_name} already exists, skipping {photo.name}', file=sys.stderr)
+            continue
+        
+        # Rename
+        try:
+            photo.rename(new_path)
+            print(f'Renamed: {photo.name} -> {new_name}')
+            renamed_count += 1
+        except Exception as e:
+            print(f'Error renaming {photo.name}: {e}', file=sys.stderr)
+    
+    print(f'\nSuccessfully renamed {renamed_count} of {len(photos)} photos')
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Extract photo slot info from CEWE .mcf')
-    parser.add_argument('--input', '-i', required=True, help='Path to .mcf file or folder containing data.mcf')
+    parser = argparse.ArgumentParser(description='Extract photo slot info from CEWE .mcf or rename photos')
+    parser.add_argument('--input', '-i', help='Path to .mcf file or folder containing data.mcf')
+    parser.add_argument('--renamephotos', nargs=2, metavar=('DIRECTORY', 'PREFIX'),
+                        help='Rename photos in DIRECTORY with PREFIX-yyyy-mm-dd-pnnn naming')
     args = parser.parse_args()
+    
+    # Handle -renamephotos mode
+    if args.renamephotos:
+        directory, name_prefix = args.renamephotos
+        rename_photos(directory, name_prefix)
+        return
+    
+    # Original MCF parsing mode
+    if not args.input:
+        parser.error('--input is required when not using --renamephotos')
+    
+    args = argparse.Namespace(input=args.input)
 
     mcf_path = args.input
     if os.path.isdir(mcf_path):

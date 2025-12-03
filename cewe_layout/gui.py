@@ -98,6 +98,10 @@ class LayoutViewer:
         else:
             self.photobook_name = 'Unknown'
         self.root.title('cewe-layout — Page Viewer')
+        
+        # Create transparent pixel images early for button sizing
+        self.delete_button_pixel = tk.PhotoImage(width=1, height=1)  # For delete buttons
+        self.button_pixel = tk.PhotoImage(width=1, height=1)  # For compact buttons
 
         # Calculate canvas dimensions based on actual page size from first page
         # Add 5mm (50 MCF units) margin on all sides
@@ -187,7 +191,11 @@ class LayoutViewer:
         
         # Generate button (uses selected algorithm)
         self.gen_btn = ttk.Button(self.ctrl, text='Generate Layout', command=self.generate_layout)
-        self.gen_btn.grid(row=1, column=2, columnspan=2, padx=4, pady=4, sticky='ew')
+        self.gen_btn.grid(row=1, column=2, padx=4, pady=4, sticky='ew')
+        
+        # Debug checkbox next to Generate button
+        debug_check = ttk.Checkbutton(self.ctrl, text='Debug', variable=self.debug_var)
+        debug_check.grid(row=1, column=3, padx=4, pady=4, sticky='w')
         
         # Row 2: Actions
         undo_btn = ttk.Button(self.ctrl, text='Back', command=self.undo_layout)
@@ -197,27 +205,24 @@ class LayoutViewer:
         orig_btn = ttk.Button(self.ctrl, text='Use Original', command=self.use_original)
         orig_btn.grid(row=2, column=2, padx=4, pady=4)
         
-        # Row 3: Additional options
-        # Debug checkbox
-        debug_check = ttk.Checkbutton(self.ctrl, text='Debug Output', variable=self.debug_var)
-        debug_check.grid(row=3, column=0, padx=4, pady=4, sticky='w')
-        
-        quit_btn = ttk.Button(self.ctrl, text='Quit (q)', command=self.quit)
-        quit_btn.grid(row=3, column=2, padx=8)
+        # Modified pages label
+        ttk.Label(self.ctrl, text='Modified pages:').grid(row=3, column=0, sticky='w', padx=4, pady=(5,0))
+        self.modified_pages_var = tk.StringVar(value='(none)')
+        self.modified_pages_label = ttk.Label(self.ctrl, textvariable=self.modified_pages_var, 
+                                              font=('TkDefaultFont', 9), foreground='blue')
+        self.modified_pages_label.grid(row=3, column=1, columnspan=2, sticky='w', padx=4)
 
-
-        
         # Status message entry (read-only but selectable for copying)
         self.status_var = tk.StringVar(value='')
         self.status_entry = ttk.Entry(self.ctrl, textvariable=self.status_var, 
                                       state='readonly', font=('TkDefaultFont', 9))
-        self.status_entry.grid(row=3, column=2, columnspan=3, padx=4, pady=4, sticky='ew')
+        self.status_entry.grid(row=4, column=0, columnspan=3, padx=4, pady=4, sticky='ew')
         # Store the style for color changes
         self.status_style = ttk.Style()
         
         # Weights and cost display frame
         self.info_frame = ttk.LabelFrame(self.ctrl, text='Layout Info', padding=8)
-        self.info_frame.grid(row=4, column=0, columnspan=5, padx=4, pady=8, sticky='ew')
+        self.info_frame.grid(row=5, column=0, columnspan=5, padx=4, pady=8, sticky='ew')
         
         # Configure columns: left column (0) for photos, right column (1) for cost/params
         self.info_frame.columnconfigure(0, weight=1)
@@ -235,11 +240,15 @@ class LayoutViewer:
         ttk.Label(pref_container, text='Preferred', font=('TkDefaultFont', 9, 'bold')).pack()
         btn_frame = ttk.Frame(pref_container)
         btn_frame.pack()
-        # Use tk.Button (not ttk) for tighter control over padding
+        # Use tk.Button with transparent pixel for precise compact sizing
         tk.Button(btn_frame, text='Equal', command=self.equal_sizes, 
-                  font=('TkDefaultFont', 7), padx=0, pady=0, bd=1, highlightthickness=0).pack(side='left', padx=0)
+                  font=('TkDefaultFont', 7), width=30, height=12,
+                  image=self.button_pixel, compound='center',
+                  padx=0, pady=0, bd=1, highlightthickness=0).pack(side='left', padx=0)
         tk.Button(btn_frame, text='Original', command=self.stored_sizes, 
-                  font=('TkDefaultFont', 7), padx=0, pady=0, bd=1, highlightthickness=0).pack(side='left', padx=0)
+                  font=('TkDefaultFont', 7), width=38, height=12,
+                  image=self.button_pixel, compound='center',
+                  padx=0, pady=0, bd=1, highlightthickness=0).pack(side='left', padx=0)
         ttk.Label(photo_frame, text='Actual', font=('TkDefaultFont', 9, 'bold')).grid(row=0, column=3, padx=2, pady=2, sticky='w')
         
         # Item (photo/text) weight rows will be added dynamically to photo_frame
@@ -338,9 +347,11 @@ class LayoutViewer:
 
         self.photo_image = None
         self.thumb_cache = {}  # filename -> PIL.Image (thumbnail)
+        self.delete_buttons = []  # List of delete button widgets
         self.size_importance = 100.0  # Default size importance factor
         self.undersized_threshold = 0.5  # Default undersized threshold (50%)
         self.undersized_penalty = 5.0  # Default undersized penalty factor
+        self.modified_pages = set()  # Track pages with unsaved changes
         self.render_page()
 
     def render_page(self):
@@ -408,6 +419,9 @@ class LayoutViewer:
         frame_x = margin_mcf * scale
         frame_y = margin_mcf * scale
 
+        # Store delete button info for later widget creation
+        delete_button_info = []
+
         for i, p in enumerate(photos, start=1):
             left = p.get('area_left') or 0
             top = p.get('area_top') or 0
@@ -425,32 +439,49 @@ class LayoutViewer:
             # draw image thumbnail if available
             fn = p.get('filename') or ''
             if fn:
-                # construct image path from mcf base folder and imagedir attribute if present
-                img_path = None
-                safefn = fn.replace('safecontainer:/', '').lstrip('/')
-                if self.image_folder_attr:
-                    candidate = os.path.join(self.mcf_base_folder, self.image_folder_attr, safefn)
-                    if os.path.exists(candidate):
-                        img_path = candidate
-                # fallback: check relative to mcf base
-                if img_path is None:
-                    candidate = os.path.join(self.mcf_base_folder, safefn)
-                    if os.path.exists(candidate):
-                        img_path = candidate
+                # Check if this is a staged photo (has _source_path)
+                if '_source_path' in p:
+                    # Staged photo - use source path for thumbnail
+                    img_path = p['_source_path']
+                else:
+                    # Existing photo in album - resolve from album directory
+                    img_path = None
+                    safefn = fn.replace('safecontainer:/', '').lstrip('/')
+                    if self.image_folder_attr:
+                        candidate = os.path.join(self.mcf_base_folder, self.image_folder_attr, safefn)
+                        if os.path.exists(candidate):
+                            img_path = candidate
+                    # fallback: check relative to mcf base
+                    if img_path is None:
+                        candidate = os.path.join(self.mcf_base_folder, safefn)
+                        if os.path.exists(candidate):
+                            img_path = candidate
 
-                if img_path is not None:
+                if img_path is not None and os.path.exists(img_path):
                     thumb = self._get_thumbnail(img_path, int(x1-x0), int(y1-y0))
                     if thumb is not None:
                         img.paste(thumb, (int(x0), int(y0)))
                     else:
                         # draw a light placeholder for missing thumbnail
                         draw.rectangle([x0, y0, x1, y1], fill='#eeeeee')
+                else:
+                    # draw a light placeholder for missing file
+                    draw.rectangle([x0, y0, x1, y1], fill='#eeeeee')
 
             # wireframe overlay
             draw.rectangle([x0, y0, x1, y1], outline='blue', width=2)
             # filename text
             shortfn = (fn or '').split('/')[-1]
             draw.text((x0+4, y0+4), f'{i}: {shortfn}', fill='black')
+            
+            # Store delete button position info
+            if fn:  # Only add delete button if photo has a filename
+                delete_button_info.append({
+                    'photo_index': i - 1,  # 0-based index
+                    'filename': fn,
+                    'x': int(x1) - 20,  # 20px from right edge
+                    'y': int(y0) + 2,   # 2px from top edge
+                })
         
         # Draw text blocks
         for i, t in enumerate(texts, start=1):
@@ -478,11 +509,101 @@ class LayoutViewer:
         draw.rectangle([frame_x, frame_y, frame_x+frame_w, frame_y+frame_h], outline='black', width=2)
 
         self._show_image(img)
+        
+        # Create delete buttons AFTER image is shown so they overlay on top
+        self._create_delete_buttons(delete_button_info)
+        
         self.update_weights_display()
 
     def _show_image(self, pil_img):
         self.photo_image = ImageTk.PhotoImage(pil_img)
         self.img_label.configure(image=self.photo_image)
+    
+    def _create_delete_buttons(self, button_info):
+        """Create delete button widgets overlaid on photo thumbnails.
+        
+        Args:
+            button_info: List of dicts with 'photo_index', 'filename', 'x', 'y'
+        """
+        # Destroy any existing delete buttons from previous render
+        for btn in self.delete_buttons:
+            btn.destroy()
+        self.delete_buttons.clear()
+        
+        # Create new delete buttons
+        for info in button_info:
+            photo_idx = info['photo_index']
+            filename = info['filename']
+            x = info['x']
+            y = info['y']
+            
+            # Create small white X button with red text and precise pixel sizing
+            btn = tk.Button(
+                self.img_label,
+                text='×',
+                font=('Arial', 12, 'bold'),
+                fg='red',
+                bg='white',
+                activeforeground='#cc0000',
+                activebackground='#f0f0f0',
+                width=18,
+                height=18,
+                image=self.delete_button_pixel,
+                compound='center',
+                bd=0,
+                relief='flat',
+                highlightthickness=0,
+                padx=0,
+                pady=0,
+                command=lambda idx=photo_idx, fn=filename: self._delete_photo(idx, fn)
+            )
+            btn.place(x=x, y=y)
+            self.delete_buttons.append(btn)
+    
+    def _delete_photo(self, photo_index, filename):
+        """Delete a photo from the current page layout.
+        
+        Args:
+            photo_index: 0-based index of photo in current layout
+            filename: Filename of the photo to delete
+        """
+        if not self.pages:
+            return
+        
+        pageno, info = self.pages[self.index]
+        current_layout = self.layout_mgr.get_current(pageno)
+        if not current_layout:
+            return
+        
+        photos = current_layout.photos
+        texts = current_layout.texts
+        
+        # Verify index is valid
+        if photo_index < 0 or photo_index >= len(photos):
+            self.show_status(f'Invalid photo index: {photo_index}', error=True)
+            return
+        
+        # Remove photo from list
+        deleted_photo = photos[photo_index]
+        deleted_filename = deleted_photo.get('filename', '')
+        updated_photos = photos[:photo_index] + photos[photo_index+1:]
+        
+        # Mark as deleted for tracking
+        if deleted_filename:
+            self.layout_mgr.mark_photo_as_deleted(pageno, deleted_filename)
+        
+        # Push updated layout
+        self.layout_mgr.push_layout(pageno, updated_photos, texts)
+        
+        # Mark page as modified
+        self.modified_pages.add(pageno)
+        self._update_modified_pages_display()
+        
+        # Re-render to show updated layout
+        self.render_page()
+        
+        shortfn = deleted_filename.split('/')[-1] if deleted_filename else f'photo {photo_index+1}'
+        self.show_status(f'Deleted {shortfn} from page {pageno}')
     
     def _setup_drag_and_drop(self):
         """Setup drag-and-drop handlers for photo files."""
@@ -492,10 +613,9 @@ class LayoutViewer:
             # Register the label widget for drag-and-drop
             self.img_label.drop_target_register(DND_FILES)
             self.img_label.dnd_bind('<<Drop>>', self._on_drop)
-            print("[Drag-drop] tkinterdnd2 enabled - drag JPEG files onto window")
         except (ImportError, AttributeError, Exception) as e:
             # tkinterdnd2 not available or failed to initialize
-            print(f"[Drag-drop] tkinterdnd2 not available ({e}), using Cmd+O fallback")
+            pass  # Silent fallback to Cmd+O
         # allow cmd-O under all circumstances
         self.root.bind('<Command-o>', lambda e: self._prompt_add_photos())
         
@@ -540,10 +660,10 @@ class LayoutViewer:
         
         pageno, info = self.pages[self.index]
         
-        # Copy photos to image folder and build new photo list
-        new_photos = self._copy_photos_to_album(photo_files)
+        # Stage photos (don't move yet - only on save)
+        new_photos = self._stage_photos(photo_files)
         if not new_photos:
-            self.show_status('Failed to copy photos to album', error=True)
+            self.show_status('Failed to stage photos', error=True)
             return
         
         # Get current layout (may include existing photos)
@@ -567,6 +687,10 @@ class LayoutViewer:
         # Store new layout in layout manager
         self.layout_mgr.push_layout(pageno, layout_photos, existing_texts)
         
+        # Mark page as modified
+        self.modified_pages.add(pageno)
+        self._update_modified_pages_display()
+        
         # Set preferred sizes for ALL photos (existing + new) based on EXIF data
         # and populate photo_dimensions cache for algorithm use
         for photo in all_photos:
@@ -574,12 +698,17 @@ class LayoutViewer:
             if not filename:
                 continue
             
-            # Resolve photo path to read EXIF
-            safefn = filename.replace('safecontainer:/', '').lstrip('/')
-            if self.image_folder_attr:
-                img_path = Path(self.mcf_base_folder) / self.image_folder_attr / safefn
+            # Resolve photo path: use _source_path for staged photos, album path for existing
+            if '_source_path' in photo:
+                # Staged photo - read from source
+                img_path = Path(photo['_source_path'])
             else:
-                img_path = Path(self.mcf_base_folder) / safefn
+                # Existing photo in album
+                safefn = filename.replace('safecontainer:/', '').lstrip('/')
+                if self.image_folder_attr:
+                    img_path = Path(self.mcf_base_folder) / self.image_folder_attr / safefn
+                else:
+                    img_path = Path(self.mcf_base_folder) / safefn
             
             if img_path.exists():
                 preferred_size = get_photo_preferred_size(img_path)
@@ -592,23 +721,27 @@ class LayoutViewer:
             
             self.layout_mgr.set_size(pageno, filename, preferred_size)
         
+        # Mark newly added photos for tracking
+        for photo in new_photos:
+            filename = photo.get('filename', '')
+            if filename:
+                self.layout_mgr.mark_photo_as_new(pageno, filename)
+        
         # Re-render page to show new photos
         self.render_page()
         self.show_status(f'Added {len(new_photos)} photo(s) to page {pageno}')
     
-    def _copy_photos_to_album(self, photo_paths):
-        """Copy photo files to album's image folder and return photo data dicts."""
+    def _stage_photos(self, photo_paths):
+        """Stage photo files for later moving to album (on save) and return photo data dicts.
+        
+        Photos are NOT moved yet - only validated and metadata created.
+        Source paths are stored for later move operation during save.
+        Photos are renamed to replace spaces with underscores for CEWE compatibility.
+        """
         if not self.mcf_base_folder:
             return []
         
-        # Determine image folder (use imagedir attribute or create default)
-        if self.image_folder_attr:
-            img_folder = Path(self.mcf_base_folder) / self.image_folder_attr
-        else:
-            # Create default image folder
-            img_folder = Path(self.mcf_base_folder) / 'images'
-        
-        img_folder.mkdir(parents=True, exist_ok=True)
+        album_dir = Path(self.mcf_base_folder)
         
         new_photos = []
         for src_path in photo_paths:
@@ -616,35 +749,32 @@ class LayoutViewer:
             if not src.exists():
                 continue
             
-            # Use original filename (ensure unique)
-            dst_name = src.name
-            dst_path = img_folder / dst_name
+            # Replace spaces with underscores in filename for CEWE compatibility
+            original_name = src.name
+            safe_name = original_name.replace(' ', '_')
+            
+            # Determine unique destination filename in album root
+            dst_name = safe_name
+            dst_path = album_dir / dst_name
             counter = 1
             while dst_path.exists():
                 # Add counter to make unique
-                stem = src.stem
-                suffix = src.suffix
+                stem = Path(safe_name).stem
+                suffix = Path(safe_name).suffix
                 dst_name = f"{stem}_{counter}{suffix}"
-                dst_path = img_folder / dst_name
+                dst_path = album_dir / dst_name
                 counter += 1
             
-            # Copy file
-            try:
-                shutil.copy2(src, dst_path)
-            except Exception as e:
-                print(f"[drag-drop] Failed to copy {src} to {dst_path}: {e}")
-                continue
-            
-            # Create photo data dict with safecontainer path format
-            relative_path = dst_path.relative_to(self.mcf_base_folder)
-            filename = f"safecontainer:/{relative_path.as_posix()}"
-            
-            # Get image dimensions
-            dims = get_image_dimensions(dst_path)
+            # Get image dimensions from SOURCE file (not copied yet)
+            dims = get_image_dimensions(src)
             if dims:
                 img_width, img_height = dims
             else:
                 img_width, img_height = 4000, 3000  # fallback
+            
+            # Create photo data dict with safecontainer path format
+            # Use destination filename (where it WILL be after save)
+            filename = f"safecontainer:/{dst_name}"
             
             photo_data = {
                 'filename': filename,
@@ -655,6 +785,8 @@ class LayoutViewer:
                 'area_top': 0,
                 'area_width': 100,
                 'area_height': 100,
+                # CRITICAL: Store source path for move operation during save
+                '_source_path': str(src),
             }
             new_photos.append(photo_data)
         
@@ -1289,6 +1421,18 @@ class LayoutViewer:
         self._resize_pending = False
         self.render_page()
     
+    def _update_modified_pages_display(self):
+        """Update the modified pages label in Controls window."""
+        if not self.modified_pages:
+            self.modified_pages_var.set('(none)')
+            self.modified_pages_label.config(foreground='blue')
+        else:
+            # Sort page numbers and display as comma-separated list
+            sorted_pages = sorted(self.modified_pages)
+            page_str = ', '.join(str(p) for p in sorted_pages)
+            self.modified_pages_var.set(page_str)
+            self.modified_pages_label.config(foreground='red')
+    
     def show_status(self, message, error=False):
         """Display a status message in the UI.
         
@@ -1419,6 +1563,11 @@ class LayoutViewer:
 
                 # Push new layout (both photos and texts) to manager and refresh view
                 self.layout_mgr.push_layout(pageno, updated_photos, updated_texts)
+                
+                # Mark page as modified
+                self.modified_pages.add(pageno)
+                self._update_modified_pages_display()
+                
                 self.render_page()
 
             self.root.after(0, on_done)
@@ -1436,51 +1585,140 @@ class LayoutViewer:
             self.show_status('No more layouts to go back to.')
 
     def save_layout(self):
-        """Write current layout to disk and clear in-memory variants.
+        """Write all modified layouts to disk and manage photo files.
         
         This function:
-        1. Gets the current layout (modified or original)
-        2. Writes it back to the MCF file (with backup)
-        3. Clears the in-memory layout history for this page
-        4. Keeps the layout visible (now matches what's on disk)
+        1. Saves ALL pages that have modifications (not just current page)
+        2. Moves newly added photos to the album directory (if needed)
+        3. Moves deleted photos to the parallel -photos directory
+        4. Writes layout changes to the MCF file (with backup)
+        5. Clears the in-memory layout history and modified pages tracking
         """
         if not self.pages or not self.mcf_file_path:
             self.show_status('Cannot save: no MCF file path', error=True)
             return
         
-        pageno, info = self.pages[self.index]
-        
-        # Get current layout (modified or original)
-        current_layout = self.layout_mgr.get_current(pageno)
-        if not current_layout:
-            self.show_status('No layout to save', error=True)
+        if not self.modified_pages:
+            self.show_status('No modified pages to save', error=False)
             return
         
-        photos = current_layout.photos
-        texts = current_layout.texts
+        # Process all modified pages
+        pages_to_save = sorted(self.modified_pages)
+        total_saved = 0
+        total_warnings = 0
         
         try:
-            # Write to MCF file (makes backup automatically)
-            result = update_page_layout(
-                self.mcf_file_path, pageno, photos, texts, make_backup=True
-            )
+            album_dir = Path(self.mcf_file_path).parent
             
-            # Clear in-memory history for this page (layout now matches disk)
-            self.layout_mgr.clear_layouts(pageno)
+            for pageno in pages_to_save:
+                # Get current layout for this page
+                current_layout = self.layout_mgr.get_current(pageno)
+                if not current_layout:
+                    continue
+                
+                photos = current_layout.photos
+                texts = current_layout.texts
+                
+                # Get tracking info for new and deleted photos
+                new_photos = self.layout_mgr.get_new_photos(pageno)
+                deleted_photos = self.layout_mgr.get_deleted_photos(pageno)
+                
+                # Move staged photos from source to album root
+                moved_photos = []
+                for photo in photos:
+                    if '_source_path' in photo and photo.get('filename') in new_photos:
+                        src_path = Path(photo['_source_path'])
+                        if not src_path.exists():
+                            self.show_status(f'Page {pageno}: Source photo not found: {src_path}', error=True)
+                            return
+                        
+                        # Destination is album root (not images/ folder)
+                        safefn = photo['filename'].replace('safecontainer:/', '').lstrip('/')
+                        dst_path = album_dir / safefn
+                        
+                        # Move file (not copy!)
+                        try:
+                            shutil.move(str(src_path), str(dst_path))
+                            moved_photos.append(photo['filename'])
+                            # Remove _source_path marker now that file is moved
+                            del photo['_source_path']
+                        except Exception as e:
+                            self.show_status(f'Page {pageno}: Failed to move {src_path.name}: {e}', error=True)
+                            return
+                
+                # Handle deleted photos: move to parallel -photos directory
+                if deleted_photos:
+                    album_name = album_dir.name
+                    # Remove .xmcf or .mcf extension if present
+                    if album_name.endswith('.xmcf') or album_name.endswith('.mcf'):
+                        album_base = album_name.rsplit('.', 1)[0]
+                    else:
+                        album_base = album_name
+                    photos_dir = album_dir.parent / f"{album_base}-photos"
+                    photos_dir.mkdir(exist_ok=True)
+                    
+                    for filename in deleted_photos:
+                        safefn = filename.replace('safecontainer:/', '').lstrip('/')
+                        if self.image_folder_attr:
+                            src_path = album_dir / self.image_folder_attr / safefn
+                        else:
+                            src_path = album_dir / safefn
+                        
+                        if src_path.exists():
+                            dst_path = photos_dir / src_path.name
+                            # Handle name conflicts
+                            counter = 1
+                            while dst_path.exists():
+                                stem = src_path.stem
+                                suffix = src_path.suffix
+                                dst_path = photos_dir / f"{stem}_{counter}{suffix}"
+                                counter += 1
+                            shutil.move(str(src_path), str(dst_path))
+                
+                # Write to MCF file (makes backup automatically on first save)
+                result = update_page_layout(
+                    self.mcf_file_path, pageno, photos, texts, 
+                    make_backup=(total_saved == 0),  # Only backup on first page
+                    new_photos=list(new_photos), deleted_photos=list(deleted_photos)
+                )
+                
+                # Update the original layout to match what we just saved
+                self.layout_mgr.set_original(pageno, photos, texts)
+                
+                # Clear in-memory history (undo stack) and tracking for this page
+                self.layout_mgr.clear_layouts(pageno)
+                self.layout_mgr.clear_photo_tracking(pageno)
+                
+                # Push the saved layout as the current layout
+                self.layout_mgr.push_layout(pageno, photos, texts)
+                
+                # Accumulate warnings
+                warnings = result.get('warnings', [])
+                if warnings:
+                    print(f"\n[SAVE WARNINGS for page {pageno}]")
+                    for warning in warnings:
+                        print(f"  {warning}")
+                    total_warnings += len(warnings)
+                
+                total_saved += 1
             
-            # Update status with backup info
-            backup_name = os.path.basename(result['backup_path']) if result['backup_path'] else 'none'
-            self.show_status(
-                f"Page {pageno} saved to disk ({result['modified_photos']} photos, "
-                f"{result['modified_texts']} texts). Backup: {backup_name}"
-            )
+            # Clear modified pages tracking
+            self.modified_pages.clear()
+            self._update_modified_pages_display()
             
-            # No need to re-render; layout is unchanged visually
-            # But update weights display to clear any pending changes indicator
-            self.update_weights_display()
+            # Update status with summary
+            status_msg = f"Saved {total_saved} page(s)"
+            if total_warnings > 0:
+                status_msg += f" ({total_warnings} warnings - see console)"
+            self.show_status(status_msg)
+            
+            # Re-render current page to reflect saved state
+            self.render_page()
             
         except Exception as e:
             self.show_status(f'Save failed: {e}', error=True)
+            import traceback
+            traceback.print_exc()
 
     def equal_sizes(self):
         """Set all photos and texts to equal preferred size (10.0)."""

@@ -10,6 +10,7 @@ import cv2
 import traceback
 from pathlib import Path
 from typing import Tuple, Optional, List
+from datetime import datetime
 from PIL import Image, ImageOps
 from PIL.ExifTags import TAGS
 
@@ -71,6 +72,103 @@ def get_photo_preferred_size(img_path: Path) -> float:
     
     # Default size for all other photos
     return 1.0
+
+
+def get_photo_star_rating(img_path: Path) -> int:
+    """
+    Get star rating for a photo based on IPTC keywords.
+    
+    Args:
+        img_path: Path to the image file
+    
+    Returns:
+        Star rating (0-5), or 0 if no rating found
+    """
+    keywords = get_iptc_keywords(img_path)
+    
+    # Check for star rating keywords (case-insensitive)
+    keywords_lower = [kw.lower() for kw in keywords]
+    
+    if '5 star' in keywords_lower or '5star' in keywords_lower:
+        return 5
+    elif '4 star' in keywords_lower or '4star' in keywords_lower:
+        return 4
+    elif '3 star' in keywords_lower or '3star' in keywords_lower:
+        return 3
+    elif '2 star' in keywords_lower or '2star' in keywords_lower:
+        return 2
+    elif '1 star' in keywords_lower or '1star' in keywords_lower:
+        return 1
+    
+    return 0
+
+
+def get_photo_creation_date(img_path: Path) -> Optional[datetime]:
+    """
+    Extract creation date from photo EXIF data.
+    
+    Tries multiple EXIF fields in order:
+    1. DateTimeOriginal (when photo was taken)
+    2. CreateDate
+    3. DateTime (when file was modified)
+    
+    Args:
+        img_path: Path to the image file
+    
+    Returns:
+        datetime object, or None if no date found
+    """
+    if not img_path or not img_path.exists():
+        return None
+    
+    try:
+        import subprocess
+        # Try DateTimeOriginal first (most reliable for photos)
+        result = subprocess.run(
+            ['exiftool', '-DateTimeOriginal', '-s3', str(img_path)],
+            capture_output=True,
+            text=True,
+            timeout=1
+        )
+        
+        date_str = result.stdout.strip()
+        
+        # If DateTimeOriginal not found, try CreateDate
+        if not date_str:
+            result = subprocess.run(
+                ['exiftool', '-CreateDate', '-s3', str(img_path)],
+                capture_output=True,
+                text=True,
+                timeout=1
+            )
+            date_str = result.stdout.strip()
+        
+        # If still not found, try DateTime
+        if not date_str:
+            result = subprocess.run(
+                ['exiftool', '-DateTime', '-s3', str(img_path)],
+                capture_output=True,
+                text=True,
+                timeout=1
+            )
+            date_str = result.stdout.strip()
+        
+        if not date_str:
+            return None
+        
+        # Parse date string (format: "YYYY:MM:DD HH:MM:SS")
+        try:
+            return datetime.strptime(date_str, '%Y:%m:%d %H:%M:%S')
+        except ValueError:
+            # Try alternate format without time
+            try:
+                return datetime.strptime(date_str, '%Y:%m:%d')
+            except ValueError:
+                return None
+    
+    except Exception:
+        # exiftool not available or failed
+        return None
 
 
 def resolve_photo_path(filename: str, mcf_base_folder: Path, image_folder_attr: str = '') -> Optional[Path]:

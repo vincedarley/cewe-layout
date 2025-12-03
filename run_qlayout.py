@@ -4,6 +4,7 @@
 Run with:
     python run_qlayout.py --input path/to/album.mcf [--gui]
     python run_qlayout.py --input path/to/album.mcf --unpatch
+    python run_qlayout.py --renamephotos DIRECTORY PREFIX
 """
 import os
 import sys
@@ -21,16 +22,23 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(
         description='Cewe photobook layout parser and editor'
     )
-    parser.add_argument('--input', '-i', required=True, 
+    parser.add_argument('--input', '-i', 
                        help='Path to .mcf or .xmcf file')
     parser.add_argument('--gui', action='store_true', 
                        help='Launch Tkinter GUI viewer')
     parser.add_argument('--unpatch', action='store_true', 
                        help='Restore the most recent backup')
+    parser.add_argument('--renamephotos', nargs=2, metavar=('DIRECTORY', 'PREFIX'),
+                       help='Rename photos in DIRECTORY with PREFIX-yyyy-mm-dd-pnnn naming')
     
     args = parser.parse_args()
     
-    if args.gui:
+    if args.renamephotos:
+        # Pass through to CLI rename_photos function
+        sys.argv = ['cewe-layout', '--renamephotos'] + args.renamephotos
+        main()
+    
+    elif args.gui:
         from cewe_layout.parser import resolve_mcf_path
         real = resolve_mcf_path(args.input)
         launch_gui(real)
@@ -44,6 +52,8 @@ if __name__ == '__main__':
         print(f"   From: {res['restored_from']}")
     
     else:
-        # Default: CLI dump mode
+        # Default: CLI dump mode (requires --input)
+        if not args.input:
+            parser.error('--input is required when not using --gui, --unpatch, or --renamephotos')
         sys.argv = ['cewe-layout', '--input', args.input]
         main()
