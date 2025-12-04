@@ -149,10 +149,7 @@ def _validate_saved_page(path: str, pageno: int, expected_photos: List[Dict[str,
     # Find the page element
     page_elem = None
     for page in root.findall('.//page'):
-        try:
-            page_nr = int(page.get('pagenr', '0'))
-        except ValueError:
-            continue
+        page_nr = int(page.get('pagenr', '0'))
         
         if page_nr % 2 == 0:
             left_owner = page_nr
@@ -179,11 +176,8 @@ def _validate_saved_page(path: str, pageno: int, expected_photos: List[Dict[str,
         if pos is None:
             continue
         
-        try:
-            current_left = float(pos.get('left', '0').replace(',', '.'))
-            current_width = float(pos.get('width', '0').replace(',', '.'))
-        except Exception:
-            continue
+        current_left = float(pos.get('left', '0').replace(',', '.'))
+        current_width = float(pos.get('width', '0').replace(',', '.'))
         
         if not belongs_to_page(current_left, current_width):
             continue
@@ -202,11 +196,8 @@ def _validate_saved_page(path: str, pageno: int, expected_photos: List[Dict[str,
         if pos is None:
             continue
         
-        try:
-            current_left = float(pos.get('left', '0').replace(',', '.'))
-            current_width = float(pos.get('width', '0').replace(',', '.'))
-        except Exception:
-            continue
+        current_left = float(pos.get('left', '0').replace(',', '.'))
+        current_width = float(pos.get('width', '0').replace(',', '.'))
         
         if not belongs_to_page(current_left, current_width):
             continue
@@ -302,7 +293,6 @@ def update_page_layout(path: str, pageno: int, photos: List[Dict[str, Any]],
     # - Odd N: contains logical pages N-1 (left) and N (right)
     page_elem = None
     is_right_page = False
-    spread_width = 4200.0  # default
     
     for page in root.findall('.//page'):
         try:
@@ -334,10 +324,7 @@ def update_page_layout(path: str, pageno: int, photos: List[Dict[str, Any]],
     
     # Get spread dimensions to determine which areas belong to this page
     bundlesize = page_elem.find('./bundlesize')
-    try:
-        spread_width = float(bundlesize.get('width')) if bundlesize is not None else 4200.0
-    except Exception:
-        spread_width = 4200.0
+    spread_width = float(bundlesize.get('width'))
     
     half_width = spread_width / 2.0
     
@@ -373,11 +360,8 @@ def update_page_layout(path: str, pageno: int, photos: List[Dict[str, Any]],
         if pos is None:
             continue
         
-        try:
-            current_left = float(pos.get('left', '0').replace(',', '.'))
-            current_width = float(pos.get('width', '0').replace(',', '.'))
-        except Exception:
-            continue
+        current_left = float(pos.get('left', '0').replace(',', '.'))
+        current_width = float(pos.get('width', '0').replace(',', '.'))
         
         if not belongs_to_page(current_left, current_width):
             continue  # This area is on the other page of the spread

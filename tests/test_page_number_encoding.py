@@ -5,7 +5,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from cewe_layout.gui import (
-    extract_page_number_from_filename,
     extract_metadata_from_filename,
     encode_metadata_in_filename
 )
@@ -13,22 +12,25 @@ from cewe_layout.gui import (
 
 def test_extract_page_number_simple():
     """Test extracting page number from simple filename."""
-    base, page = extract_page_number_from_filename('photo-pg10.jpg')
+    base, size, page = extract_metadata_from_filename('photo-pg10.jpg')
     assert base == 'photo.jpg'
+    assert size is None
     assert page == 10
 
 
 def test_extract_page_number_safecontainer():
     """Test extracting page number from safecontainer filename."""
-    base, page = extract_page_number_from_filename('safecontainer:/photo-pg5.jpg')
+    base, size, page = extract_metadata_from_filename('safecontainer:/photo-pg5.jpg')
     assert base == 'safecontainer:/photo.jpg'
+    assert size is None
     assert page == 5
 
 
 def test_extract_page_number_none():
     """Test filename without page number."""
-    base, page = extract_page_number_from_filename('photo.jpg')
+    base, size, page = extract_metadata_from_filename('photo.jpg')
     assert base == 'photo.jpg'
+    assert size is None
     assert page is None
 
 
