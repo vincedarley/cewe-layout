@@ -52,21 +52,131 @@ def extract_preferred_size_from_filename(filename: str) -> tuple:
     clean_name = filename
     if filename.startswith('safecontainer:/'):
         prefix = 'safecontainer:/'
-        clean_name = filename[len('safecontainer:/')].lstrip('/')
+        clean_name = filename[len('safecontainer:/'):].lstrip('/')
     
-    # Match -szN.NN before file extension
+    # Match -szN.NN before file extension  
     import re
-    match = re.match(r'^(.+?)-sz([0-9]+(?:\.[0-9]{1,2})?)(\.\\w+)$', clean_name)
+    # Pattern: base_name + "-sz" + number + optional(.decimals) + ".extension"
+    pattern = r'^(.+?)-sz([0-9]+(?:[.][0-9]{1,2})?)([.][a-zA-Z0-9]+)$'
+    match = re.match(pattern, clean_name)
     if match:
         base_name = match.group(1) + match.group(3)  # name + extension
         size_str = match.group(2)
         try:
             size = float(size_str)
             return prefix + base_name, size
-        except ValueError:
-            pass
+        except ValueError as e:
+            import logging
+            logging.getLogger(__name__).warning(f"Failed to parse size from filename '{filename}': {e}")
     
     return filename, None
+
+
+def extract_page_number_from_filename(filename: str) -> tuple:
+    """
+    Extract page number from filename suffix.
+    
+    Args:
+        filename: Filename like 'photo-pg10.jpg' or 'safecontainer:/photo-pg10.jpg'
+    
+    Returns:
+        Tuple of (base_filename_without_page, page_number_or_None)
+        For 'photo-pg10.jpg' returns ('photo.jpg', 10)
+        For 'photo.jpg' returns ('photo.jpg', None)
+    """
+    # Handle None or empty filename
+    if not filename:
+        return filename, None
+    
+    # Handle safecontainer prefix
+    prefix = ''
+    clean_name = filename
+    if filename.startswith('safecontainer:/'):
+        prefix = 'safecontainer:/'
+        clean_name = filename[len('safecontainer:/'):].lstrip('/')
+    
+    # Match -pgN before file extension
+    import re
+    # Pattern: base_name + "-pg" + number + ".extension"
+    pattern = r'^(.+?)-pg([0-9]+)([.][a-zA-Z0-9]+)$'
+    match = re.match(pattern, clean_name)
+    if match:
+        base_name = match.group(1) + match.group(3)  # name + extension
+        page_str = match.group(2)
+        try:
+            page_num = int(page_str)
+            return prefix + base_name, page_num
+        except ValueError as e:
+            import logging
+            logging.getLogger(__name__).warning(f"Failed to parse page number from filename '{filename}': {e}")
+    
+    return filename, None
+
+
+def extract_metadata_from_filename(filename: str) -> tuple:
+    """
+    Extract both size and page number from filename.
+    
+    Args:
+        filename: Filename like 'photo-sz2.5-pg10.jpg' or 'safecontainer:/photo-sz1.0-pg5.jpg'
+    
+    Returns:
+        Tuple of (base_filename, preferred_size_or_None, page_number_or_None)
+        For 'photo-sz2.5-pg10.jpg' returns ('photo.jpg', 2.5, 10)
+        For 'photo-sz2.5.jpg' returns ('photo.jpg', 2.5, None)
+        For 'photo-pg10.jpg' returns ('photo.jpg', None, 10)
+        For 'photo.jpg' returns ('photo.jpg', None, None)
+    """
+    # Handle None or empty filename
+    if not filename:
+        return filename, None, None
+    
+    # Handle safecontainer prefix
+    prefix = ''
+    clean_name = filename
+    if filename.startswith('safecontainer:/'):
+        prefix = 'safecontainer:/'
+        clean_name = filename[len('safecontainer:/'):].lstrip('/')
+    
+    import re
+    from pathlib import Path
+    
+    # Split into name and extension first
+    p = Path(clean_name)
+    extension = p.suffix
+    name_part = p.stem
+    
+    # Extract size and page in any order
+    size = None
+    page_num = None
+    
+    # Look for -szN.NN pattern
+    size_match = re.search(r'-sz([0-9]+(?:[.][0-9]{1,2})?)', name_part)
+    if size_match:
+        try:
+            size = float(size_match.group(1))
+        except ValueError as e:
+            import logging
+            logging.getLogger(__name__).warning(f"Failed to parse size from filename '{filename}': {e}")
+    
+    # Look for -pgN pattern
+    page_match = re.search(r'-pg([0-9]+)', name_part)
+    if page_match:
+        try:
+            page_num = int(page_match.group(1))
+        except ValueError as e:
+            import logging
+            logging.getLogger(__name__).warning(f"Failed to parse page number from filename '{filename}': {e}")
+    
+    # Remove both patterns to get base name
+    base_name = name_part
+    if size_match:
+        base_name = base_name.replace(size_match.group(0), '')
+    if page_match:
+        base_name = base_name.replace(page_match.group(0), '')
+    
+    base_filename = base_name + extension
+    return prefix + base_filename, size, page_num
 
 
 def encode_preferred_size_in_filename(filename: str, preferred_size: float) -> str:
@@ -89,7 +199,7 @@ def encode_preferred_size_in_filename(filename: str, preferred_size: float) -> s
     clean_name = filename
     if filename.startswith('safecontainer:/'):
         prefix = 'safecontainer:/'
-        clean_name = filename[len('safecontainer:/')].lstrip('/')
+        clean_name = filename[len('safecontainer:/'):].lstrip('/')
     
     # Remove any existing -szN.NN suffix first
     import re
@@ -105,6 +215,62 @@ def encode_preferred_size_in_filename(filename: str, preferred_size: float) -> s
     size_str = f"{preferred_size:.2f}".rstrip('0').rstrip('.')
     
     new_name = f"{stem}-sz{size_str}{suffix}"
+    return prefix + new_name
+
+
+def encode_metadata_in_filename(filename: str, preferred_size: float = None, page_number: int = None) -> str:
+    """
+    Encode both preferred size and page number into filename.
+    
+    Args:
+        filename: Original filename (may already have -sz or -pg suffixes)
+        preferred_size: Size value to encode (e.g., 3.45), or None to preserve existing
+        page_number: Page number to encode (e.g., 10), or None to preserve existing
+    
+    Returns:
+        Filename with metadata encoded like 'photo-sz3.45-pg10.jpg'
+        Order is always: basename + -sz + -pg + extension
+    """
+    # Handle None or empty filename
+    if not filename:
+        return filename
+    
+    # Handle safecontainer prefix
+    prefix = ''
+    clean_name = filename
+    if filename.startswith('safecontainer:/'):
+        prefix = 'safecontainer:/'
+        clean_name = filename[len('safecontainer:/'):].lstrip('/')
+    
+    # Extract existing metadata
+    base_name, existing_size, existing_page = extract_metadata_from_filename(clean_name)
+    
+    # Remove prefix from base_name if it got added
+    if base_name.startswith('safecontainer:/'):
+        base_name = base_name[len('safecontainer:/'):]
+    
+    # Use provided values or fall back to existing
+    final_size = preferred_size if preferred_size is not None else existing_size
+    final_page = page_number if page_number is not None else existing_page
+    
+    # Split into name and extension
+    from pathlib import Path
+    p = Path(base_name)
+    stem = p.stem
+    suffix = p.suffix
+    
+    # Build new filename: always use order -sz then -pg
+    new_name = stem
+    
+    if final_size is not None:
+        size_str = f"{final_size:.2f}".rstrip('0').rstrip('.')
+        new_name += f"-sz{size_str}"
+    
+    if final_page is not None:
+        new_name += f"-pg{final_page}"
+    
+    new_name += suffix
+    
     return prefix + new_name
 
 
@@ -157,7 +323,7 @@ class LayoutViewer:
                 for p in photos:
                     fn = p.get('filename', '')
                     # Try to extract preferred size from filename first
-                    _, size_from_filename = extract_preferred_size_from_filename(fn)
+                    base_fn, size_from_filename, page_from_filename = extract_metadata_from_filename(fn)
                     if size_from_filename is not None:
                         # Use size from filename (already in 10× scale)
                         preferred = size_from_filename
@@ -165,7 +331,8 @@ class LayoutViewer:
                         # Fallback: use gap-free area normalized to 10× scale
                         area = ((p.get('area_width', 0) or 0) + gap) * ((p.get('area_height', 0) or 0) + gap)
                         preferred = (area / total_area) * 10.0
-                    self.layout_mgr.set_size(pageno, fn, preferred)
+                    # Always use base filename (without -sz-pg) as the key
+                    self.layout_mgr.set_size(pageno, base_fn, preferred)
                 for i, t in enumerate(texts):
                     # Text blocks use identifier TEXT_<index>
                     text_id = f"TEXT_{i}"
@@ -175,7 +342,9 @@ class LayoutViewer:
             else:
                 # Fallback to uniform sizes (10.0 for 10× scaling)
                 for p in photos:
-                    self.layout_mgr.set_size(pageno, p.get('filename', ''), 10.0)
+                    fn = p.get('filename', '')
+                    base_fn, _, _ = extract_metadata_from_filename(fn)
+                    self.layout_mgr.set_size(pageno, base_fn, 10.0)
                 for i, t in enumerate(texts):
                     self.layout_mgr.set_size(pageno, f"TEXT_{i}", 10.0)
 
@@ -611,6 +780,10 @@ class LayoutViewer:
                         candidate = os.path.join(self.mcf_base_folder, safefn)
                         if os.path.exists(candidate):
                             img_path = candidate
+                    
+                    # Log if photo file was not found
+                    if img_path is None:
+                        logger.warning(f"Page {pageno}: Photo file not found: {safefn}")
 
                 if img_path is not None and os.path.exists(img_path):
                     thumb = self._get_thumbnail(img_path, int(x1-x0), int(y1-y0))
@@ -992,7 +1165,9 @@ class LayoutViewer:
             else:
                 preferred_size = 1.0
             
-            self.layout_mgr.set_size(pageno, filename, preferred_size)
+            # Use base filename (without -sz-pg) as key for layout_mgr
+            base_filename, _, _ = extract_metadata_from_filename(filename)
+            self.layout_mgr.set_size(pageno, base_filename, preferred_size)
         
         # Mark newly added photos for tracking
         for photo in new_photos:
@@ -1182,9 +1357,10 @@ class LayoutViewer:
                     # No internal gaps detected, use edge_gap as fallback
                     self.layout_mgr.set_internal_gap(pageno, analysis.edge_gap)
             else:
-                # No items to analyze, set defaults
-                self.layout_mgr.set_edge_gap(pageno, 0.0)
-                self.layout_mgr.set_internal_gap(pageno, 0.0)
+                # No items to analyze, set defaults (14mm edge, 9mm internal)
+                # MCF units are 0.1mm, so 14mm = 140 units, 9mm = 90 units
+                self.layout_mgr.set_edge_gap(pageno, 140.0)
+                self.layout_mgr.set_internal_gap(pageno, 90.0)
         
         # Get current gap values (now guaranteed to be set)
         current_edge_gap = self.layout_mgr.get_edge_gap(pageno)
@@ -1231,7 +1407,8 @@ class LayoutViewer:
             h = p.get('area_height', 0)
             
             fn = p.get('filename', '')
-            preferred_size = self.layout_mgr.get_size(pageno, fn)
+            base_fn, _, _ = extract_metadata_from_filename(fn)
+            preferred_size = self.layout_mgr.get_size(pageno, base_fn)
             
             # Transform to gap-free space using centralized function
             gf_left, gf_top, gf_width, gf_height = transform_item_to_gapfree(
@@ -1577,13 +1754,30 @@ class LayoutViewer:
             item_id: Filename for photos, TEXT_N for text blocks
             var: StringVar containing the new size
         """
+        import logging
+        logger = logging.getLogger(__name__)
+        
         try:
             new_size = float(var.get())
             if 0.0 <= new_size <= 200.0:  # Reasonable bounds (scaled by 10×)
-                self.layout_mgr.set_size(pageno, item_id, new_size)
+                # Extract base filename (without -sz-pg) to use as key
+                # For text blocks (TEXT_N), extract_metadata returns the same value
+                if item_id.startswith('TEXT_'):
+                    base_item_id = item_id
+                else:
+                    base_item_id, _, _ = extract_metadata_from_filename(item_id)
+                logger.info(f"Page {pageno}: Setting preferred size for '{base_item_id}' to {new_size}")
+                self.layout_mgr.set_size(pageno, base_item_id, new_size)
+                
+                # Mark page as modified so file rename happens on save
+                self.modified_pages.add(pageno)
+                self._update_modified_pages_display()
+                
                 self.update_weights_display()  # Refresh display
-        except ValueError:
-            pass  # Ignore invalid input
+            else:
+                logger.warning(f"Page {pageno}: Rejected preferred size {new_size} for '{item_id}' (out of range 0.0-200.0)")
+        except ValueError as e:
+            logger.warning(f"Page {pageno}: Invalid preferred size input '{var.get()}' for '{item_id}': {e}")
     
     def on_slot_aspect_changed(self, pageno, item_idx, var):
         """Handle slot aspect ratio entry change.
@@ -1593,15 +1787,21 @@ class LayoutViewer:
             item_idx: Item index (photo or text)
             var: StringVar containing the new aspect ratio
         """
+        import logging
+        logger = logging.getLogger(__name__)
+        
         try:
             new_aspect = float(var.get())
             if 0.1 <= new_aspect <= 10.0:  # Reasonable bounds for aspect ratio
                 ar_key = (pageno, item_idx)
+                logger.info(f"Page {pageno}, item {item_idx}: Setting slot aspect ratio to {new_aspect}")
                 self.slot_aspect_ratios[ar_key] = new_aspect
                 # No need to refresh display here, just store the value
                 # The value will be used next time generate_layout is called
-        except ValueError:
-            pass  # Ignore invalid input
+            else:
+                logger.warning(f"Page {pageno}, item {item_idx}: Rejected slot aspect ratio {new_aspect} (out of range 0.1-10.0)")
+        except ValueError as e:
+            logger.warning(f"Page {pageno}, item {item_idx}: Invalid slot aspect ratio input '{var.get()}': {e}")
     
     def on_edge_gap_changed(self):
         """Handle edge gap entry change.
@@ -1965,7 +2165,8 @@ class LayoutViewer:
             for i, p in enumerate(photos):
                 fn = p.get('filename', '')
                 if fn:
-                    preferred_sizes[fn] = self.layout_mgr.get_size(pageno, fn)
+                    base_fn, _, _ = extract_metadata_from_filename(fn)
+                    preferred_sizes[fn] = self.layout_mgr.get_size(pageno, base_fn)
             for i, t in enumerate(texts):
                 text_id = f'TEXT_{i}'
                 preferred_sizes[text_id] = self.layout_mgr.get_size(pageno, text_id)
@@ -2105,21 +2306,39 @@ class LayoutViewer:
                         self.show_status(f'Page {pageno}: Photo file not found: {img_path}', error=True)
                         return
                 
-                # Rename photos to include preferred size in filename (before processing new/deleted)
-                # This happens for ALL photos on modified pages
-                rename_map = {}  # old_filename -> new_filename
+                # Get tracking info for new and deleted photos (need this first)
+                new_photos = self.layout_mgr.get_new_photos(pageno)
+                deleted_photos = self.layout_mgr.get_deleted_photos(pageno)
+                
+                # Rename photos to include preferred size and page number in filename
+                # Skip newly added photos that haven't been moved yet
+                rename_map = {}  # old_filename -> new_filename (for XML update)
                 for photo in photos:
                     old_filename = photo.get('filename', '')
                     if not old_filename:
                         continue
                     
+                    # Skip newly added photos - they'll be moved with metadata already encoded
+                    if old_filename in new_photos:
+                        continue
+                    
+                    # Get base filename (without any -sz or -pg suffixes)
+                    base_filename, _, _ = extract_metadata_from_filename(old_filename)
+                    
                     # Get preferred size for this photo
-                    preferred_size = self.layout_mgr.get_size(pageno, old_filename)
+                    preferred_size = self.layout_mgr.get_size(pageno, base_filename)
                     
-                    # Generate new filename with size encoded
-                    new_filename = encode_preferred_size_in_filename(old_filename, preferred_size)
+                    # Generate new filename with size and page number encoded
+                    new_filename = encode_metadata_in_filename(old_filename, preferred_size, pageno)
                     
-                    # Only rename if filename changed
+                    # Populate rename_map to handle multiple possible XML filename formats
+                    # XML might have: base name, name with -sz, or name with -sz-pgN (from different page)
+                    rename_map[base_filename] = new_filename  # base -> new
+                    if old_filename != base_filename:
+                        # Also map current filename -> new filename (e.g., -sz or -sz-pgOLD -> -sz-pgNEW)
+                        rename_map[old_filename] = new_filename
+                    
+                    # Only rename file if filename changed
                     if new_filename != old_filename:
                         # Get actual file paths
                         old_safefn = old_filename.replace('safecontainer:/', '').lstrip('/')
@@ -2138,17 +2357,19 @@ class LayoutViewer:
                                 old_path.rename(new_path)
                                 # Update photo dict with new filename
                                 photo['filename'] = new_filename
-                                rename_map[old_filename] = new_filename
+                                # rename_map already updated above with new_filename
+                                # Note: layout_mgr uses base filename (without -sz-pg) so no update needed
                             except Exception as e:
                                 self.show_status(f'Page {pageno}: Failed to rename {old_safefn} to {new_safefn}: {e}', error=True)
                                 return
-                
-                # Get tracking info for new and deleted photos
-                new_photos = self.layout_mgr.get_new_photos(pageno)
-                deleted_photos = self.layout_mgr.get_deleted_photos(pageno)
+                        else:
+                            import logging
+                            logging.getLogger(__name__).warning(f"Page {pageno}: Cannot rename '{old_safefn}' - file not found at {old_path}")
                 
                 # Move staged photos from source to album root
+                # Encode preferred size and page number into filename before moving
                 moved_photos = []
+                new_photos_updated = set()  # Track updated filenames for new photos
                 for photo in photos:
                     if '_source_path' in photo and photo.get('filename') in new_photos:
                         src_path = Path(photo['_source_path'])
@@ -2156,14 +2377,24 @@ class LayoutViewer:
                             self.show_status(f'Page {pageno}: Source photo not found: {src_path}', error=True)
                             return
                         
+                        # Get preferred size and encode into filename with page number
+                        old_filename = photo['filename']
+                        base_filename, _, _ = extract_metadata_from_filename(old_filename)
+                        preferred_size = self.layout_mgr.get_size(pageno, base_filename)
+                        new_filename = encode_metadata_in_filename(old_filename, preferred_size, pageno)
+                        
+                        # Update photo dict with encoded filename
+                        photo['filename'] = new_filename
+                        new_photos_updated.add(new_filename)  # Track new filename
+                        
                         # Destination is album root (not images/ folder)
-                        safefn = photo['filename'].replace('safecontainer:/', '').lstrip('/')
+                        safefn = new_filename.replace('safecontainer:/', '').lstrip('/')
                         dst_path = album_dir / safefn
                         
                         # Move file (not copy!)
                         try:
                             shutil.move(str(src_path), str(dst_path))
-                            moved_photos.append(photo['filename'])
+                            moved_photos.append(new_filename)
                             # Remove _source_path marker now that file is moved
                             del photo['_source_path']
                         except Exception as e:
@@ -2203,7 +2434,8 @@ class LayoutViewer:
                 result = update_page_layout(
                     self.mcf_file_path, pageno, photos, texts, 
                     make_backup=(total_saved == 0),  # Only backup on first page
-                    new_photos=list(new_photos), deleted_photos=list(deleted_photos)
+                    new_photos=list(new_photos_updated), deleted_photos=list(deleted_photos),
+                    rename_map=rename_map
                 )
                 
                 # Update the original layout to match what we just saved
@@ -2257,10 +2489,10 @@ class LayoutViewer:
         for p in photos:
             fn = p.get('filename', '')
             if fn:
-                self.layout_mgr.set_size(pageno, fn, 1.0)
+                base_fn, _, _ = extract_metadata_from_filename(fn)
+                self.layout_mgr.set_size(pageno, base_fn, 1.0)
         
-        # Set size to 1.0 for all text blocks
-        for i in range(len(texts)):
+        for i, t in enumerate(texts):
             text_id = f'TEXT_{i}'
             self.layout_mgr.set_size(pageno, text_id, 1.0)
         
@@ -2292,6 +2524,14 @@ class LayoutViewer:
 
 
 def launch_gui(mcf_path):
+    # Configure logging for the GUI
+    import logging
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        datefmt='%H:%M:%S'
+    )
+    
     root_el = parse_mcf_from_path(mcf_path)
     
     # Try to use TkinterDnD.Tk for drag-and-drop support

@@ -106,9 +106,147 @@ def restore_mcf_backup(path: str) -> dict:
     return {'path': path, 'restored_from': backup_path, 'index': idx}
 
 
+def _validate_saved_page(path: str, pageno: int, expected_photos: List[Dict[str, Any]], 
+                        expected_texts: List[Dict[str, Any]], is_right_page: bool, 
+                        half_width: float, spread_width: float, validate_files: bool = True) -> List[str]:
+    """Validate that the saved XML matches expectations.
+    
+    Args:
+        path: Path to the .mcf file
+        pageno: Logical page number that was saved
+        expected_photos: List of photo dicts that should be in XML
+        expected_texts: List of text dicts that should be in XML
+        is_right_page: Whether this is the right page of the spread
+        half_width: Half the spread width for determining page boundaries
+        spread_width: Full spread width
+        validate_files: If True, check that photo files exist on disk
+    
+    Returns:
+        List of error messages (empty if validation passed)
+    """
+    errors = []
+    
+    # Determine x-coordinate range for this logical page
+    if is_right_page:
+        x_min = half_width
+        x_max = spread_width
+    else:
+        x_min = 0.0
+        x_max = half_width
+    
+    def belongs_to_page(area_left: float, area_width: float) -> bool:
+        """Check if an area's center is within this page's x-range."""
+        center_x = area_left + area_width / 2.0
+        return x_min <= center_x < x_max
+    
+    # Re-parse the saved file
+    try:
+        tree = etree.parse(path)
+        root = tree.getroot()
+    except Exception as e:
+        return [f"Failed to re-parse saved file: {e}"]
+    
+    # Find the page element
+    page_elem = None
+    for page in root.findall('.//page'):
+        try:
+            page_nr = int(page.get('pagenr', '0'))
+        except ValueError:
+            continue
+        
+        if page_nr % 2 == 0:
+            left_owner = page_nr
+            right_owner = page_nr + 1
+        else:
+            left_owner = max(1, page_nr - 1)
+            right_owner = page_nr
+        
+        if pageno == left_owner:
+            page_elem = page
+            break
+        elif pageno == right_owner:
+            page_elem = page
+            break
+    
+    if page_elem is None:
+        return [f"Page {pageno} not found in saved XML"]
+    
+    # Count photos on this page
+    photo_count = 0
+    photo_filenames = []
+    for area in page_elem.findall('.//area'):
+        pos = area.find('position')
+        if pos is None:
+            continue
+        
+        try:
+            current_left = float(pos.get('left', '0').replace(',', '.'))
+            current_width = float(pos.get('width', '0').replace(',', '.'))
+        except Exception:
+            continue
+        
+        if not belongs_to_page(current_left, current_width):
+            continue
+        
+        image = area.find('image')
+        if image is not None:
+            filename = image.get('filename', '')
+            if filename:
+                photo_count += 1
+                photo_filenames.append(filename)
+    
+    # Count text blocks on this page
+    text_count = 0
+    for area in page_elem.findall('.//area'):
+        pos = area.find('position')
+        if pos is None:
+            continue
+        
+        try:
+            current_left = float(pos.get('left', '0').replace(',', '.'))
+            current_width = float(pos.get('width', '0').replace(',', '.'))
+        except Exception:
+            continue
+        
+        if not belongs_to_page(current_left, current_width):
+            continue
+        
+        # Text area has <text> element instead of <image>
+        if area.find('text') is not None:
+            text_count += 1
+    
+    # Validate counts
+    expected_photo_count = len(expected_photos)
+    expected_text_count = len(expected_texts)
+    
+    if photo_count != expected_photo_count:
+        errors.append(f"Expected {expected_photo_count} photos in XML, found {photo_count}")
+    
+    if text_count != expected_text_count:
+        errors.append(f"Expected {expected_text_count} text blocks in XML, found {text_count}")
+    
+    # Validate photo files exist (only if requested)
+    if validate_files:
+        album_dir = os.path.dirname(path)
+        for filename in photo_filenames:
+            safefn = filename.replace('safecontainer:/', '').lstrip('/')
+            # Try multiple possible locations
+            possible_paths = [
+                os.path.join(album_dir, safefn),
+                os.path.join(album_dir, 'images', safefn),
+            ]
+            
+            file_exists = any(os.path.exists(p) for p in possible_paths)
+            if not file_exists:
+                errors.append(f"Photo file not found: {filename} (checked {safefn})")
+    
+    return errors
+
+
 def update_page_layout(path: str, pageno: int, photos: List[Dict[str, Any]], 
                        texts: List[Dict[str, Any]], make_backup: bool = True,
-                       new_photos: List[str] = None, deleted_photos: List[str] = None) -> dict:
+                       new_photos: List[str] = None, deleted_photos: List[str] = None,
+                       rename_map: Dict[str, str] = None, validate_files: bool = True) -> dict:
     """Update a specific page's photo and text layout in the MCF file.
     
     This function handles the MCF structure where a single <page> element can represent
@@ -124,6 +262,8 @@ def update_page_layout(path: str, pageno: int, photos: List[Dict[str, Any]],
         make_backup: If True, rename original file to path-N.mcf before writing
         new_photos: Optional list of filenames that are newly added (need new <area> elements)
         deleted_photos: Optional list of filenames that were deleted (remove <area> elements)
+        rename_map: Optional dict mapping old filenames to new filenames (e.g., after adding -sz suffix)
+        validate_files: If True, validate that referenced photo files exist on disk
     
     Returns:
         Dict with keys: path, backup_path (or None), modified_photos, modified_texts, 
@@ -138,6 +278,7 @@ def update_page_layout(path: str, pageno: int, photos: List[Dict[str, Any]],
     
     new_photos = new_photos or []
     deleted_photos = deleted_photos or []
+    rename_map = rename_map or {}
     new_photos_set = set(new_photos)
     deleted_photos_set = set(deleted_photos)
     
@@ -220,6 +361,9 @@ def update_page_layout(path: str, pageno: int, photos: List[Dict[str, Any]],
     added_photos = 0
     deleted_photos_count = 0
     
+    # Track which photos from our layout have been matched to existing XML areas
+    matched_photos = set()
+    
     # First pass: Update existing photo areas and mark deleted ones for removal
     areas_to_remove = []
     
@@ -257,15 +401,28 @@ def update_page_layout(path: str, pageno: int, photos: List[Dict[str, Any]],
             continue
         
         # Find matching photo in our layout
+        # Account for renamed files: old XML filename might map to new photo filename
         matching_photo = None
         for p in photos:
-            if p.get('filename', '') == filename:
+            photo_filename = p.get('filename', '')
+            # Match either directly or through rename map (old XML name -> new photo name)
+            if photo_filename == filename or (rename_map and rename_map.get(filename) == photo_filename):
                 matching_photo = p
                 break
         
         if matching_photo is None:
-            # Photo not in current layout - could be deleted or error
-            continue
+            # Photo not in current layout - this is a BUG, not a valid state
+            photo_filenames = [p.get('filename', '') for p in photos[:5]]
+            rename_map_sample = dict(list(rename_map.items())[:3]) if rename_map else {}
+            raise ValueError(
+                f"Page {pageno}: XML photo '{filename}' not found in layout. "
+                f"This is a bug - every photo in the XML should match the layout.\n"
+                f"Photo filenames in layout (first 5): {photo_filenames}\n"
+                f"Rename map (first 3 entries): {rename_map_sample}"
+            )
+        
+        # Track that we've matched this photo (so we don't add it again)
+        matched_photos.add(matching_photo['filename'])
         
         # Get image dimensions for scale calculation (validated at function entry)
         image_width = matching_photo['image_width']
@@ -279,6 +436,10 @@ def update_page_layout(path: str, pageno: int, photos: List[Dict[str, Any]],
         scale, cutout_left, cutout_top = _calculate_cutout(
             slot_width, slot_height, image_width, image_height
         )
+        
+        # Update XML filename if photo was renamed
+        if rename_map and filename in rename_map:
+            image.set('filename', rename_map[filename])
         
         # Update position with new values
         pos.set('left', f"{matching_photo.get('area_left', 0):.2f}")
@@ -342,10 +503,23 @@ def update_page_layout(path: str, pageno: int, photos: List[Dict[str, Any]],
     # Find the parent element to add new areas to
     areas_parent = template_area.getparent() if template_area is not None else page_elem
     
+    # Add new photo areas (photos NOT matched in first pass)
     for photo in photos:
         filename = photo.get('filename', '')
-        if not filename or filename not in new_photos_set:
+        if not filename:
+            raise ValueError(f"Page {pageno}: Photo has no filename - this is a bug in the calling code")
+        
+        # Skip photos that were already updated in the first pass
+        if filename in matched_photos:
             continue
+        
+        # This photo wasn't in the XML - it must be new
+        if filename not in new_photos_set:
+            raise ValueError(
+                f"Page {pageno}: Photo '{filename}' not in new_photos list.\n"
+                f"This is a bug - photo wasn't in XML and isn't tracked as new.\n"
+                f"Expected filenames (first 5): {sorted(list(new_photos_set)[:5])}"
+            )
         
         # Get image dimensions for scale calculation (validated at function entry)
         image_width = photo['image_width']
@@ -464,6 +638,20 @@ def update_page_layout(path: str, pageno: int, photos: List[Dict[str, Any]],
         if backup_path and os.path.exists(backup_path):
             os.rename(backup_path, path)
         raise RuntimeError(f"Failed to write MCF file: {e}") from e
+    
+    # Validate the saved XML matches expectations
+    import logging
+    logger = logging.getLogger(__name__)
+    validation_errors = _validate_saved_page(path, pageno, photos, texts, is_right_page, half_width, spread_width, validate_files)
+    if validation_errors:
+        for error in validation_errors:
+            warnings.append(f"VALIDATION ERROR: {error}")
+            logger.error(f"Page {pageno} VALIDATION: {error}")
+    else:
+        if validate_files:
+            logger.info(f"Page {pageno}: Validated save - {len(photos)} photos, {len(texts)} texts (all files exist)")
+        else:
+            logger.info(f"Page {pageno}: Validated save - {len(photos)} photos, {len(texts)} texts (file existence not checked)")
     
     result = {
         'path': path,

@@ -105,12 +105,18 @@ class LayoutManager:
         total_area = sum(((p.get('area_width', 0) or 0) + gap) * ((p.get('area_height', 0) or 0) + gap) for p in orig.photos)
         if total_area <= 0:
             return {}
+        
+        # Import helper to extract base filename
+        from .gui import extract_metadata_from_filename
+        
         result = {}
         for p in orig.photos:
             fn = p.get('filename', '')
+            # Extract base filename (without -sz-pg suffix) to use as key
+            base_fn, _, _ = extract_metadata_from_filename(fn)
             # Use gap-free area (add gap back to stored dimensions)
             area = ((p.get('area_width', 0) or 0) + gap) * ((p.get('area_height', 0) or 0) + gap)
-            result[fn] = (area / total_area) * 10.0
+            result[base_fn] = (area / total_area) * 10.0
         return result
 
     def set_internal_gap(self, pageno, internal_gap):
