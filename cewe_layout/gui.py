@@ -175,55 +175,72 @@ class LayoutViewer:
         self.ctrl.title('QLayout Controls')
         self.ctrl.geometry('+50+50')
 
-        # Row 0: Navigation
-        prev_btn = ttk.Button(self.ctrl, text='Prev (←)', command=self.prev_page)
-        prev_btn.grid(row=0, column=0, padx=4, pady=4)
-        next_btn = ttk.Button(self.ctrl, text='Next (→)', command=self.next_page)
-        next_btn.grid(row=0, column=1, padx=4, pady=4)
-        ttk.Label(self.ctrl, text='Go to:').grid(row=0, column=2)
-        self.goto_var = tk.StringVar()
-        goto_entry = ttk.Entry(self.ctrl, textvariable=self.goto_var, width=6)
-        goto_entry.grid(row=0, column=3, padx=4)
-        goto_btn = ttk.Button(self.ctrl, text='Go', command=self.goto_page)
-        goto_btn.grid(row=0, column=4, padx=4)
+        # Row 0: Navigation - organize in two frames for tight grouping
+        nav_frame = ttk.Frame(self.ctrl)
+        nav_frame.grid(row=0, column=0, sticky='w', padx=4, pady=4)
+        self.page_num_var = tk.StringVar(value='Page 0')
+        ttk.Label(nav_frame, textvariable=self.page_num_var, font=('TkDefaultFont', 9)).pack(side='left', padx=(0,4))
+        prev_btn = ttk.Button(nav_frame, text='Prev (←)', command=self.prev_page)
+        prev_btn.pack(side='left')
+        next_btn = ttk.Button(nav_frame, text='Next (→)', command=self.next_page)
+        next_btn.pack(side='left')
         
-        # Row 1: Algorithm selection and Generate button
-        ttk.Label(self.ctrl, text='Algorithm:').grid(row=1, column=0, padx=(4, 2), pady=4, sticky='e')
+        goto_frame = ttk.Frame(self.ctrl)
+        goto_frame.grid(row=0, column=1, sticky='w', padx=4, pady=4)
+        ttk.Label(goto_frame, text='Go to:').pack(side='left', pady=2)
+        self.goto_var = tk.StringVar()
+        goto_entry = ttk.Entry(goto_frame, textvariable=self.goto_var, width=6)
+        goto_entry.pack(side='left', padx=2, pady=2)
+        goto_btn = ttk.Button(goto_frame, text='Go', command=self.goto_page)
+        goto_btn.pack(side='left', pady=2)
+        
+        # Row 1: Algorithm selection and Generate button - pack in single frame
+        algo_frame = ttk.Frame(self.ctrl)
+        algo_frame.grid(row=1, column=0, columnspan=2, sticky='w', padx=4, pady=4)
+        ttk.Label(algo_frame, text='Algorithm:').pack(side='left', padx=(0,4))
         algo_menu = ttk.OptionMenu(
-            self.ctrl, self.algorithm_var,
+            algo_frame, self.algorithm_var,
             'Fan-GA',  # default
             'Collage-Gen', 'Fan-GA', 'Gridify', 'Tree-Builder'
         )
-        algo_menu.grid(row=1, column=1, padx=(0, 8), pady=4, sticky='ew')
+        algo_menu.pack(side='left', padx=(0,4))
         
         # Generate button (uses selected algorithm)
-        self.gen_btn = ttk.Button(self.ctrl, text='Generate Layout', command=self.generate_layout)
-        self.gen_btn.grid(row=1, column=2, padx=4, pady=4, sticky='ew')
+        self.gen_btn = ttk.Button(algo_frame, text='Generate Layout', command=self.generate_layout)
+        self.gen_btn.pack(side='left', padx=(0,4))
         
         # Debug checkbox next to Generate button
-        debug_check = ttk.Checkbutton(self.ctrl, text='Debug', variable=self.debug_var)
-        debug_check.grid(row=1, column=3, padx=4, pady=4, sticky='w')
+        debug_check = ttk.Checkbutton(algo_frame, text='Debug', variable=self.debug_var)
+        debug_check.pack(side='left')
         
-        # Row 2: Actions
-        undo_btn = ttk.Button(self.ctrl, text='Back', command=self.undo_layout)
-        undo_btn.grid(row=2, column=0, padx=4, pady=4)
-        save_btn = ttk.Button(self.ctrl, text='Save', command=self.save_layout)
-        save_btn.grid(row=2, column=1, padx=4, pady=4)
-        orig_btn = ttk.Button(self.ctrl, text='Use Original', command=self.use_original)
-        orig_btn.grid(row=2, column=2, padx=4, pady=4)
-        
-        # Modified pages label
-        ttk.Label(self.ctrl, text='Modified pages:').grid(row=3, column=0, sticky='w', padx=4, pady=(5,0))
+        # Row 2: Modified pages label (pack label and value tightly)
+        modified_frame = ttk.Frame(self.ctrl)
+        modified_frame.grid(row=2, column=0, columnspan=3, sticky='w', padx=4, pady=(5,0))
+        ttk.Label(modified_frame, text='Modified pages:').pack(side='left')
         self.modified_pages_var = tk.StringVar(value='(none)')
-        self.modified_pages_label = ttk.Label(self.ctrl, textvariable=self.modified_pages_var, 
+        self.modified_pages_label = ttk.Label(modified_frame, textvariable=self.modified_pages_var, 
                                               font=('TkDefaultFont', 9), foreground='blue')
-        self.modified_pages_label.grid(row=3, column=1, columnspan=2, sticky='w', padx=4)
+        self.modified_pages_label.pack(side='left', padx=(2,0))
+        
+        # Row 3: Action buttons (indented)
+        actions_frame = ttk.Frame(self.ctrl)
+        actions_frame.grid(row=3, column=0, columnspan=3, sticky='w', padx=4, pady=4)
+        ttk.Label(actions_frame, text='  ').pack(side='left')  # Indentation spacer
+        undo_btn = ttk.Button(actions_frame, text='Undo', command=self.undo_layout)
+        undo_btn.pack(side='left', padx=(0,4))
+        save_btn = ttk.Button(actions_frame, text='Save', command=self.save_layout)
+        save_btn.pack(side='left', padx=(0,4))
+        orig_btn = ttk.Button(actions_frame, text='Use Original', command=self.use_original)
+        orig_btn.pack(side='left')
 
-        # Status message entry (read-only but selectable for copying)
+        # Row 4: Status message with label
+        status_frame = ttk.Frame(self.ctrl)
+        status_frame.grid(row=4, column=0, columnspan=3, padx=4, pady=4, sticky='ew')
+        ttk.Label(status_frame, text='Status:').pack(side='left', padx=(0,4))
         self.status_var = tk.StringVar(value='')
-        self.status_entry = ttk.Entry(self.ctrl, textvariable=self.status_var, 
+        self.status_entry = ttk.Entry(status_frame, textvariable=self.status_var, 
                                       state='readonly', font=('TkDefaultFont', 9))
-        self.status_entry.grid(row=4, column=0, columnspan=3, padx=4, pady=4, sticky='ew')
+        self.status_entry.pack(side='left', fill='x', expand=True)
         # Store the style for color changes
         self.status_style = ttk.Style()
         
@@ -380,6 +397,13 @@ class LayoutViewer:
     def render_page(self):
         # Clear status message when changing pages
         self.status_var.set('')
+        
+        # Update page number display
+        if self.pages:
+            pageno = self.pages[self.index][0]
+            self.page_num_var.set(f'Page {pageno}')
+        else:
+            self.page_num_var.set('Page 0')
         
         # Get current canvas dimensions from the window
         self.root.update_idletasks()  # Ensure geometry is current
@@ -557,7 +581,43 @@ class LayoutViewer:
             })
 
         # Draw page frame LAST so it's on top of photos/texts in bleed situations
-        draw.rectangle([frame_x, frame_y, frame_x+frame_w, frame_y+frame_h], outline=frame_color, width=2)
+        # Draw as dashed rectangle (4 sides with dashes)
+        dash_length = 10
+        gap_length = 5
+        line_width = 2
+        
+        # Helper function to draw dashed line
+        def draw_dashed_line(x1, y1, x2, y2):
+            # Calculate line length and direction
+            dx = x2 - x1
+            dy = y2 - y1
+            length = (dx**2 + dy**2)**0.5
+            if length == 0:
+                return
+            
+            # Unit vector
+            ux = dx / length
+            uy = dy / length
+            
+            # Draw dashes
+            pos = 0
+            while pos < length:
+                # Start of dash
+                start_x = x1 + ux * pos
+                start_y = y1 + uy * pos
+                # End of dash
+                end_pos = min(pos + dash_length, length)
+                end_x = x1 + ux * end_pos
+                end_y = y1 + uy * end_pos
+                
+                draw.line([(start_x, start_y), (end_x, end_y)], fill=frame_color, width=line_width)
+                pos += dash_length + gap_length
+        
+        # Draw four sides as dashed lines
+        draw_dashed_line(frame_x, frame_y, frame_x + frame_w, frame_y)  # Top
+        draw_dashed_line(frame_x + frame_w, frame_y, frame_x + frame_w, frame_y + frame_h)  # Right
+        draw_dashed_line(frame_x + frame_w, frame_y + frame_h, frame_x, frame_y + frame_h)  # Bottom
+        draw_dashed_line(frame_x, frame_y + frame_h, frame_x, frame_y)  # Left
 
         self._show_image(img)
         
@@ -1636,11 +1696,17 @@ class LayoutViewer:
     def prev_page(self):
         if self.index > 0:
             self.index -= 1
+            pageno = self.pages[self.index][0]
+            self.show_status(f'Loading page {pageno}...')
+            self.root.update_idletasks()
             self.render_page()
 
     def next_page(self):
         if self.index < len(self.pages)-1:
             self.index += 1
+            pageno = self.pages[self.index][0]
+            self.show_status(f'Loading page {pageno}...')
+            self.root.update_idletasks()
             self.render_page()
 
     def goto_page(self):
@@ -1652,6 +1718,8 @@ class LayoutViewer:
         for i,(pn,_) in enumerate(self.pages):
             if pn == v:
                 self.index = i
+                self.show_status(f'Loading page {v}...')
+                self.root.update_idletasks()
                 self.render_page()
                 return
 
