@@ -418,7 +418,16 @@ class LayoutViewer:
             title = f'{self.photobook_name} - Page {pageno} : {len(photos)} photos'
         self.root.title(title)
         
-        img = Image.new('RGB', (canvas_w, canvas_h), 'white')
+        # Determine page background color from designElementId
+        background_id = info.get('background_id')
+        if background_id == '212':
+            page_bg_color = 'black'
+            frame_color = 'white'  # White frame for black background
+        else:  # '201' or None or any other value defaults to white
+            page_bg_color = 'white'
+            frame_color = 'black'  # Black frame for white background
+        
+        img = Image.new('RGB', (canvas_w, canvas_h), page_bg_color)
         draw = ImageDraw.Draw(img)
 
         # Use page meta to map coordinates. page_width/height are in MCF units (0.1mm)
@@ -548,7 +557,7 @@ class LayoutViewer:
             })
 
         # Draw page frame LAST so it's on top of photos/texts in bleed situations
-        draw.rectangle([frame_x, frame_y, frame_x+frame_w, frame_y+frame_h], outline='black', width=2)
+        draw.rectangle([frame_x, frame_y, frame_x+frame_w, frame_y+frame_h], outline=frame_color, width=2)
 
         self._show_image(img)
         
@@ -1450,6 +1459,10 @@ class LayoutViewer:
             # Update stored gap value
             self.layout_mgr.set_edge_gap(pageno, new_edge_gap)
             
+            # Mark page as modified
+            self.modified_pages.add(pageno)
+            self._update_modified_pages_display()
+            
             # Re-render with adjusted layout
             self.render_page()
         except ValueError as e:
@@ -1488,6 +1501,10 @@ class LayoutViewer:
             
             # Update stored gap value
             self.layout_mgr.set_internal_gap(pageno, new_internal_gap)
+            
+            # Mark page as modified
+            self.modified_pages.add(pageno)
+            self._update_modified_pages_display()
             
             # Re-render with adjusted layout
             self.render_page()

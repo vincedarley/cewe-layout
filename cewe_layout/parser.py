@@ -109,7 +109,14 @@ def extract_pages_info(fotobook_root):
             # origin_left is 0 for left pages, half for right pages
             origin_left = 0.0 if owner == left_owner else half
             if owner not in pages_map:
-                pages_map[owner] = {'photos': [], 'texts': [], 'page_width': half, 'page_height': spread_h, 'origin_left': origin_left}
+                # Extract background designElementId for background color
+                background_id = None
+                for bg in page.findall('background'):
+                    if bg.get('alignment') is not None:  # Primary background has alignment attribute
+                        background_id = bg.get('designElementId')
+                        break
+                
+                pages_map[owner] = {'photos': [], 'texts': [], 'page_width': half, 'page_height': spread_h, 'origin_left': origin_left, 'background_id': background_id}
 
             # Check area type
             areatype = area.get('areatype', 'imagearea')

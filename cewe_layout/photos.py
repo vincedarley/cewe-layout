@@ -277,7 +277,7 @@ def load_thumbnail(path: Path, width: int, height: int, verbose: bool = True) ->
     
     The image is loaded with EXIF orientation applied, converted to RGB,
     and thumbnailed to fit within the specified dimensions. The thumbnail
-    is centered on a white background of exactly the requested size.
+    is centered on a light gray background of exactly the requested size.
     
     Args:
         path: Path to the image file
@@ -294,7 +294,6 @@ def load_thumbnail(path: Path, width: int, height: int, verbose: bool = True) ->
     if not path or not Path(path).exists():
         return None
     
-    # Try PIL first
     try:
         im = Image.open(path)
         # Auto-rotate based on EXIF orientation (support older Pillow)
@@ -308,38 +307,17 @@ def load_thumbnail(path: Path, width: int, height: int, verbose: bool = True) ->
         im = im.convert('RGB')
         im.thumbnail((width, height), Image.LANCZOS)
         # Create a background image exactly the size of slot and paste centered
-        bg = Image.new('RGB', (width, height), 'white')
+        bg = Image.new('RGB', (width, height), '#cccccc')  # Light gray background
         x = max(0, (width - im.width) // 2)
         y = max(0, (height - im.height) // 2)
         bg.paste(im, (x, y))
         return bg
     except Exception as e:
-        # Always log first-time failures for specific paths
+        # Log first-time failures for specific paths
         if str(path) not in _image_load_failures:
-            logger.warning(f"PIL failed to load thumbnail for {path}: {e}")
+            logger.warning(f"Failed to load thumbnail for {path}: {e}")
             _image_load_failures.add(str(path))
             if verbose:
                 traceback.print_exc()
-        
-        # Try OpenCV fallback
-        try:
-            arr = cv2.imread(str(path), cv2.IMREAD_COLOR)
-            if arr is None:
-                if verbose and str(path) not in _image_load_failures:
-                    logger.warning(f"OpenCV also failed to read {path} (imread returned None)")
-                return None
-            arr = cv2.cvtColor(arr, cv2.COLOR_BGR2RGB)
-            im2 = Image.fromarray(arr)
-            im2.thumbnail((width, height), Image.LANCZOS)
-            bg = Image.new('RGB', (width, height), 'white')
-            x = max(0, (width - im2.width) // 2)
-            y = max(0, (height - im2.height) // 2)
-            bg.paste(im2, (x, y))
-            return bg
-        except Exception as e2:
-            if str(path) not in _image_load_failures:
-                logger.warning(f"OpenCV fallback also failed for {path}: {e2}")
-                _image_load_failures.add(str(path))
-                if verbose:
-                    traceback.print_exc()
-            return None
+        return None
+
