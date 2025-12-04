@@ -21,7 +21,8 @@ from .gap_utils import (
 def generate_layout_for_page(photos, page_width_mcf, page_height_mcf, photo_dimensions,
                            algorithm, preferred_sizes=None,
                            edge_gap=0.0, internal_gap=0.0,
-                           texts=None, use_slot_aspect=None, original_photos=None, 
+                           texts=None, use_slot_aspect=None, slot_aspect_ratios=None,
+                           original_photos=None, 
                            origin_left=0.0, pageno=None, **kwargs):
     """
     High-level function to generate a new layout for a page.
@@ -40,6 +41,7 @@ def generate_layout_for_page(photos, page_width_mcf, page_height_mcf, photo_dime
         internal_gap: Internal gap (spacing between items) in MCF units. Default 0.0.
         texts: Optional list of MCF text block dicts (with 'area_width', 'area_height').
         use_slot_aspect: Optional dict mapping photo_idx -> bool. If True, use slot aspect ratio instead of image aspect ratio.
+        slot_aspect_ratios: Optional dict mapping item_idx -> aspect_ratio. Custom aspect ratios for slots.
         original_photos: Optional list of original MCF photo dicts (for slot dimensions when use_slot_aspect=True).
         origin_left: Origin offset for right-side pages in MCF units. Default 0.0.
         pageno: Optional page number for error messages. Default None.
@@ -54,6 +56,9 @@ def generate_layout_for_page(photos, page_width_mcf, page_height_mcf, photo_dime
     
     if use_slot_aspect is None:
         use_slot_aspect = {}
+    
+    if slot_aspect_ratios is None:
+        slot_aspect_ratios = {}
     
     # TreeBuilderAlgorithm and GridifyAlgorithm MUST use slot dimensions
     # TreeBuilder: operates on layout structure, not image aspect ratios
@@ -71,7 +76,8 @@ def generate_layout_for_page(photos, page_width_mcf, page_height_mcf, photo_dime
     
     # Step 1: Translate MCF photos and texts to abstract layout rectangles
     photo_rects, error = _photos_to_rectangles(
-        photos, photo_dimensions, preferred_sizes, edge_gap, internal_gap, use_slot_aspect, original_photos, origin_left
+        photos, photo_dimensions, preferred_sizes, edge_gap, internal_gap, 
+        use_slot_aspect, slot_aspect_ratios, original_photos, origin_left
     )
     if error:
         return False, [], [], error
@@ -159,7 +165,7 @@ def generate_layout_for_page(photos, page_width_mcf, page_height_mcf, photo_dime
     return True, updated_photos, updated_texts, ""
 
 
-def _photos_to_rectangles(photos, photo_dimensions, preferred_sizes=None, edge_gap=0.0, internal_gap=0.0, use_slot_aspect=None, original_photos=None, origin_left=0.0):
+def _photos_to_rectangles(photos, photo_dimensions, preferred_sizes=None, edge_gap=0.0, internal_gap=0.0, use_slot_aspect=None, slot_aspect_ratios=None, original_photos=None, origin_left=0.0):
     """
     Convert MCF photo list to abstract LayoutRectangle objects in gap-free space.
     
@@ -172,6 +178,7 @@ def _photos_to_rectangles(photos, photo_dimensions, preferred_sizes=None, edge_g
         edge_gap: Edge gap (margin) in MCF units.
         internal_gap: Internal gap (spacing between items) in MCF units.
         use_slot_aspect: Optional dict mapping photo_idx -> bool. If True, use slot dimensions instead of image dimensions.
+        slot_aspect_ratios: Optional dict mapping item_idx -> aspect_ratio. Custom aspect ratios for slots.
         original_photos: Optional list of original MCF photo dicts (used for slot dimensions when use_slot_aspect=True).
         origin_left: Origin offset for right-side pages in MCF units.
     
@@ -182,6 +189,9 @@ def _photos_to_rectangles(photos, photo_dimensions, preferred_sizes=None, edge_g
     
     if use_slot_aspect is None:
         use_slot_aspect = {}
+    
+    if slot_aspect_ratios is None:
+        slot_aspect_ratios = {}
     
     for photo_idx, photo in enumerate(photos):
         fn = photo.get('filename', '')
@@ -196,16 +206,36 @@ def _photos_to_rectangles(photos, photo_dimensions, preferred_sizes=None, edge_g
         rect_height = None
         
         if use_slot:
-            # Use ORIGINAL slot dimensions to preserve aspect ratio across iterations
-            # (current photo dimensions may have been modified by previous layout runs)
-            source_photo = original_photos[photo_idx] if original_photos and photo_idx < len(original_photos) else photo
-            slot_width = source_photo.get('area_width', 0)
-            slot_height = source_photo.get('area_height', 0)
-            if slot_width > 0 and slot_height > 0:
-                # Convert to gap-free space: add internal_gap to match evaluation coordinate system
-                rect_width = float(slot_width) + internal_gap
-                rect_height = float(slot_height) + internal_gap
-            # else: fall through to use image dimensions
+            # Check if we have a custom aspect ratio for this item
+            if photo_idx in slot_aspect_ratios:
+                # Use custom aspect ratio with area from original slot
+                source_photo = original_photos[photo_idx] if original_photos and photo_idx < len(original_photos) else photo
+                slot_width = source_photo.get('area_width', 0)
+                slot_height = source_photo.get('area_height', 0)
+                if slot_width > 0 and slot_height > 0:
+                    # Calculate area in gap-free space
+                    slot_area = (float(slot_width) + internal_gap) * (float(slot_height) + internal_gap)
+                    custom_aspect = slot_aspect_ratios[photo_idx]
+                    # Compute dimensions from area and aspect ratio
+                    # area = w * h, aspect = w / h
+                    # => w = sqrt(area * aspect), h = sqrt(area / aspect)
+                    import math
+                    rect_width = math.sqrt(slot_area * custom_aspect)
+                    rect_height = math.sqrt(slot_area / custom_aspect)
+                # else: fall through to use original slot dimensions or image dimensions
+            
+            # If no custom aspect ratio or calculation failed, use original slot dimensions
+            if rect_width is None or rect_height is None:
+                # Use ORIGINAL slot dimensions to preserve aspect ratio across iterations
+                # (current photo dimensions may have been modified by previous layout runs)
+                source_photo = original_photos[photo_idx] if original_photos and photo_idx < len(original_photos) else photo
+                slot_width = source_photo.get('area_width', 0)
+                slot_height = source_photo.get('area_height', 0)
+                if slot_width > 0 and slot_height > 0:
+                    # Convert to gap-free space: add internal_gap to match evaluation coordinate system
+                    rect_width = float(slot_width) + internal_gap
+                    rect_height = float(slot_height) + internal_gap
+                # else: fall through to use image dimensions
         
         # If not using slot, or slot dimensions were invalid, use image file dimensions
         if rect_width is None or rect_height is None:

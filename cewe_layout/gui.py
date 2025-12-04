@@ -51,6 +51,10 @@ class LayoutViewer:
         # Track which photos should use slot aspect ratio (dict: {(pageno, photo_idx): BooleanVar})
         self.use_slot_aspect = {}
         
+        # Track slot aspect ratios for each item (dict: {(pageno, item_idx): aspect_ratio})
+        # This allows users to override the slot aspect ratio
+        self.slot_aspect_ratios = {}
+        
         # Cache photo dimensions: {filename: (width, height)} to avoid re-reading images
         self.photo_dimensions = {}
 
@@ -235,14 +239,24 @@ class LayoutViewer:
         photo_frame = ttk.Frame(self.info_frame)
         photo_frame.grid(row=0, column=0, sticky='nw', padx=(0, 20))
         
-        ttk.Label(photo_frame, text='Item', font=('TkDefaultFont', 9, 'bold')).grid(row=0, column=0, padx=2, pady=2, sticky='w')
-        ttk.Label(photo_frame, text='Slot AR', font=('TkDefaultFont', 9, 'bold')).grid(row=0, column=1, padx=2, pady=2, sticky='w')
-        # Preferred label with Equal/Original buttons below it
-        pref_container = ttk.Frame(photo_frame)
-        pref_container.grid(row=0, column=2, padx=2, pady=2, sticky='w')
-        ttk.Label(pref_container, text='Preferred', font=('TkDefaultFont', 9, 'bold')).pack()
-        btn_frame = ttk.Frame(pref_container)
-        btn_frame.pack()
+        ttk.Label(photo_frame, text='Item', font=('TkDefaultFont', 9, 'bold')).grid(row=0, column=0, padx=2, pady=(2,0))
+        
+        # Aspect Ratio parent header spanning all 3 sub-columns
+        # Center it properly over the 3 columns by using a label with sticky='ew' in a grid
+        ttk.Label(photo_frame, text='Aspect Ratio', font=('TkDefaultFont', 9, 'bold'), anchor='center').grid(row=0, column=1, columnspan=3, pady=(2,0), sticky='ew')
+        
+        # Sub-headers in row 1, directly above their respective data columns
+        ttk.Label(photo_frame, text='Slot', font=('TkDefaultFont', 8)).grid(row=1, column=1, padx=2, pady=(0,2))
+        ttk.Label(photo_frame, text='Use\nslot', font=('TkDefaultFont', 8), justify='center').grid(row=1, column=2, padx=2, pady=(0,2))
+        ttk.Label(photo_frame, text='Photo', font=('TkDefaultFont', 8)).grid(row=1, column=3, padx=2, pady=(0,2))
+        
+        # Preferred header with Equal/Original buttons in row 1, centered over column 4
+        pref_header = ttk.Label(photo_frame, text='Preferred', font=('TkDefaultFont', 9, 'bold'))
+        pref_header.grid(row=0, column=4, padx=2, pady=(2,0))
+        # Center the label within its cell
+        photo_frame.columnconfigure(4, weight=0)
+        btn_frame = ttk.Frame(photo_frame)
+        btn_frame.grid(row=1, column=4, padx=2, pady=(0,2), sticky='w')
         # Use tk.Button with transparent pixel for precise compact sizing
         tk.Button(btn_frame, text='Equal', command=self.equal_sizes, 
                   font=('TkDefaultFont', 7), width=30, height=12,
@@ -252,10 +266,16 @@ class LayoutViewer:
                   font=('TkDefaultFont', 7), width=38, height=12,
                   image=self.button_pixel, compound='center',
                   padx=0, pady=0, bd=1, highlightthickness=0).pack(side='left', padx=0)
-        ttk.Label(photo_frame, text='Actual', font=('TkDefaultFont', 9, 'bold')).grid(row=0, column=3, padx=2, pady=2, sticky='w')
+        
+        # Actual header
+        ttk.Label(photo_frame, text='Actual', font=('TkDefaultFont', 9, 'bold')).grid(row=0, column=5, padx=2, pady=(2,0), sticky='w')
         
         # Item (photo/text) weight rows will be added dynamically to photo_frame
         self.photo_frame = photo_frame
+        
+        # Add text box button (will be positioned below weight rows)
+        self.add_text_btn = ttk.Button(photo_frame, text='Add text box', command=self.add_text_box)
+        # Position will be updated dynamically in update_weights_display()
         
         # RIGHT COLUMN: Cost info (top) and Parameters (bottom)
         right_col = ttk.Frame(self.info_frame)
@@ -475,7 +495,15 @@ class LayoutViewer:
             draw.rectangle([x0, y0, x1, y1], outline='blue', width=2)
             # filename text
             shortfn = (fn or '').split('/')[-1]
-            draw.text((x0+4, y0+4), f'{i}: {shortfn}', fill='black')
+            # Truncate long filenames: show first 10 + "..." + last 10 if longer than 20
+            if len(shortfn) > 20:
+                shortfn = shortfn[:10] + '...' + shortfn[-10:]
+            try:
+                from PIL import ImageFont
+                label_font = ImageFont.truetype('Arial', 16)
+            except:
+                label_font = None
+            draw.text((x0+4, y0+4), f'{i}: {shortfn}', fill='black', font=label_font)
             
             # Store delete button position info
             if fn:  # Only add delete button if photo has a filename
@@ -505,8 +533,19 @@ class LayoutViewer:
             draw.rectangle([x0, y0, x1, y1], fill='#ffffcc')  # Light yellow background
             # wireframe overlay in green
             draw.rectangle([x0, y0, x1, y1], outline='green', width=2)
-            # label
-            draw.text((x0+4, y0+4), f'T{i}', fill='green')
+            try:
+                from PIL import ImageFont
+                label_font = ImageFont.truetype('Arial', 16)
+            except:
+                label_font = None
+            draw.text((x0+4, y0+4), f'T{i}', fill='green', font=label_font)
+            
+            # Store delete button position info for text boxes
+            delete_button_info.append({
+                'text_index': i - 1,  # 0-based index
+                'x': int(x1) - 20,  # 20px from right edge
+                'y': int(y0) + 2,   # 2px from top edge
+            })
 
         # Draw page frame LAST so it's on top of photos/texts in bleed situations
         draw.rectangle([frame_x, frame_y, frame_x+frame_w, frame_y+frame_h], outline='black', width=2)
@@ -523,10 +562,12 @@ class LayoutViewer:
         self.img_label.configure(image=self.photo_image)
     
     def _create_delete_buttons(self, button_info):
-        """Create delete button widgets overlaid on photo thumbnails.
+        """Create delete button widgets overlaid on photo/text thumbnails.
         
         Args:
-            button_info: List of dicts with 'photo_index', 'filename', 'x', 'y'
+            button_info: List of dicts with either:
+                - 'photo_index', 'filename', 'x', 'y' for photos
+                - 'text_index', 'x', 'y' for text boxes
         """
         # Destroy any existing delete buttons from previous render
         for btn in self.delete_buttons:
@@ -535,10 +576,17 @@ class LayoutViewer:
         
         # Create new delete buttons
         for info in button_info:
-            photo_idx = info['photo_index']
-            filename = info['filename']
             x = info['x']
             y = info['y']
+            
+            # Determine if this is a photo or text box
+            if 'photo_index' in info:
+                photo_idx = info['photo_index']
+                filename = info['filename']
+                cmd = lambda idx=photo_idx, fn=filename: self._delete_photo(idx, fn)
+            else:  # text_index
+                text_idx = info['text_index']
+                cmd = lambda idx=text_idx: self._delete_text(idx)
             
             # Create small white X button with red text and precise pixel sizing
             btn = tk.Button(
@@ -558,7 +606,7 @@ class LayoutViewer:
                 highlightthickness=0,
                 padx=0,
                 pady=0,
-                command=lambda idx=photo_idx, fn=filename: self._delete_photo(idx, fn)
+                command=cmd
             )
             btn.place(x=x, y=y)
             self.delete_buttons.append(btn)
@@ -607,6 +655,43 @@ class LayoutViewer:
         
         shortfn = deleted_filename.split('/')[-1] if deleted_filename else f'photo {photo_index+1}'
         self.show_status(f'Deleted {shortfn} from page {pageno}')
+    
+    def _delete_text(self, text_index):
+        """Delete a text box from the current page layout.
+        
+        Args:
+            text_index: 0-based index of text box in current layout
+        """
+        if not self.pages:
+            return
+        
+        pageno, info = self.pages[self.index]
+        current_layout = self.layout_mgr.get_current(pageno)
+        if not current_layout:
+            return
+        
+        photos = current_layout.photos
+        texts = current_layout.texts
+        
+        # Verify index is valid
+        if text_index < 0 or text_index >= len(texts):
+            self.show_status(f'Invalid text index: {text_index}', error=True)
+            return
+        
+        # Remove text from list
+        updated_texts = texts[:text_index] + texts[text_index+1:]
+        
+        # Push updated layout
+        self.layout_mgr.push_layout(pageno, photos, updated_texts)
+        
+        # Mark page as modified
+        self.modified_pages.add(pageno)
+        self._update_modified_pages_display()
+        
+        # Re-render to show updated layout
+        self.render_page()
+        
+        self.show_status(f'Deleted text box {text_index+1} from page {pageno}')
     
     def _setup_drag_and_drop(self):
         """Setup drag-and-drop handlers for photo files."""
@@ -1095,7 +1180,7 @@ class LayoutViewer:
         
         # Create weight display rows for each item (photos and texts)
         for i, (rect, item_info) in enumerate(zip(rectangles, item_identifiers)):
-            row = 1 + i  # Row 0 has headers, data starts at row 1
+            row = 2 + i  # Row 0 has main headers, row 1 has sub-headers, data starts at row 2
             
             item_type, item_idx, item_id = item_info
             
@@ -1104,7 +1189,35 @@ class LayoutViewer:
             item_label = ttk.Label(self.photo_frame, text=f'{type_prefix}{item_idx+1}', font=('TkDefaultFont', 9))
             item_label.grid(row=row, column=0, padx=2, pady=1)
             
-            # Checkbox for using slot aspect ratio (photos only)
+            # Initialize slot aspect ratio from current layout if not already set
+            ar_key = (pageno, item_idx)
+            if ar_key not in self.slot_aspect_ratios:
+                # Get from current slot dimensions
+                if item_type == 'photo':
+                    photo = photos[item_idx]
+                    slot_width = photo.get('area_width', 0)
+                    slot_height = photo.get('area_height', 0)
+                    if slot_width > 0 and slot_height > 0:
+                        self.slot_aspect_ratios[ar_key] = slot_width / slot_height
+                    else:
+                        self.slot_aspect_ratios[ar_key] = 1.5  # Default
+                else:  # text block
+                    text = texts[item_idx]
+                    slot_width = text.get('area_width', 0)
+                    slot_height = text.get('area_height', 0)
+                    if slot_width > 0 and slot_height > 0:
+                        self.slot_aspect_ratios[ar_key] = slot_width / slot_height
+                    else:
+                        self.slot_aspect_ratios[ar_key] = 2.0  # Default for text
+            
+            # Column 1: Slot aspect ratio (editable)
+            slot_ar_var = tk.StringVar(value=f'{self.slot_aspect_ratios[ar_key]:.2f}')
+            slot_ar_entry = ttk.Entry(self.photo_frame, textvariable=slot_ar_var, width=4)
+            slot_ar_entry.grid(row=row, column=1, padx=2, pady=1)
+            slot_ar_entry.bind('<Return>', lambda e, pg=pageno, idx=item_idx, var=slot_ar_var: self.on_slot_aspect_changed(pg, idx, var))
+            slot_ar_entry.bind('<FocusOut>', lambda e, pg=pageno, idx=item_idx, var=slot_ar_var: self.on_slot_aspect_changed(pg, idx, var))
+            
+            # Column 2: "Use slot" checkbox
             checkbox_widget = None
             if item_type == 'photo':
                 # Get or create checkbox state
@@ -1117,58 +1230,97 @@ class LayoutViewer:
                     slot_height = photo.get('area_height', 0)
                     
                     if slot_width > 0 and slot_height > 0:
+                        slot_aspect = slot_width / slot_height
                         # Load image to get its actual aspect ratio
                         fn = photo.get('filename', '')
                         if fn:
-                            # Check cache first
-                            if fn in self.photo_dimensions:
-                                img_w, img_h = self.photo_dimensions[fn]
-                                img_aspect = img_w / img_h
-                                slot_aspect = slot_width / slot_height
-                                # Auto-check if aspect ratios differ by more than 30%
-                                aspect_diff = abs(img_aspect - slot_aspect) / slot_aspect
-                                if aspect_diff > 0.30:
-                                    should_auto_check = True
-                            else:
-                                # Load and cache dimensions
+                            # Check cache first, or load if not cached
+                            if fn not in self.photo_dimensions:
                                 safefn = fn.replace('safecontainer:/', '').lstrip('/')
                                 img_path = Path(self.mcf_base_folder) / safefn
                                 if img_path.exists():
                                     try:
                                         dims = get_image_dimensions(img_path)
                                         if dims is not None:
-                                            img_w, img_h = dims
-                                            # Cache for future use
-                                            self.photo_dimensions[fn] = (img_w, img_h)
-                                            if img_h > 0 and img_w > 0:
-                                                img_aspect = img_w / img_h
-                                                slot_aspect = slot_width / slot_height
-                                                # Auto-check if aspect ratios differ by more than 30%
-                                                aspect_diff = abs(img_aspect - slot_aspect) / slot_aspect
-                                                if aspect_diff > 0.30:
-                                                    should_auto_check = True
+                                            self.photo_dimensions[fn] = dims
                                     except Exception:
                                         pass
+                            
+                            # Now check if we have dimensions (from cache or just loaded)
+                            if fn in self.photo_dimensions:
+                                img_w, img_h = self.photo_dimensions[fn]
+                                if img_h > 0:
+                                    img_aspect = img_w / img_h
+                                    # Auto-check if aspect ratios differ by more than 30%
+                                    aspect_diff = abs(img_aspect - slot_aspect) / slot_aspect
+                                    if aspect_diff > 0.30:
+                                        should_auto_check = True
                     
                     self.use_slot_aspect[checkbox_key] = tk.BooleanVar(value=should_auto_check)
                 
                 checkbox_widget = ttk.Checkbutton(self.photo_frame, variable=self.use_slot_aspect[checkbox_key])
-                checkbox_widget.grid(row=row, column=1, padx=2, pady=1)
+                checkbox_widget.grid(row=row, column=2, padx=2, pady=1)
             else:
-                # Placeholder for text blocks (no checkbox needed)
-                checkbox_widget = ttk.Label(self.photo_frame, text='', font=('TkDefaultFont', 9))
-                checkbox_widget.grid(row=row, column=1, padx=2, pady=1)
+                # For text blocks, always use slot aspect (checkbox always checked, disabled)
+                checkbox_key = (pageno, item_idx)
+                if checkbox_key not in self.use_slot_aspect:
+                    self.use_slot_aspect[checkbox_key] = tk.BooleanVar(value=True)
+                checkbox_widget = ttk.Checkbutton(self.photo_frame, variable=self.use_slot_aspect[checkbox_key], state='disabled')
+                checkbox_widget.grid(row=row, column=2, padx=2, pady=1)
             
-            # Desired weight entry (editable)
+            # Column 3: Photo/Image aspect ratio (read-only, empty for text blocks)
+            photo_ar_label = None
+            if item_type == 'photo':
+                photo = photos[item_idx]
+                fn = photo.get('filename', '')
+                if fn:
+                    # Check cache first
+                    if fn in self.photo_dimensions:
+                        img_w, img_h = self.photo_dimensions[fn]
+                        if img_h > 0:
+                            img_aspect = img_w / img_h
+                            photo_ar_label = ttk.Label(self.photo_frame, text=f'{img_aspect:.2f}', font=('TkDefaultFont', 9))
+                        else:
+                            photo_ar_label = ttk.Label(self.photo_frame, text='--', font=('TkDefaultFont', 9))
+                    else:
+                        # Load and cache dimensions
+                        safefn = fn.replace('safecontainer:/', '').lstrip('/')
+                        img_path = Path(self.mcf_base_folder) / safefn
+                        if img_path.exists():
+                            try:
+                                dims = get_image_dimensions(img_path)
+                                if dims is not None:
+                                    img_w, img_h = dims
+                                    self.photo_dimensions[fn] = (img_w, img_h)
+                                    if img_h > 0:
+                                        img_aspect = img_w / img_h
+                                        photo_ar_label = ttk.Label(self.photo_frame, text=f'{img_aspect:.2f}', font=('TkDefaultFont', 9))
+                                    else:
+                                        photo_ar_label = ttk.Label(self.photo_frame, text='--', font=('TkDefaultFont', 9))
+                                else:
+                                    photo_ar_label = ttk.Label(self.photo_frame, text='--', font=('TkDefaultFont', 9))
+                            except Exception:
+                                photo_ar_label = ttk.Label(self.photo_frame, text='--', font=('TkDefaultFont', 9))
+                        else:
+                            photo_ar_label = ttk.Label(self.photo_frame, text='--', font=('TkDefaultFont', 9))
+                else:
+                    photo_ar_label = ttk.Label(self.photo_frame, text='--', font=('TkDefaultFont', 9))
+            else:
+                # Empty for text blocks
+                photo_ar_label = ttk.Label(self.photo_frame, text='', font=('TkDefaultFont', 9))
+            
+            photo_ar_label.grid(row=row, column=3, padx=2, pady=1)
+            
+            # Column 4: Desired weight entry (editable)
             desired_var = tk.StringVar(value=f'{rect.preferred_size:.1f}')
             desired_entry = ttk.Entry(self.photo_frame, textvariable=desired_var, width=6)
-            desired_entry.grid(row=row, column=2, padx=2, pady=1)
+            desired_entry.grid(row=row, column=4, padx=2, pady=1)
             
             # Bind entry changes to update weights in layout manager
             desired_entry.bind('<Return>', lambda e, pg=pageno, iid=item_id, var=desired_var: self.on_size_changed(pg, iid, var))
             desired_entry.bind('<FocusOut>', lambda e, pg=pageno, iid=item_id, var=desired_var: self.on_size_changed(pg, iid, var))
             
-            # Actual weight label (computed from area)
+            # Column 5: Actual weight label (computed from area)
             # Use the same coordinate space as evaluation
             total_area = (eval_page_w * eval_page_h)
             item_area = rect.width * rect.height
@@ -1177,9 +1329,60 @@ class LayoutViewer:
             # Simpler: just show the area fraction as percentage of page
             actual_pct = actual_fraction * 100
             actual_label = ttk.Label(self.photo_frame, text=f'{actual_pct:.1f}%', font=('TkDefaultFont', 9))
-            actual_label.grid(row=row, column=3, padx=2, pady=1)
+            actual_label.grid(row=row, column=5, padx=2, pady=1)
             
-            self.weight_widgets.append((item_label, checkbox_widget, desired_entry, actual_label))
+            self.weight_widgets.append((item_label, slot_ar_entry, checkbox_widget, photo_ar_label, desired_entry, actual_label))
+        
+        # Position "Add text box" button below all items (skip row 0 and 1 for headers)
+        next_row = 2 + len(rectangles)
+        self.add_text_btn.grid(row=next_row, column=0, columnspan=2, padx=2, pady=4, sticky='w')
+    
+    def add_text_box(self):
+        """Add a new text box to the current page."""
+        if not self.pages:
+            self.show_status('No pages available', error=True)
+            return
+        
+        pageno, info = self.pages[self.index]
+        current_layout = self.layout_mgr.get_current(pageno)
+        photos = current_layout.photos if current_layout else info.get('photos', [])
+        texts = current_layout.texts if current_layout else info.get('texts', [])
+        
+        page_w = info.get('page_width', 2100.0)
+        page_h = info.get('page_height', 2970.0)
+        origin_left = info.get('origin_left', 0.0)
+        
+        # Create new text box with default dimensions (20% of page width, 10% of page height)
+        # Position it in the center of the page
+        text_w = page_w * 0.2
+        text_h = page_h * 0.1
+        text_left = origin_left + (page_w - text_w) / 2
+        text_top = (page_h - text_h) / 2
+        
+        new_text = {
+            'area_left': text_left,
+            'area_top': text_top,
+            'area_width': text_w,
+            'area_height': text_h,
+        }
+        
+        # Add to current texts
+        updated_texts = list(texts) + [new_text]
+        
+        # Push updated layout
+        self.layout_mgr.push_layout(pageno, photos, updated_texts)
+        
+        # Set default preferred size for new text box
+        text_id = f'TEXT_{len(texts)}'
+        self.layout_mgr.set_size(pageno, text_id, 1.0)
+        
+        # Mark page as modified
+        self.modified_pages.add(pageno)
+        self._update_modified_pages_display()
+        
+        # Re-render page
+        self.render_page()
+        self.show_status(f'Added text box to page {pageno}')
     
     def on_size_changed(self, pageno, item_id, var):
         """Handle preferred size entry change.
@@ -1194,6 +1397,24 @@ class LayoutViewer:
             if 0.0 <= new_size <= 50.0:  # Reasonable bounds (scaled by 10×)
                 self.layout_mgr.set_size(pageno, item_id, new_size)
                 self.update_weights_display()  # Refresh display
+        except ValueError:
+            pass  # Ignore invalid input
+    
+    def on_slot_aspect_changed(self, pageno, item_idx, var):
+        """Handle slot aspect ratio entry change.
+        
+        Args:
+            pageno: Page number
+            item_idx: Item index (photo or text)
+            var: StringVar containing the new aspect ratio
+        """
+        try:
+            new_aspect = float(var.get())
+            if 0.1 <= new_aspect <= 10.0:  # Reasonable bounds for aspect ratio
+                ar_key = (pageno, item_idx)
+                self.slot_aspect_ratios[ar_key] = new_aspect
+                # No need to refresh display here, just store the value
+                # The value will be used next time generate_layout is called
         except ValueError:
             pass  # Ignore invalid input
     
@@ -1525,6 +1746,14 @@ class LayoutViewer:
                 checkbox_key = (pageno, photo_idx)
                 if checkbox_key in self.use_slot_aspect:
                     use_slot_aspect_for_photos[photo_idx] = self.use_slot_aspect[checkbox_key].get()
+            
+            # Collect custom slot aspect ratios for all items on this page
+            slot_aspect_ratios_for_page = {}
+            num_items = len(photos) + len(texts)
+            for item_idx in range(num_items):
+                ar_key = (pageno, item_idx)
+                if ar_key in self.slot_aspect_ratios:
+                    slot_aspect_ratios_for_page[item_idx] = self.slot_aspect_ratios[ar_key]
 
             # Get original photos for slot aspect ratio preservation
             original_layout = self.layout_mgr.get_original(pageno)
@@ -1544,7 +1773,9 @@ class LayoutViewer:
                 photos, page_w, page_h, self.photo_dimensions,
                 algorithm=algorithm, edge_gap=edge_gap, internal_gap=internal_gap, texts=texts,
                 preferred_sizes=preferred_sizes,
-                use_slot_aspect=use_slot_aspect_for_photos, original_photos=original_photos,
+                use_slot_aspect=use_slot_aspect_for_photos, 
+                slot_aspect_ratios=slot_aspect_ratios_for_page,
+                original_photos=original_photos,
                 origin_left=info.get('origin_left', 0.0), pageno=pageno
             )
             
