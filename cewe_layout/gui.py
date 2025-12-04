@@ -178,7 +178,7 @@ class LayoutViewer:
         # Row 0: Navigation - organize in two frames for tight grouping
         nav_frame = ttk.Frame(self.ctrl)
         nav_frame.grid(row=0, column=0, sticky='w', padx=4, pady=4)
-        self.page_num_var = tk.StringVar(value='Page 0')
+        self.page_num_var = tk.StringVar(value='Page:')
         ttk.Label(nav_frame, textvariable=self.page_num_var, font=('TkDefaultFont', 9)).pack(side='left', padx=(0,4))
         prev_btn = ttk.Button(nav_frame, text='Prev (←)', command=self.prev_page)
         prev_btn.pack(side='left')
@@ -228,9 +228,9 @@ class LayoutViewer:
         ttk.Label(actions_frame, text='  ').pack(side='left')  # Indentation spacer
         undo_btn = ttk.Button(actions_frame, text='Undo', command=self.undo_layout)
         undo_btn.pack(side='left', padx=(0,4))
-        save_btn = ttk.Button(actions_frame, text='Save', command=self.save_layout)
+        save_btn = ttk.Button(actions_frame, text='Save Modified', command=self.save_layout)
         save_btn.pack(side='left', padx=(0,4))
-        orig_btn = ttk.Button(actions_frame, text='Use Original', command=self.use_original)
+        orig_btn = ttk.Button(actions_frame, text='Use Original Page', command=self.use_original)
         orig_btn.pack(side='left')
 
         # Row 4: Status message with label
@@ -244,9 +244,12 @@ class LayoutViewer:
         # Store the style for color changes
         self.status_style = ttk.Style()
         
-        # Weights and cost display frame
-        self.info_frame = ttk.LabelFrame(self.ctrl, text='Layout Info', padding=8)
+        # Weights and cost display frame with label inside
+        self.info_frame = ttk.Frame(self.ctrl, padding=8, relief='sunken', borderwidth=1)
         self.info_frame.grid(row=5, column=0, columnspan=5, padx=4, pady=8, sticky='ew')
+        
+        # Layout Info label inside the frame
+        ttk.Label(self.info_frame, text='Layout Info:').grid(row=0, column=0, columnspan=2, sticky='w', padx=0, pady=(0,4))
         
         # Configure columns: left column (0) for photos, right column (1) for cost/params
         self.info_frame.columnconfigure(0, weight=1)
@@ -254,7 +257,7 @@ class LayoutViewer:
         
         # LEFT COLUMN: Photo weights
         photo_frame = ttk.Frame(self.info_frame)
-        photo_frame.grid(row=0, column=0, sticky='nw', padx=(0, 20))
+        photo_frame.grid(row=1, column=0, sticky='nw', padx=(0, 20))
         
         ttk.Label(photo_frame, text='Item', font=('TkDefaultFont', 9, 'bold')).grid(row=0, column=0, padx=2, pady=(2,0))
         
@@ -296,7 +299,7 @@ class LayoutViewer:
         
         # RIGHT COLUMN: Cost info (top) and Parameters (bottom)
         right_col = ttk.Frame(self.info_frame)
-        right_col.grid(row=0, column=1, sticky='ne')
+        right_col.grid(row=1, column=1, sticky='ne')
         
         # Cost display frame (top of right column)
         # LabelFrame with total cost in title
@@ -401,9 +404,9 @@ class LayoutViewer:
         # Update page number display
         if self.pages:
             pageno = self.pages[self.index][0]
-            self.page_num_var.set(f'Page {pageno}')
+            self.page_num_var.set(f'Page {pageno}:')
         else:
-            self.page_num_var.set('Page 0')
+            self.page_num_var.set('Page:')
         
         # Get current canvas dimensions from the window
         self.root.update_idletasks()  # Ensure geometry is current
