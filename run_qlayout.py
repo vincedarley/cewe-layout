@@ -4,7 +4,7 @@
 Run with:
     python run_qlayout.py --input path/to/album.mcf [--gui]
     python run_qlayout.py --input path/to/album.mcf --unpatch
-    python run_qlayout.py --renamephotos DIRECTORY PREFIX
+    python run_qlayout.py --renamephotos DIRECTORY PREFIX [PATTERN]
 """
 import os
 import sys
@@ -28,8 +28,8 @@ if __name__ == '__main__':
                        help='Launch Tkinter GUI viewer')
     parser.add_argument('--unpatch', action='store_true', 
                        help='Restore the most recent backup')
-    parser.add_argument('--renamephotos', nargs=2, metavar=('DIRECTORY', 'PREFIX'),
-                       help='Rename photos in DIRECTORY with PREFIX-yyyy-mm-dd-pnnn naming')
+    parser.add_argument('--renamephotos', nargs='+', metavar='ARG',
+                       help='Rename photos: DIRECTORY PREFIX [PATTERN]. Pattern defaults to * (all files).')
     
     args = parser.parse_args()
     

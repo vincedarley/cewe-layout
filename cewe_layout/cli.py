@@ -21,12 +21,13 @@ def natural_sort_key(path):
     return [convert(c) for c in re.split('([0-9]+)', path.name)]
 
 
-def rename_photos(directory, name_prefix):
+def rename_photos(directory, name_prefix, pattern='*'):
     """Rename photos in directory with structured naming based on creation date and star rating.
     
     Args:
         directory: Path to directory containing photos
         name_prefix: Prefix to use for renamed files
+        pattern: Glob pattern to match files (default: '*' for all files)
     """
     photo_dir = Path(directory)
     if not photo_dir.exists() or not photo_dir.is_dir():
@@ -36,11 +37,11 @@ def rename_photos(directory, name_prefix):
     # Supported image extensions
     image_exts = {'.jpg', '.jpeg', '.JPG', '.JPEG'}
     
-    # Get list of all photos
-    photos = [f for f in photo_dir.iterdir() if f.is_file() and f.suffix in image_exts]
+    # Get list of all photos matching the pattern
+    photos = [f for f in photo_dir.glob(pattern) if f.is_file() and f.suffix in image_exts]
     
     if not photos:
-        print(f'No JPEG photos found in {directory}', file=sys.stderr)
+        print(f'No JPEG photos matching "{pattern}" found in {directory}', file=sys.stderr)
         sys.exit(1)
     
     print(f'Found {len(photos)} photos in {directory}')
@@ -62,30 +63,32 @@ def rename_photos(directory, name_prefix):
         # Format date as yyyy-mm-dd
         date_str = creation_date.strftime('%Y-%m-%d')
         
-        # Increment counter for this date
-        date_counters[date_str] += 1
-        counter = date_counters[date_str]
-        
-        # Build base name: nameprefix-yyyy-mm-dd-pnnn
-        new_name = f"{name_prefix}-{date_str}-p{counter:03d}"
-        
-        # Add star rating suffix if present
-        star_rating = get_photo_star_rating(photo)
-        if star_rating == 5:
-            new_name += "-5star"
-        elif star_rating == 4:
-            new_name += "-4star"
-        
-        # Add extension
-        new_name += ".jpeg"
-        
-        # Build new path
-        new_path = photo.parent / new_name
-        
-        # Check for conflicts
-        if new_path.exists() and new_path != photo:
-            print(f'Warning: {new_name} already exists, skipping {photo.name}', file=sys.stderr)
-            continue
+        # Find first available counter for this date (skip existing files)
+        counter = date_counters[date_str] + 1
+        while True:
+            new_name = f"{name_prefix}-{date_str}-p{counter:03d}"
+            
+            # Add star rating suffix if present
+            star_rating = get_photo_star_rating(photo)
+            if star_rating == 5:
+                new_name += "-5star"
+            elif star_rating == 4:
+                new_name += "-4star"
+            
+            # Add extension
+            new_name += ".jpeg"
+            
+            # Build new path
+            new_path = photo.parent / new_name
+            
+            # Check if this name is available (doesn't exist or is the current photo)
+            if not new_path.exists() or new_path == photo:
+                # Update counter for this date
+                date_counters[date_str] = counter
+                break
+            
+            # Name exists and is not current photo, try next counter
+            counter += 1
         
         # Rename
         try:
@@ -101,14 +104,18 @@ def rename_photos(directory, name_prefix):
 def main():
     parser = argparse.ArgumentParser(description='Extract photo slot info from CEWE .mcf or rename photos')
     parser.add_argument('--input', '-i', help='Path to .mcf file or folder containing data.mcf')
-    parser.add_argument('--renamephotos', nargs=2, metavar=('DIRECTORY', 'PREFIX'),
-                        help='Rename photos in DIRECTORY with PREFIX-yyyy-mm-dd-pnnn naming')
+    parser.add_argument('--renamephotos', nargs='+', metavar='ARG',
+                        help='Rename photos: DIRECTORY PREFIX [PATTERN]. Pattern defaults to * (all files).')
     args = parser.parse_args()
     
     # Handle -renamephotos mode
     if args.renamephotos:
-        directory, name_prefix = args.renamephotos
-        rename_photos(directory, name_prefix)
+        if len(args.renamephotos) < 2:
+            parser.error('--renamephotos requires at least DIRECTORY and PREFIX')
+        directory = args.renamephotos[0]
+        name_prefix = args.renamephotos[1]
+        pattern = args.renamephotos[2] if len(args.renamephotos) > 2 else '*'
+        rename_photos(directory, name_prefix, pattern)
         return
     
     # Original MCF parsing mode

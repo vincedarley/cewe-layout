@@ -18,7 +18,6 @@ import logging
 logger = logging.getLogger(__name__)
 
 # Module-level flags to track first-time failures
-_exiftool_failure_logged = False
 _image_load_failures = set()  # Track which files have been logged
 
 
@@ -41,18 +40,14 @@ def get_iptc_keywords(img_path: Path) -> List[str]:
             ['exiftool', '-Keywords', '-s3', str(img_path)],
             capture_output=True,
             text=True,
-            timeout=1
+            timeout=2
         )
         if result.returncode == 0 and result.stdout.strip():
             # Keywords are comma-separated in exiftool output
             return [kw.strip() for kw in result.stdout.strip().split(',')]
         return []
     except Exception as e:
-        # Log first-time exiftool failure only
-        global _exiftool_failure_logged
-        if not _exiftool_failure_logged:
-            logger.warning(f"exiftool not available or failed (this warning shown once): {e}")
-            _exiftool_failure_logged = True
+        logger.warning(f"exiftool not available or failed: {e}")
         return []
 
 
@@ -139,18 +134,18 @@ def get_photo_creation_date(img_path: Path) -> Optional[datetime]:
             ['exiftool', '-DateTimeOriginal', '-s3', str(img_path)],
             capture_output=True,
             text=True,
-            timeout=1
+            timeout=2
         )
         
         date_str = result.stdout.strip()
-        
-        # If DateTimeOriginal not found, try CreateDate
+
+        # If not found, try CreateDate
         if not date_str:
             result = subprocess.run(
                 ['exiftool', '-CreateDate', '-s3', str(img_path)],
                 capture_output=True,
                 text=True,
-                timeout=1
+                timeout=2
             )
             date_str = result.stdout.strip()
         
@@ -160,7 +155,7 @@ def get_photo_creation_date(img_path: Path) -> Optional[datetime]:
                 ['exiftool', '-DateTime', '-s3', str(img_path)],
                 capture_output=True,
                 text=True,
-                timeout=1
+                timeout=2
             )
             date_str = result.stdout.strip()
         
@@ -178,11 +173,7 @@ def get_photo_creation_date(img_path: Path) -> Optional[datetime]:
                 return None
     
     except Exception as e:
-        # Log first-time exiftool failure only
-        global _exiftool_failure_logged
-        if not _exiftool_failure_logged:
-            logger.warning(f"exiftool not available or failed (this warning shown once): {e}")
-            _exiftool_failure_logged = True
+        logger.warning(f"exiftool not available or failed: {e}")
         return None
 
 
