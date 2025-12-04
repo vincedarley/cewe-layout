@@ -1036,6 +1036,12 @@ class LayoutViewer:
         # Store new layout in layout manager
         self.layout_mgr.push_layout(pageno, layout_photos, existing_texts)
         
+        # Clear cached slot aspect ratios for this page since layout has changed
+        # (item indices may have shifted after filtering empty slots)
+        keys_to_remove = [k for k in self.slot_aspect_ratios.keys() if k[0] == pageno]
+        for key in keys_to_remove:
+            del self.slot_aspect_ratios[key]
+        
         # Mark page as modified
         self.modified_pages.add(pageno)
         self._update_modified_pages_display()
