@@ -43,6 +43,10 @@ def extract_preferred_size_from_filename(filename: str) -> tuple:
         For 'photo-sz3.45.jpg' returns ('photo.jpg', 3.45)
         For 'photo.jpg' returns ('photo.jpg', None)
     """
+    # Handle None or empty filename
+    if not filename:
+        return filename, None
+    
     # Handle safecontainer prefix
     prefix = ''
     clean_name = filename
@@ -76,6 +80,10 @@ def encode_preferred_size_in_filename(filename: str, preferred_size: float) -> s
     Returns:
         Filename with size encoded like 'photo-sz3.45.jpg' or 'safecontainer:/photo-sz3.45.jpg'
     """
+    # Handle None or empty filename
+    if not filename:
+        return filename
+    
     # Handle safecontainer prefix
     prefix = ''
     clean_name = filename
@@ -85,7 +93,7 @@ def encode_preferred_size_in_filename(filename: str, preferred_size: float) -> s
     
     # Remove any existing -szN.NN suffix first
     import re
-    clean_name = re.sub(r'-sz[0-9]+(?:\.[0-9]{1,2})?(\..+)$', r'\1', clean_name)
+    clean_name = re.sub(r'-sz[0-9]+(?:\.[0-9]{1,2})?(?=\.\w+$)', '', clean_name)
     
     # Split into name and extension
     from pathlib import Path
