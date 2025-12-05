@@ -28,8 +28,21 @@ python run_qlayout.py --input /path/to/Test-album.xmcf --gui
 
 **Workflow**
 
-1) You have to work indepedently in QLayout vs in Cewe Creator.  In general you should only have one of the two applications open (with the same book.xmcf) at any one time.  So close one, work in the other, repeat until your book is done...
-2) In case you forget this "work independently" instruction, you should generally not worry about file corruption - but you should worry that important layout work you've done in one tool is going to be overwritten by the other.  So you will be wasting time and effort.
+You have to work indepedently in QLayout vs in Cewe Creator.  In general you should only have one of the two applications open (with the same book.xmcf) at any one time.  So close one, work in the other, repeat until your book is done... In case you forget this "work independently" instruction, you should generally not worry about file corruption - but you should worry that important layout work you've done in one tool is going to be overwritten by the other.  So you will be wasting time and effort.
+
+Here's my current workflow:
+1) Select all my favourite photos in MacOS photos and export them to a directory. If it is easy for you to do so, before exporting tag the very best photos with either "4 star" or "5 star" as keywords.
+2) Run QLayout with "-renamephotos" to name all of the photos according to date (and according to 4/5 star keywords).
+3) Use CEWE Creator to build a book (of the size/style you want) with loads of empty pages. Save it in the xmcf or mcf format. Quit.
+4) If your photobook is called "MyBook.xmcf" then put the directory with all your photos next to it, and rename the directory to be called "MyBook-photos".
+5) Run QLayout with the "--gui" flag.  The first page of your book will open.  Ensure it is empty (or if your book is partially created already, move to the first empty page)
+6) Examine your photos, in approximate date order, and drag and drop as many photos as you want onto that empty page.
+7) Run the "Fan-GA" algorithm.  Tweak slot aspect ratio and "preferred size" for any of the photos you want -- simplest is to give the very best 2-4 photos a preferred size of somewhere between 3.0 and 6.0.
+8) Re-run the "Fan-GA" algorithm. Sometimes you might wish to re-run the algorithm a few times to check out the different results and pick the one you like best. If you don't quite like any, you can delete some photos, add some new photos and try again.
+9) Hit "Save" when you are done with the page.  The photos used disappear from your directory - they've been moved into the photo album.
+10) Move to the next empty page and go back to step 6.
+
+Once you're done. Open the book in CEWE Creator and do any fine-tuning you wish.
 
 **Adding Photos to a Page**
 
