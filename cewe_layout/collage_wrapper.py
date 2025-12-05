@@ -322,13 +322,14 @@ def _texts_to_rectangles(texts, preferred_sizes=None, edge_gap=0.0, internal_gap
             rect_x = float(text['area_left']) - origin_left - edge_gap
             rect_y = float(text['area_top']) - edge_gap
         
-        # Use MCF dimensions directly (algorithm will scale to fit)
+        # Transform dimensions to gap-free space (same as photos for consistency)
+        # MCF dimensions need internal_gap added to match gap-free coordinate system
         rect = LayoutRectangle(
             item_id=item_id,
             x=rect_x,
             y=rect_y,
-            width=float(area_width),
-            height=float(area_height),
+            width=float(area_width) + internal_gap,
+            height=float(area_height) + internal_gap,
             preferred_size=preferred_size,
             preserve_aspect_ratio=False  # Text blocks can stretch
         )
