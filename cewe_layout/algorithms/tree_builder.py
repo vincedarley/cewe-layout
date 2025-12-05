@@ -9,8 +9,11 @@ Coordinate system:
     This matches the cewe2pdf coordinate system.
 """
 
+import logging
 from typing import List, Optional, Tuple
 from .base import TreeNode, LayoutRectangle, LayoutAlgorithm
+
+logger = logging.getLogger(__name__)
 
 
 def build_tree_from_layout(rectangles: List[LayoutRectangle], 
@@ -130,6 +133,10 @@ def _build_tree_recursive(indexed_rects: List[Tuple[int, LayoutRectangle]],
     split = find_split(indexed_rects, width, height, tolerance)
     
     if split is None:
+        # Log failure details for recursive calls
+        logger.debug(f"Split failed at depth {depth} with {len(indexed_rects)} rects in region {width:.1f}x{height:.1f}")
+        for idx, rect in indexed_rects:
+            logger.debug(f"  Rect[{idx}]: pos=({rect.x:.1f}, {rect.y:.1f}) size=({rect.width:.1f}x{rect.height:.1f})")
         return None
     
     direction, position, left_rects, right_rects = split
@@ -248,6 +255,7 @@ def find_vertical_split(indexed_rects: List[Tuple[int, LayoutRectangle]],
         left = []
         right = []
         valid = True
+        crossing_rects = []
         
         for idx, rect in indexed_rects:
             rect_left = rect.x
@@ -261,11 +269,16 @@ def find_vertical_split(indexed_rects: List[Tuple[int, LayoutRectangle]],
                 right.append((idx, rect))
             else:
                 # Rectangle crosses the split line
+                crossing_rects.append((idx, rect))
                 valid = False
-                break
         
         if valid and len(left) > 0 and len(right) > 0:
             return (x, left, right)
+        elif len(left) > 0 and len(right) > 0 and crossing_rects:
+            # Log why this split failed (only if it would have been productive)
+            logger.debug(f"  Vertical split at x={x:.1f} failed: {len(crossing_rects)} crossing rects")
+            for idx, rect in crossing_rects:
+                logger.debug(f"    Rect[{idx}] crosses: x=[{rect.x:.1f}, {rect.x + rect.width:.1f}]")
     
     return None
 
@@ -292,6 +305,7 @@ def find_horizontal_split(indexed_rects: List[Tuple[int, LayoutRectangle]],
         top = []
         bottom = []
         valid = True
+        crossing_rects = []
         
         for idx, rect in indexed_rects:
             rect_top = rect.y
@@ -305,11 +319,16 @@ def find_horizontal_split(indexed_rects: List[Tuple[int, LayoutRectangle]],
                 bottom.append((idx, rect))
             else:
                 # Rectangle crosses the split line
+                crossing_rects.append((idx, rect))
                 valid = False
-                break
         
         if valid and len(top) > 0 and len(bottom) > 0:
             return (y, top, bottom)
+        elif len(top) > 0 and len(bottom) > 0 and crossing_rects:
+            # Log why this split failed (only if it would have been productive)
+            logger.debug(f"  Horizontal split at y={y:.1f} failed: {len(crossing_rects)} crossing rects")
+            for idx, rect in crossing_rects:
+                logger.debug(f"    Rect[{idx}] crosses: y=[{rect.y:.1f}, {rect.y + rect.height:.1f}]")
     
     return None
 
@@ -363,10 +382,68 @@ class TreeBuilderAlgorithm(LayoutAlgorithm):
             if rect.x is None or rect.y is None or rect.width is None or rect.height is None:
                 return False, [], f"TreeBuilder requires all rectangles to have positions. Rectangle {rect.item_id} is missing position data (x={rect.x}, y={rect.y}, w={rect.width}, h={rect.height})"
         
+        # Log input for debugging
+        logger.info(f"TreeBuilder: Building tree from {len(rectangles)} rectangles")
+        logger.info(f"  Page dimensions: {page_width} x {page_height}")
+        for i, rect in enumerate(rectangles):
+            logger.info(f"  Rect[{i}] id={rect.item_id}: pos=({rect.x:.1f}, {rect.y:.1f}) size=({rect.width:.1f} x {rect.height:.1f}) aspect={rect.preserve_aspect_ratio}")
+        
         # Build tree from input positions
         tree = build_tree_from_layout(rectangles, page_width, page_height, self.tolerance)
         
         if tree is None:
+            # Log detailed debug information when tree building fails
+            logger.error("=" * 80)
+            logger.error("TREE BUILDER FAILED: Cannot build slicing tree")
+            logger.error(f"Page dimensions: {page_width} x {page_height}")
+            logger.error(f"Tolerance: {self.tolerance}")
+            logger.error(f"Number of rectangles: {len(rectangles)}")
+            logger.error("-" * 80)
+            logger.error("Rectangle details:")
+            for i, rect in enumerate(rectangles):
+                logger.error(f"  [{i}] id={rect.item_id}")
+                logger.error(f"      Position: ({rect.x:.2f}, {rect.y:.2f})")
+                logger.error(f"      Size: {rect.width:.2f} x {rect.height:.2f}")
+                logger.error(f"      Bounds: x=[{rect.x:.2f}, {rect.x + rect.width:.2f}] y=[{rect.y:.2f}, {rect.y + rect.height:.2f}]")
+                logger.error(f"      Aspect ratio: {rect.width/rect.height:.4f}")
+                logger.error(f"      Preserve aspect: {rect.preserve_aspect_ratio}")
+            logger.error("-" * 80)
+            
+            # Try to diagnose why the split failed
+            indexed_rects = [(i, r) for i, r in enumerate(rectangles)]
+            
+            # Check for vertical split candidates
+            logger.error("Checking vertical split candidates:")
+            vertical_split = find_vertical_split(indexed_rects, page_width, self.tolerance)
+            if vertical_split:
+                v_pos, v_left, v_right = vertical_split
+                logger.error(f"  Found vertical split at x={v_pos:.2f}: {len(v_left)} left, {len(v_right)} right")
+            else:
+                logger.error(f"  No valid vertical split found")
+                # Log all vertical edges
+                x_coords = set()
+                for idx, rect in indexed_rects:
+                    x_coords.add(rect.x)
+                    x_coords.add(rect.x + rect.width)
+                logger.error(f"  Tested {len(x_coords)} vertical split positions: {sorted(x_coords)}")
+            
+            # Check for horizontal split candidates  
+            logger.error("Checking horizontal split candidates:")
+            horizontal_split = find_horizontal_split(indexed_rects, page_height, self.tolerance)
+            if horizontal_split:
+                h_pos, h_top, h_bottom = horizontal_split
+                logger.error(f"  Found horizontal split at y={h_pos:.2f}: {len(h_top)} top, {len(h_bottom)} bottom")
+            else:
+                logger.error(f"  No valid horizontal split found")
+                # Log all horizontal edges
+                y_coords = set()
+                for idx, rect in indexed_rects:
+                    y_coords.add(rect.y)
+                    y_coords.add(rect.y + rect.height)
+                logger.error(f"  Tested {len(y_coords)} horizontal split positions: {sorted(y_coords)}")
+            
+            logger.error("=" * 80)
+            
             return False, [], "Cannot build slicing tree from this layout (not tree-representable)"
         
         # Store tree for get_final_tree()
