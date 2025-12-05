@@ -311,10 +311,10 @@ def transform_item_for_gap_change(
     
     Transformation process:
     1. Transform MCF → gap-free using OLD gaps
-    2. Scale gap-free coordinates by (new_gf_page / old_gf_page)
+    2. Scale gap-free coordinates (from origin 0,0) by new_page/old_page ratio
     3. Transform gap-free → MCF using NEW gaps
     
-    This preserves the relative layout while adapting to new gap parameters.
+    This preserves the relative layout proportions and keeps everything centered.
     
     Args:
         mcf_left: Item left in MCF space (with old gaps)
@@ -331,7 +331,11 @@ def transform_item_for_gap_change(
     Returns:
         Tuple (new_left, new_top, new_width, new_height) in MCF units with new gaps
     """
-    # Calculate old and new gap-free page sizes
+    # Key insight: When gaps change, the gap-free page size changes.
+    # Scale all gap-free coordinates (positions and sizes) to fit the new gap-free page,
+    # scaling relative to top-left corner (0,0). Then transform back to MCF.
+    
+    # Step 1: Calculate old and new gap-free page sizes
     old_gf_page_w, old_gf_page_h = transform_page_to_gapfree(
         page_width, page_height, old_edge_gap, old_internal_gap
     )
@@ -339,22 +343,22 @@ def transform_item_for_gap_change(
         page_width, page_height, new_edge_gap, new_internal_gap
     )
     
-    # Calculate scale factors
+    # Step 2: Calculate scale factors
     scale_w = new_gf_page_w / old_gf_page_w if old_gf_page_w > 0 else 1.0
     scale_h = new_gf_page_h / old_gf_page_h if old_gf_page_h > 0 else 1.0
     
-    # Step 1: Transform to gap-free space using OLD gaps
+    # Step 3: Transform to gap-free space using old gaps
     gf_left, gf_top, gf_width, gf_height = transform_item_to_gapfree(
         mcf_left, mcf_top, mcf_width, mcf_height, old_edge_gap, old_internal_gap
     )
     
-    # Step 2: Scale to fit new gap-free page size
+    # Step 4: Scale gap-free coordinates (relative to top-left origin)
     scaled_gf_left = gf_left * scale_w
     scaled_gf_top = gf_top * scale_h
     scaled_gf_width = gf_width * scale_w
     scaled_gf_height = gf_height * scale_h
     
-    # Step 3: Transform back to MCF space using NEW gaps
+    # Step 5: Transform back to MCF space with new gaps
     new_left, new_top, new_width, new_height = transform_item_from_gapfree(
         scaled_gf_left, scaled_gf_top, scaled_gf_width, scaled_gf_height,
         new_edge_gap, new_internal_gap

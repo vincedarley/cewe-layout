@@ -1870,22 +1870,30 @@ class LayoutViewer:
         _, info = self.pages[self.index]
         page_w = info.get('page_width', 2100.0)
         page_h = info.get('page_height', 2970.0)
+        origin_left = info.get('origin_left', 0.0)
         
         # Transform photos using centralized helper
         transformed_photos = []
         for p in current_layout.photos:
-            left = p.get('area_left', 0)
+            # Coordinates in MCF file are spread-relative (origin_left offset for right pages)
+            spread_left = p.get('area_left', 0)
             top = p.get('area_top', 0)
             width = p.get('area_width', 0)
             height = p.get('area_height', 0)
             
+            # Convert to page-relative coordinates for transformation
+            page_left = spread_left - origin_left
+            
             new_left, new_top, new_width, new_height = transform_item_for_gap_change(
-                left, top, width, height, page_w, page_h,
+                page_left, top, width, height, page_w, page_h,
                 old_edge_gap, old_internal_gap, new_edge_gap, new_internal_gap
             )
             
+            # Convert back to spread-relative coordinates
+            new_spread_left = new_left + origin_left
+            
             updated_photo = p.copy()
-            updated_photo['area_left'] = new_left
+            updated_photo['area_left'] = new_spread_left
             updated_photo['area_top'] = new_top
             updated_photo['area_width'] = new_width
             updated_photo['area_height'] = new_height
@@ -1894,18 +1902,25 @@ class LayoutViewer:
         # Transform texts using centralized helper
         transformed_texts = []
         for t in current_layout.texts:
-            left = t.get('area_left', 0)
+            # Coordinates in MCF file are spread-relative (origin_left offset for right pages)
+            spread_left = t.get('area_left', 0)
             top = t.get('area_top', 0)
             width = t.get('area_width', 0)
             height = t.get('area_height', 0)
             
+            # Convert to page-relative coordinates for transformation
+            page_left = spread_left - origin_left
+            
             new_left, new_top, new_width, new_height = transform_item_for_gap_change(
-                left, top, width, height, page_w, page_h,
+                page_left, top, width, height, page_w, page_h,
                 old_edge_gap, old_internal_gap, new_edge_gap, new_internal_gap
             )
             
+            # Convert back to spread-relative coordinates
+            new_spread_left = new_left + origin_left
+            
             updated_text = t.copy()
-            updated_text['area_left'] = new_left
+            updated_text['area_left'] = new_spread_left
             updated_text['area_top'] = new_top
             updated_text['area_width'] = new_width
             updated_text['area_height'] = new_height

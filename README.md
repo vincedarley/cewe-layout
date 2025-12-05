@@ -47,7 +47,7 @@ Once you're done. Open the book in CEWE Creator and do any fine-tuning you wish.
 **Safety features**
 
 QLayout does a few things to help lower the risk of problems when editing your photobook:
-1. When saving a page, which modifies the xml file, it validates both that the correct number of photos and text blocks are indeed in that xml file, and that the referenced photo files do actually exist.
+1. When saving a page, which modifies the xml file, it validates (after saving) both that the correct number of photos and text blocks are indeed in that xml file, and that the referenced photo files do actually exist.
 2. When moving photos into the photo-book, QLayout renames the jpeg files by adding a "-pg" suffix containing the page they have been saved into. In this way if you need to manually look for photos, it is easy to find the right ones inside the book.
 
 **Adding Photos to a Page**
