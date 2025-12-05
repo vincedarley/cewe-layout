@@ -350,9 +350,10 @@ def _rectangles_to_photos(photos, rectangles, edge_gap=0.0, internal_gap=0.0):
         internal_gap: Internal gap (spacing between items) in MCF units.
     
     Returns:
-        Updated photos list with new area_left/top/width/height.
+        Updated photos list with new area_left/top/width/height in same order as input.
     """
-    updated_photos = []
+    # Pre-allocate list to ensure output order matches input order
+    updated_photos = [None] * len(photos)
     
     for rect in rectangles:
         item_id = rect.item_id
@@ -372,7 +373,7 @@ def _rectangles_to_photos(photos, rectangles, edge_gap=0.0, internal_gap=0.0):
             # CRITICAL: Preserve original preferred_size - do NOT use rect.preferred_size
             # which may have been modified by the algorithm
             # Preferred sizes can only be changed by user, never by algorithm
-            updated_photos.append(photo)
+            updated_photos[photo_idx] = photo
     
     return updated_photos
 
@@ -390,9 +391,10 @@ def _rectangles_to_texts(texts, rectangles, edge_gap=0.0, internal_gap=0.0):
         internal_gap: Internal gap (spacing between items) in MCF units.
     
     Returns:
-        Updated texts list with new area_left/top/width/height.
+        Updated texts list with new area_left/top/width/height in same order as input.
     """
-    updated_texts = []
+    # Pre-allocate list to ensure output order matches input order
+    updated_texts = [None] * len(texts)
     
     for rect in rectangles:
         item_id = rect.item_id
@@ -412,6 +414,6 @@ def _rectangles_to_texts(texts, rectangles, edge_gap=0.0, internal_gap=0.0):
             text['area_top'] = top
             text['area_width'] = width
             text['area_height'] = height
-            updated_texts.append(text)
+            updated_texts[text_idx] = text
     
     return updated_texts
