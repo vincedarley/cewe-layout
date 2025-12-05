@@ -66,8 +66,10 @@ def generate_layout_for_page(photos, page_width_mcf, page_height_mcf, photo_dime
     from .algorithms.tree_builder import TreeBuilderAlgorithm
     from .algorithms.gridify import GridifyAlgorithm
     if isinstance(algorithm, (TreeBuilderAlgorithm, GridifyAlgorithm)):
-        # Force all photos to use slot dimensions
+        # Force all photos to use slot dimensions from CURRENT layout (not original)
         use_slot_aspect = {i: True for i in range(len(photos))}
+        # TreeBuilder/Gridify need current positions/sizes, not original
+        original_photos = None
     
     # Transform page to gap-free space (algorithm operates in gap-free coordinates)
     algo_page_width, algo_page_height = transform_page_to_gapfree(
