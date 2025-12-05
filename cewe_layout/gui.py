@@ -2130,10 +2130,6 @@ class LayoutViewer:
                 if ar_key in self.slot_aspect_ratios:
                     slot_aspect_ratios_for_page[item_idx] = self.slot_aspect_ratios[ar_key]
 
-            # Get original photos for slot aspect ratio preservation
-            original_layout = self.layout_mgr.get_original(pageno)
-            original_photos = original_layout.photos if original_layout else None
-            
             # Build preferred_sizes dict from layout manager
             preferred_sizes = {}
             for i, p in enumerate(photos):
@@ -2151,7 +2147,6 @@ class LayoutViewer:
                 preferred_sizes=preferred_sizes,
                 use_slot_aspect=use_slot_aspect_for_photos, 
                 slot_aspect_ratios=slot_aspect_ratios_for_page,
-                original_photos=original_photos,
                 origin_left=info.get('origin_left', 0.0), pageno=pageno
             )
             

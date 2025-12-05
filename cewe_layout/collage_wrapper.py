@@ -22,7 +22,6 @@ def generate_layout_for_page(photos, page_width_mcf, page_height_mcf, photo_dime
                            algorithm, preferred_sizes=None,
                            edge_gap=0.0, internal_gap=0.0,
                            texts=None, use_slot_aspect=None, slot_aspect_ratios=None,
-                           original_photos=None, 
                            origin_left=0.0, pageno=None, **kwargs):
     """
     High-level function to generate a new layout for a page.
@@ -42,7 +41,6 @@ def generate_layout_for_page(photos, page_width_mcf, page_height_mcf, photo_dime
         texts: Optional list of MCF text block dicts (with 'area_width', 'area_height').
         use_slot_aspect: Optional dict mapping photo_idx -> bool. If True, use slot aspect ratio instead of image aspect ratio.
         slot_aspect_ratios: Optional dict mapping item_idx -> aspect_ratio. Custom aspect ratios for slots.
-        original_photos: Optional list of original MCF photo dicts (for slot dimensions when use_slot_aspect=True).
         origin_left: Origin offset for right-side pages in MCF units. Default 0.0.
         pageno: Optional page number for error messages. Default None.
         **kwargs: Additional algorithm-specific parameters.
@@ -72,10 +70,8 @@ def generate_layout_for_page(photos, page_width_mcf, page_height_mcf, photo_dime
     from .algorithms.tree_builder import TreeBuilderAlgorithm
     from .algorithms.gridify import GridifyAlgorithm
     if isinstance(algorithm, (TreeBuilderAlgorithm, GridifyAlgorithm)):
-        # Force all photos to use slot dimensions from CURRENT layout (not original)
+        # Force all photos to use slot dimensions from CURRENT layout
         use_slot_aspect = {i: True for i in range(len(photos))}
-        # TreeBuilder/Gridify need current positions/sizes, not original
-        original_photos = None
     
     # Transform page to gap-free space (algorithm operates in gap-free coordinates)
     algo_page_width, algo_page_height = transform_page_to_gapfree(
@@ -85,7 +81,7 @@ def generate_layout_for_page(photos, page_width_mcf, page_height_mcf, photo_dime
     # Step 1: Translate MCF photos and texts to abstract layout rectangles
     photo_rects, error = _photos_to_rectangles(
         photos, photo_dimensions, preferred_sizes, edge_gap, internal_gap, 
-        use_slot_aspect, slot_aspect_ratios, original_photos, origin_left
+        use_slot_aspect, slot_aspect_ratios, origin_left
     )
     if error:
         return False, [], [], error
@@ -173,7 +169,7 @@ def generate_layout_for_page(photos, page_width_mcf, page_height_mcf, photo_dime
     return True, updated_photos, updated_texts, ""
 
 
-def _photos_to_rectangles(photos, photo_dimensions, preferred_sizes=None, edge_gap=0.0, internal_gap=0.0, use_slot_aspect=None, slot_aspect_ratios=None, original_photos=None, origin_left=0.0):
+def _photos_to_rectangles(photos, photo_dimensions, preferred_sizes=None, edge_gap=0.0, internal_gap=0.0, use_slot_aspect=None, slot_aspect_ratios=None, origin_left=0.0):
     """
     Convert MCF photo list to abstract LayoutRectangle objects in gap-free space.
     
@@ -189,7 +185,6 @@ def _photos_to_rectangles(photos, photo_dimensions, preferred_sizes=None, edge_g
         internal_gap: Internal gap (spacing between items) in MCF units.
         use_slot_aspect: Optional dict mapping photo_idx -> bool. If True, use current slot aspect ratio instead of image aspect ratio.
         slot_aspect_ratios: Optional dict mapping item_idx -> aspect_ratio. Custom aspect ratios for slots.
-        original_photos: DEPRECATED - no longer used. Positions always come from photos parameter.
         origin_left: Origin offset for right-side pages in MCF units.
     
     Returns:
