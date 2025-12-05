@@ -23,15 +23,19 @@ def build_tree_from_layout(rectangles: List[LayoutRectangle],
     """Build a binary slicing tree from a layout.
     
     Algorithm:
-    1. Try to find a vertical or horizontal line that splits the page into two
+    1. Try to find a vertical or horizontal line that splits the rectangles into two
        subsections without cutting through any rectangles
     2. Recursively build trees for each subsection
     3. Combine them with the appropriate split direction
     
+    Note: This works on the actual bounding box of the rectangles, not the page dimensions.
+    Rectangles may extend slightly beyond [0, page_width] x [0, page_height] due to
+    coordinate transformations or layout algorithms that don't perfectly center the layout.
+    
     Args:
         rectangles: List of LayoutRectangle objects with x, y, width, height set
-        page_width: Width of the page/region
-        page_height: Height of the page/region
+        page_width: Width of the page/region (informational only)
+        page_height: Height of the page/region (informational only)
         tolerance: Tolerance for alignment in MCF units (0.1mm each).
                    Default 20.0 = 2.0mm, allows for small overlaps/bleeds.
         
@@ -48,8 +52,18 @@ def build_tree_from_layout(rectangles: List[LayoutRectangle],
     # Find all rectangles with their indices
     indexed_rects = [(i, r) for i, r in enumerate(rectangles)]
     
-    # Try to find a splitting line
-    split = find_split(indexed_rects, page_width, page_height, tolerance)
+    # Compute actual bounding box of all rectangles (may extend beyond page bounds)
+    min_x = min(r.x for _, r in indexed_rects)
+    max_x = max(r.x + r.width for _, r in indexed_rects)
+    min_y = min(r.y for _, r in indexed_rects)
+    max_y = max(r.y + r.height for _, r in indexed_rects)
+    bbox_width = max_x - min_x
+    bbox_height = max_y - min_y
+    
+    # Try to find a splitting line (using actual bounding box, not page dimensions)
+    split = find_split(indexed_rects, bbox_width, bbox_height, tolerance)
+    # Try to find a splitting line (using actual bounding box, not page dimensions)
+    split = find_split(indexed_rects, bbox_width, bbox_height, tolerance)
     
     if split is None:
         return None  # Cannot represent as slicing tree
@@ -59,13 +73,18 @@ def build_tree_from_layout(rectangles: List[LayoutRectangle],
     # Build subtrees recursively
     # For left/right splits, we need to compute the bounding box and adjust coordinates
     if direction == 'V':
-        # Vertical split at x=position
-        # Left side: x from 0 to position
-        # Right side: x from position to page_width - need to adjust x coords
-        left_width = position
-        right_width = page_width - position
+        # Vertical split at x=position (relative to min_x)
+        # Left side: rectangles left of the split
+        # Right side: rectangles right of the split - adjust x coords relative to split position
+        left_min_x = min(r.x for _, r in left_rects)
+        left_max_x = max(r.x + r.width for _, r in left_rects)
+        left_width = left_max_x - left_min_x
         
-        # Adjust right side rectangles
+        right_min_x = min(r.x for _, r in right_rects)
+        right_max_x = max(r.x + r.width for _, r in right_rects)
+        right_width = right_max_x - right_min_x
+        
+        # Adjust right side rectangles to be relative to their bounding box
         adjusted_right = []
         for idx, rect in right_rects:
             adjusted_rect = LayoutRectangle(
@@ -74,21 +93,40 @@ def build_tree_from_layout(rectangles: List[LayoutRectangle],
                 height=rect.height,
                 preferred_size=rect.preferred_size,
                 preserve_aspect_ratio=rect.preserve_aspect_ratio,
-                x=rect.x - position,
+                x=rect.x - right_min_x,
                 y=rect.y
             )
             adjusted_right.append((idx, adjusted_rect))
         
-        left_tree = _build_tree_recursive(left_rects, left_width, page_height, tolerance)
-        right_tree = _build_tree_recursive(adjusted_right, right_width, page_height, tolerance)
-    else:  # 'H'
-        # Horizontal split at y=position
-        # Top side: y from 0 to position  
-        # Bottom side: y from position to page_height - need to adjust y coords
-        top_height = position
-        bottom_height = page_height - position
+        # Adjust left side rectangles to be relative to their bounding box
+        adjusted_left = []
+        for idx, rect in left_rects:
+            adjusted_rect = LayoutRectangle(
+                item_id=rect.item_id,
+                width=rect.width,
+                height=rect.height,
+                preferred_size=rect.preferred_size,
+                preserve_aspect_ratio=rect.preserve_aspect_ratio,
+                x=rect.x - left_min_x,
+                y=rect.y
+            )
+            adjusted_left.append((idx, adjusted_rect))
         
-        # Adjust bottom side rectangles
+        left_tree = _build_tree_recursive(adjusted_left, left_width, bbox_height, tolerance)
+        right_tree = _build_tree_recursive(adjusted_right, right_width, bbox_height, tolerance)
+    else:  # 'H'
+        # Horizontal split at y=position (relative to min_y)
+        # Top side: rectangles above the split
+        # Bottom side: rectangles below the split - adjust y coords relative to split position
+        top_min_y = min(r.y for _, r in left_rects)
+        top_max_y = max(r.y + r.height for _, r in left_rects)
+        top_height = top_max_y - top_min_y
+        
+        bottom_min_y = min(r.y for _, r in right_rects)
+        bottom_max_y = max(r.y + r.height for _, r in right_rects)
+        bottom_height = bottom_max_y - bottom_min_y
+        
+        # Adjust bottom side rectangles to be relative to their bounding box
         adjusted_bottom = []
         for idx, rect in right_rects:
             adjusted_rect = LayoutRectangle(
@@ -98,12 +136,26 @@ def build_tree_from_layout(rectangles: List[LayoutRectangle],
                 preferred_size=rect.preferred_size,
                 preserve_aspect_ratio=rect.preserve_aspect_ratio,
                 x=rect.x,
-                y=rect.y - position
+                y=rect.y - bottom_min_y
             )
             adjusted_bottom.append((idx, adjusted_rect))
         
-        left_tree = _build_tree_recursive(left_rects, page_width, top_height, tolerance)
-        right_tree = _build_tree_recursive(adjusted_bottom, page_width, bottom_height, tolerance)
+        # Adjust top side rectangles to be relative to their bounding box
+        adjusted_top = []
+        for idx, rect in left_rects:
+            adjusted_rect = LayoutRectangle(
+                item_id=rect.item_id,
+                width=rect.width,
+                height=rect.height,
+                preferred_size=rect.preferred_size,
+                preserve_aspect_ratio=rect.preserve_aspect_ratio,
+                x=rect.x,
+                y=rect.y - top_min_y
+            )
+            adjusted_top.append((idx, adjusted_rect))
+        
+        left_tree = _build_tree_recursive(adjusted_top, bbox_width, top_height, tolerance)
+        right_tree = _build_tree_recursive(adjusted_bottom, bbox_width, bottom_height, tolerance)
     
     if left_tree is None or right_tree is None:
         return None
@@ -121,7 +173,11 @@ def build_tree_from_layout(rectangles: List[LayoutRectangle],
 def _build_tree_recursive(indexed_rects: List[Tuple[int, LayoutRectangle]],
                          width: float, height: float,
                          tolerance: float, depth: int = 0) -> Optional[TreeNode]:
-    """Recursive helper for building tree from indexed rectangles."""
+    """Recursive helper for building tree from indexed rectangles.
+    
+    Note: width and height are informational. The actual bounding box
+    is computed from rectangles to handle off-center layouts.
+    """
     if not indexed_rects:
         return None
     
@@ -129,57 +185,77 @@ def _build_tree_recursive(indexed_rects: List[Tuple[int, LayoutRectangle]],
         idx, rect = indexed_rects[0]
         return TreeNode(label=idx, is_leaf=True, item_idx=idx)
     
+    # Compute bounding box
+    min_x = min(r.x for _, r in indexed_rects)
+    max_x = max(r.x + r.width for _, r in indexed_rects)
+    min_y = min(r.y for _, r in indexed_rects)
+    max_y = max(r.y + r.height for _, r in indexed_rects)
+    bbox_width = max_x - min_x
+    bbox_height = max_y - min_y
+    
     # Try to find a split
-    split = find_split(indexed_rects, width, height, tolerance)
+    split = find_split(indexed_rects, bbox_width, bbox_height, tolerance)
     
     if split is None:
-        # Log failure details for recursive calls
-        logger.debug(f"Split failed at depth {depth} with {len(indexed_rects)} rects in region {width:.1f}x{height:.1f}")
+        # Log failure details
+        logger.debug(f"Split failed at depth {depth} with {len(indexed_rects)} rects in region {bbox_width:.1f}x{bbox_height:.1f}")
         for idx, rect in indexed_rects:
             logger.debug(f"  Rect[{idx}]: pos=({rect.x:.1f}, {rect.y:.1f}) size=({rect.width:.1f}x{rect.height:.1f})")
         return None
     
     direction, position, left_rects, right_rects = split
     
-    # Adjust rectangle coordinates to be relative to the subregion
+    # Adjust coordinates relative to subregion bounding boxes
     if direction == 'V':
-        # Vertical split: adjust x coordinates of right side
-        adjusted_right = []
-        for idx, rect in right_rects:
-            adjusted_rect = LayoutRectangle(
-                item_id=rect.item_id,
-                width=rect.width,
-                height=rect.height,
-                preferred_size=rect.preferred_size,
-                preserve_aspect_ratio=rect.preserve_aspect_ratio,
-                x=rect.x - position,  # Adjust x coordinate
-                y=rect.y
-            )
-            adjusted_right.append((idx, adjusted_rect))
+        # Compute left/right bounding boxes
+        left_min_x = min(r.x for _, r in left_rects)
+        left_max_x = max(r.x + r.width for _, r in left_rects)
+        left_width = left_max_x - left_min_x
         
-        left_width = position
-        right_width = width - position
-        left_tree = _build_tree_recursive(left_rects, left_width, height, tolerance, depth + 1)
-        right_tree = _build_tree_recursive(adjusted_right, right_width, height, tolerance, depth + 1)
+        right_min_x = min(r.x for _, r in right_rects)
+        right_max_x = max(r.x + r.width for _, r in right_rects)
+        right_width = right_max_x - right_min_x
+        
+        # Adjust to bounding boxes
+        adjusted_left = [(idx, LayoutRectangle(
+            item_id=r.item_id, width=r.width, height=r.height,
+            preferred_size=r.preferred_size, preserve_aspect_ratio=r.preserve_aspect_ratio,
+            x=r.x - left_min_x, y=r.y - min_y
+        )) for idx, r in left_rects]
+        
+        adjusted_right = [(idx, LayoutRectangle(
+            item_id=r.item_id, width=r.width, height=r.height,
+            preferred_size=r.preferred_size, preserve_aspect_ratio=r.preserve_aspect_ratio,
+            x=r.x - right_min_x, y=r.y - min_y
+        )) for idx, r in right_rects]
+        
+        left_tree = _build_tree_recursive(adjusted_left, left_width, bbox_height, tolerance, depth + 1)
+        right_tree = _build_tree_recursive(adjusted_right, right_width, bbox_height, tolerance, depth + 1)
     else:  # 'H'
-        # Horizontal split: adjust y coordinates of bottom side
-        adjusted_bottom = []
-        for idx, rect in right_rects:
-            adjusted_rect = LayoutRectangle(
-                item_id=rect.item_id,
-                width=rect.width,
-                height=rect.height,
-                preferred_size=rect.preferred_size,
-                preserve_aspect_ratio=rect.preserve_aspect_ratio,
-                x=rect.x,
-                y=rect.y - position  # Adjust y coordinate
-            )
-            adjusted_bottom.append((idx, adjusted_rect))
+        # Compute top/bottom bounding boxes
+        top_min_y = min(r.y for _, r in left_rects)
+        top_max_y = max(r.y + r.height for _, r in left_rects)
+        top_height = top_max_y - top_min_y
         
-        top_height = position
-        bottom_height = height - position
-        left_tree = _build_tree_recursive(left_rects, width, top_height, tolerance, depth + 1)
-        right_tree = _build_tree_recursive(adjusted_bottom, width, bottom_height, tolerance, depth + 1)
+        bottom_min_y = min(r.y for _, r in right_rects)
+        bottom_max_y = max(r.y + r.height for _, r in right_rects)
+        bottom_height = bottom_max_y - bottom_min_y
+        
+        # Adjust to bounding boxes
+        adjusted_top = [(idx, LayoutRectangle(
+            item_id=r.item_id, width=r.width, height=r.height,
+            preferred_size=r.preferred_size, preserve_aspect_ratio=r.preserve_aspect_ratio,
+            x=r.x - min_x, y=r.y - top_min_y
+        )) for idx, r in left_rects]
+        
+        adjusted_bottom = [(idx, LayoutRectangle(
+            item_id=r.item_id, width=r.width, height=r.height,
+            preferred_size=r.preferred_size, preserve_aspect_ratio=r.preserve_aspect_ratio,
+            x=r.x - min_x, y=r.y - bottom_min_y
+        )) for idx, r in right_rects]
+        
+        left_tree = _build_tree_recursive(adjusted_top, bbox_width, top_height, tolerance, depth + 1)
+        right_tree = _build_tree_recursive(adjusted_bottom, bbox_width, bottom_height, tolerance, depth + 1)
     
     if left_tree is None or right_tree is None:
         return None
