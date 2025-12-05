@@ -63,6 +63,12 @@ def generate_layout_for_page(photos, page_width_mcf, page_height_mcf, photo_dime
     # TreeBuilderAlgorithm and GridifyAlgorithm MUST use slot dimensions
     # TreeBuilder: operates on layout structure, not image aspect ratios
     # Gridify: refines existing layout by snapping to grid, needs actual slot dimensions
+    # 
+    # TODO: DESIGN ISSUE - This violates separation of concerns. The wrapper should not
+    # need to know what each algorithm requires. Instead, algorithms should declare their
+    # requirements (e.g., via a property like algorithm.requires_slot_dimensions or
+    # algorithm.requires_current_layout) and the wrapper should query those properties.
+    # Currently the wrapper must special-case TreeBuilder/Gridify behavior.
     from .algorithms.tree_builder import TreeBuilderAlgorithm
     from .algorithms.gridify import GridifyAlgorithm
     if isinstance(algorithm, (TreeBuilderAlgorithm, GridifyAlgorithm)):
@@ -172,16 +178,18 @@ def _photos_to_rectangles(photos, photo_dimensions, preferred_sizes=None, edge_g
     Convert MCF photo list to abstract LayoutRectangle objects in gap-free space.
     
     Uses pre-loaded photo dimensions from cache. Does not load images.
+    Positions are ALWAYS taken from current layout (photos parameter).
+    Dimensions (aspect ratio) come from either current slot or image file based on use_slot_aspect.
     
     Args:
-        photos: List of MCF photo dicts.
+        photos: List of MCF photo dicts (current layout).
         photo_dimensions: Dict mapping filename -> (width, height) in pixels. Required.
         preferred_sizes: Optional dict mapping filename -> preferred_size.
         edge_gap: Edge gap (margin) in MCF units.
         internal_gap: Internal gap (spacing between items) in MCF units.
-        use_slot_aspect: Optional dict mapping photo_idx -> bool. If True, use slot dimensions instead of image dimensions.
+        use_slot_aspect: Optional dict mapping photo_idx -> bool. If True, use current slot aspect ratio instead of image aspect ratio.
         slot_aspect_ratios: Optional dict mapping item_idx -> aspect_ratio. Custom aspect ratios for slots.
-        original_photos: Optional list of original MCF photo dicts (used for slot dimensions when use_slot_aspect=True).
+        original_photos: DEPRECATED - no longer used. Positions always come from photos parameter.
         origin_left: Origin offset for right-side pages in MCF units.
     
     Returns:
@@ -200,20 +208,18 @@ def _photos_to_rectangles(photos, photo_dimensions, preferred_sizes=None, edge_g
         if not fn:
             return [], f"Photo {photo_idx} has no filename"
         
-        # Determine if we should use slot aspect ratio for this photo
+        # Determine dimensions based on user's aspect ratio choice
         use_slot = use_slot_aspect.get(photo_idx, False)
-        
-        # Try to use slot dimensions if requested, but fall back to image if invalid
         rect_width = None
         rect_height = None
         
         if use_slot:
+            # User wants slot aspect ratio
             # Check if we have a custom aspect ratio for this item
             if photo_idx in slot_aspect_ratios:
-                # Use custom aspect ratio with area from original slot
-                source_photo = original_photos[photo_idx] if original_photos and photo_idx < len(original_photos) else photo
-                slot_width = source_photo.get('area_width', 0)
-                slot_height = source_photo.get('area_height', 0)
+                # Use custom aspect ratio with area from CURRENT slot
+                slot_width = photo.get('area_width', 0)
+                slot_height = photo.get('area_height', 0)
                 if slot_width > 0 and slot_height > 0:
                     # Calculate area in gap-free space
                     slot_area = (float(slot_width) + internal_gap) * (float(slot_height) + internal_gap)
@@ -224,15 +230,12 @@ def _photos_to_rectangles(photos, photo_dimensions, preferred_sizes=None, edge_g
                     import math
                     rect_width = math.sqrt(slot_area * custom_aspect)
                     rect_height = math.sqrt(slot_area / custom_aspect)
-                # else: fall through to use original slot dimensions or image dimensions
+                # else: fall through to use current slot dimensions
             
-            # If no custom aspect ratio or calculation failed, use original slot dimensions
+            # If no custom aspect ratio or calculation failed, use current slot dimensions
             if rect_width is None or rect_height is None:
-                # Use ORIGINAL slot dimensions to preserve aspect ratio across iterations
-                # (current photo dimensions may have been modified by previous layout runs)
-                source_photo = original_photos[photo_idx] if original_photos and photo_idx < len(original_photos) else photo
-                slot_width = source_photo.get('area_width', 0)
-                slot_height = source_photo.get('area_height', 0)
+                slot_width = photo.get('area_width', 0)
+                slot_height = photo.get('area_height', 0)
                 if slot_width > 0 and slot_height > 0:
                     # Convert to gap-free space: add internal_gap to match evaluation coordinate system
                     rect_width = float(slot_width) + internal_gap
@@ -241,6 +244,7 @@ def _photos_to_rectangles(photos, photo_dimensions, preferred_sizes=None, edge_g
         
         # If not using slot, or slot dimensions were invalid, use image file dimensions
         if rect_width is None or rect_height is None:
+            # User wants photo's natural aspect ratio
             # Dimensions must be in cache
             if not photo_dimensions or fn not in photo_dimensions:
                 return [], f"Photo dimensions not found in cache for: {fn}. All photo dimensions must be provided."
@@ -255,16 +259,14 @@ def _photos_to_rectangles(photos, photo_dimensions, preferred_sizes=None, edge_g
         if preferred_sizes and fn in preferred_sizes:
             preferred_size = preferred_sizes[fn]
         
-        # Extract position from MCF if available (needed for TreeBuilder and Gridify)
-        # Use original_photos if available (for consistent positions across iterations)
-        source_photo = original_photos[photo_idx] if original_photos and photo_idx < len(original_photos) else photo
+        # Extract position from CURRENT layout (always use current photo, never original_photos)
         rect_x = None
         rect_y = None
-        if 'area_left' in source_photo and 'area_top' in source_photo:
+        if 'area_left' in photo and 'area_top' in photo:
             # Adjust from MCF coordinates (with edge gap and origin offset) to algorithm coordinates (gap-free, page-relative)
             # Subtract origin_left to convert from spread coordinates to page coordinates
-            rect_x = float(source_photo['area_left']) - origin_left - edge_gap
-            rect_y = float(source_photo['area_top']) - edge_gap
+            rect_x = float(photo['area_left']) - origin_left - edge_gap
+            rect_y = float(photo['area_top']) - edge_gap
         
         # Use determined dimensions (either image or slot)
         rect = LayoutRectangle(
