@@ -78,12 +78,12 @@ def extract_metadata_from_filename(filename: str) -> tuple:
     Extract both size and page number from filename.
     
     Args:
-        filename: Filename like 'photo-sz2.5-pg10.jpg' or 'safecontainer:/photo-sz1.0-pg5.jpg'
+        filename: Filename like 'photo-sz2.5-pg10.jpg' or 'safecontainer:/photo-sz1.0-pg5.png'
     
     Returns:
         Tuple of (base_filename, preferred_size_or_None, page_number_or_None)
         For 'photo-sz2.5-pg10.jpg' returns ('photo.jpg', 2.5, 10)
-        For 'photo-sz2.5.jpg' returns ('photo.jpg', 2.5, None)
+        For 'photo-sz2.5.png' returns ('photo.png', 2.5, None)
         For 'photo-pg10.jpg' returns ('photo.jpg', None, 10)
         For 'photo.jpg' returns ('photo.jpg', None, None)
     """
@@ -136,7 +136,7 @@ def encode_metadata_in_filename(filename: str, preferred_size: float = None, pag
         page_number: Page number to encode (e.g., 10), or None to preserve existing
     
     Returns:
-        Filename with metadata encoded like 'photo-sz3.45-pg10.jpg'
+        Filename with metadata encoded like 'photo-sz3.45-pg10.jpg' or 'photo-sz2.0.png'
         Order is always: basename + -sz + -pg + extension
     """
     # Handle None or empty filename
@@ -1021,7 +1021,9 @@ class LayoutViewer:
         """Prompt user to select photos to add to current page."""
         from tkinter import filedialog
         filetypes = [
+            ('Image Files', '*.jpg;*.jpeg;*.JPG;*.JPEG;*.png;*.PNG'),
             ('JPEG Images', '*.jpg;*.jpeg;*.JPG;*.JPEG'),
+            ('PNG Images', '*.png;*.PNG'),
             ('All Files', '*.*')
         ]
         files = filedialog.askopenfilenames(
@@ -1045,11 +1047,11 @@ class LayoutViewer:
             return
         
         # Filter for image files only
-        image_exts = {'.jpg', '.jpeg', '.JPG', '.JPEG'}
+        image_exts = {'.jpg', '.jpeg', '.JPG', '.JPEG', '.png', '.PNG'}
         photo_files = [f for f in file_paths if Path(f).suffix in image_exts]
         
         if not photo_files:
-            self.show_status('No JPEG files found in selection', error=True)
+            self.show_status('No image files found in selection', error=True)
             return
         
         # Show loading message

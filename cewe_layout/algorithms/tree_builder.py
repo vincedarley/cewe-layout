@@ -62,8 +62,6 @@ def build_tree_from_layout(rectangles: List[LayoutRectangle],
     
     # Try to find a splitting line (using actual bounding box, not page dimensions)
     split = find_split(indexed_rects, bbox_width, bbox_height, tolerance)
-    # Try to find a splitting line (using actual bounding box, not page dimensions)
-    split = find_split(indexed_rects, bbox_width, bbox_height, tolerance)
     
     if split is None:
         return None  # Cannot represent as slicing tree
@@ -193,17 +191,21 @@ def _build_tree_recursive(indexed_rects: List[Tuple[int, LayoutRectangle]],
     bbox_width = max_x - min_x
     bbox_height = max_y - min_y
     
+    # Log recursion entry
+    logger.error(f"TreeBuilder depth {depth}: {len(indexed_rects)} rects, bbox=({min_x:.1f},{min_y:.1f})-({max_x:.1f},{max_y:.1f}), size={bbox_width:.1f}x{bbox_height:.1f}")
+    for idx, rect in indexed_rects:
+        logger.error(f"  Rect[{idx}]: x=[{rect.x:.1f}, {rect.x + rect.width:.1f}], y=[{rect.y:.1f}, {rect.y + rect.height:.1f}], size={rect.width:.1f}x{rect.height:.1f}")
+    
     # Try to find a split
     split = find_split(indexed_rects, bbox_width, bbox_height, tolerance)
     
     if split is None:
         # Log failure details
-        logger.debug(f"Split failed at depth {depth} with {len(indexed_rects)} rects in region {bbox_width:.1f}x{bbox_height:.1f}")
-        for idx, rect in indexed_rects:
-            logger.debug(f"  Rect[{idx}]: pos=({rect.x:.1f}, {rect.y:.1f}) size=({rect.width:.1f}x{rect.height:.1f})")
+        logger.error(f"TreeBuilder depth {depth}: NO SPLIT FOUND for {len(indexed_rects)} rects")
         return None
     
     direction, position, left_rects, right_rects = split
+    logger.error(f"TreeBuilder depth {depth}: Found {direction} split at {position:.2f}: {len(left_rects)} {'left/top' if direction == 'V' else 'top'}, {len(right_rects)} {'right/bottom' if direction == 'V' else 'bottom'}")
     
     # Adjust coordinates relative to subregion bounding boxes
     if direction == 'V':
@@ -215,6 +217,8 @@ def _build_tree_recursive(indexed_rects: List[Tuple[int, LayoutRectangle]],
         right_min_x = min(r.x for _, r in right_rects)
         right_max_x = max(r.x + r.width for _, r in right_rects)
         right_width = right_max_x - right_min_x
+        
+        logger.error(f"TreeBuilder depth {depth}: V-split transforms: left x-offset={left_min_x:.1f}, right x-offset={right_min_x:.1f}, both y-offset={min_y:.1f}")
         
         # Adjust to bounding boxes
         adjusted_left = [(idx, LayoutRectangle(
@@ -229,7 +233,9 @@ def _build_tree_recursive(indexed_rects: List[Tuple[int, LayoutRectangle]],
             x=r.x - right_min_x, y=r.y - min_y
         )) for idx, r in right_rects]
         
+        logger.error(f"TreeBuilder depth {depth}: Recursing into LEFT side ({len(adjusted_left)} rects, {left_width:.1f}x{bbox_height:.1f})")
         left_tree = _build_tree_recursive(adjusted_left, left_width, bbox_height, tolerance, depth + 1)
+        logger.error(f"TreeBuilder depth {depth}: Recursing into RIGHT side ({len(adjusted_right)} rects, {right_width:.1f}x{bbox_height:.1f})")
         right_tree = _build_tree_recursive(adjusted_right, right_width, bbox_height, tolerance, depth + 1)
     else:  # 'H'
         # Compute top/bottom bounding boxes
@@ -240,6 +246,8 @@ def _build_tree_recursive(indexed_rects: List[Tuple[int, LayoutRectangle]],
         bottom_min_y = min(r.y for _, r in right_rects)
         bottom_max_y = max(r.y + r.height for _, r in right_rects)
         bottom_height = bottom_max_y - bottom_min_y
+        
+        logger.error(f"TreeBuilder depth {depth}: H-split transforms: top y-offset={top_min_y:.1f}, bottom y-offset={bottom_min_y:.1f}, both x-offset={min_x:.1f}")
         
         # Adjust to bounding boxes
         adjusted_top = [(idx, LayoutRectangle(
@@ -254,7 +262,9 @@ def _build_tree_recursive(indexed_rects: List[Tuple[int, LayoutRectangle]],
             x=r.x - min_x, y=r.y - bottom_min_y
         )) for idx, r in right_rects]
         
+        logger.error(f"TreeBuilder depth {depth}: Recursing into TOP side ({len(adjusted_top)} rects, {bbox_width:.1f}x{top_height:.1f})")
         left_tree = _build_tree_recursive(adjusted_top, bbox_width, top_height, tolerance, depth + 1)
+        logger.error(f"TreeBuilder depth {depth}: Recursing into BOTTOM side ({len(adjusted_bottom)} rects, {bbox_width:.1f}x{bottom_height:.1f})")
         right_tree = _build_tree_recursive(adjusted_bottom, bbox_width, bottom_height, tolerance, depth + 1)
     
     if left_tree is None or right_tree is None:
@@ -281,11 +291,21 @@ def find_split(indexed_rects: List[Tuple[int, LayoutRectangle]],
         left_rects: rectangles on left/top side
         right_rects: rectangles on right/bottom side
     """
+    logger.error(f"find_split: Trying to split {len(indexed_rects)} rects in {width:.1f}x{height:.1f} region (tolerance={tolerance:.1f})")
+    
     # Try vertical splits (split along x-axis)
     vertical_split = find_vertical_split(indexed_rects, width, tolerance)
+    if vertical_split:
+        logger.error(f"find_split: Found vertical split at x={vertical_split[0]:.2f}")
+    else:
+        logger.error(f"find_split: No valid vertical split found")
     
     # Try horizontal splits (split along y-axis)
     horizontal_split = find_horizontal_split(indexed_rects, height, tolerance)
+    if horizontal_split:
+        logger.error(f"find_split: Found horizontal split at y={horizontal_split[0]:.2f}")
+    else:
+        logger.error(f"find_split: No valid horizontal split found")
     
     # Prefer the split that is more balanced (closer to 50/50)
     if vertical_split and horizontal_split:
@@ -326,6 +346,8 @@ def find_vertical_split(indexed_rects: List[Tuple[int, LayoutRectangle]],
         x_coords.add(rect.x)
         x_coords.add(rect.x + rect.width)
     
+    logger.error(f"  find_vertical_split: Testing {len(x_coords)} x-positions: {sorted(x_coords)}")
+    
     # Try each x-coordinate as a potential split
     for x in sorted(x_coords):
         left = []
@@ -349,13 +371,15 @@ def find_vertical_split(indexed_rects: List[Tuple[int, LayoutRectangle]],
                 valid = False
         
         if valid and len(left) > 0 and len(right) > 0:
+            logger.error(f"  find_vertical_split: SUCCESS at x={x:.2f}: {len(left)} left, {len(right)} right")
             return (x, left, right)
         elif len(left) > 0 and len(right) > 0 and crossing_rects:
             # Log why this split failed (only if it would have been productive)
-            logger.debug(f"  Vertical split at x={x:.1f} failed: {len(crossing_rects)} crossing rects")
+            logger.error(f"  find_vertical_split: x={x:.2f} FAILED: {len(left)} left, {len(right)} right, {len(crossing_rects)} crossing")
             for idx, rect in crossing_rects:
-                logger.debug(f"    Rect[{idx}] crosses: x=[{rect.x:.1f}, {rect.x + rect.width:.1f}]")
+                logger.error(f"    Rect[{idx}] crosses split: x=[{rect.x:.2f}, {rect.x + rect.width:.2f}] vs split={x:.2f}±{tolerance:.2f}")
     
+    logger.error(f"  find_vertical_split: No valid split found after testing {len(x_coords)} positions")
     return None
 
 
@@ -375,6 +399,8 @@ def find_horizontal_split(indexed_rects: List[Tuple[int, LayoutRectangle]],
     for idx, rect in indexed_rects:
         y_coords.add(rect.y)
         y_coords.add(rect.y + rect.height)
+    
+    logger.error(f"  find_horizontal_split: Testing {len(y_coords)} y-positions: {sorted(y_coords)}")
     
     # Try each y-coordinate as a potential split
     for y in sorted(y_coords):
@@ -399,13 +425,15 @@ def find_horizontal_split(indexed_rects: List[Tuple[int, LayoutRectangle]],
                 valid = False
         
         if valid and len(top) > 0 and len(bottom) > 0:
+            logger.error(f"  find_horizontal_split: SUCCESS at y={y:.2f}: {len(top)} top, {len(bottom)} bottom")
             return (y, top, bottom)
         elif len(top) > 0 and len(bottom) > 0 and crossing_rects:
             # Log why this split failed (only if it would have been productive)
-            logger.debug(f"  Horizontal split at y={y:.1f} failed: {len(crossing_rects)} crossing rects")
+            logger.error(f"  find_horizontal_split: y={y:.2f} FAILED: {len(top)} top, {len(bottom)} bottom, {len(crossing_rects)} crossing")
             for idx, rect in crossing_rects:
-                logger.debug(f"    Rect[{idx}] crosses: y=[{rect.y:.1f}, {rect.y + rect.height:.1f}]")
+                logger.error(f"    Rect[{idx}] crosses split: y=[{rect.y:.2f}, {rect.y + rect.height:.2f}] vs split={y:.2f}±{tolerance:.2f}")
     
+    logger.error(f"  find_horizontal_split: No valid split found after testing {len(y_coords)} positions")
     return None
 
 
