@@ -900,6 +900,34 @@ class LayoutViewer:
         # Push updated layout
         self.layout_mgr.push_layout(pageno, updated_photos, texts)
         
+        # Shift cached data for items after deleted photo
+        # When item at index N is deleted, items at indices > N shift down to indices > N-1
+        # We need to preserve user edits (aspect ratios, checkbox states) by shifting them
+        
+        # Shift slot aspect ratios: delete entry for deleted item, shift higher indices down
+        if (pageno, photo_index) in self.slot_aspect_ratios:
+            del self.slot_aspect_ratios[(pageno, photo_index)]
+        
+        # Shift all higher photo indices down by 1
+        num_photos = len(updated_photos)
+        for idx in range(photo_index, num_photos):
+            old_key = (pageno, idx + 1)
+            new_key = (pageno, idx)
+            if old_key in self.slot_aspect_ratios:
+                self.slot_aspect_ratios[new_key] = self.slot_aspect_ratios[old_key]
+                del self.slot_aspect_ratios[old_key]
+        
+        # Shift checkbox states similarly
+        if (pageno, photo_index) in self.use_slot_aspect:
+            del self.use_slot_aspect[(pageno, photo_index)]
+        
+        for idx in range(photo_index, num_photos):
+            old_key = (pageno, idx + 1)
+            new_key = (pageno, idx)
+            if old_key in self.use_slot_aspect:
+                self.use_slot_aspect[new_key] = self.use_slot_aspect[old_key]
+                del self.use_slot_aspect[old_key]
+        
         # Mark page as modified
         self.modified_pages.add(pageno)
         self._update_modified_pages_display()
@@ -937,6 +965,27 @@ class LayoutViewer:
         
         # Push updated layout
         self.layout_mgr.push_layout(pageno, photos, updated_texts)
+        
+        # Shift cached data for items after deleted text
+        # Text items come after photos in the combined item list
+        # Text at text_index corresponds to item_index = len(photos) + text_index
+        num_photos = len(photos)
+        item_index = num_photos + text_index
+        
+        # Shift slot aspect ratios: delete entry for deleted text, shift higher indices down
+        if (pageno, item_index) in self.slot_aspect_ratios:
+            del self.slot_aspect_ratios[(pageno, item_index)]
+        
+        # Shift all higher text indices down by 1
+        num_texts = len(updated_texts)
+        for idx in range(text_index, num_texts):
+            old_item_idx = num_photos + idx + 1
+            new_item_idx = num_photos + idx
+            old_key = (pageno, old_item_idx)
+            new_key = (pageno, new_item_idx)
+            if old_key in self.slot_aspect_ratios:
+                self.slot_aspect_ratios[new_key] = self.slot_aspect_ratios[old_key]
+                del self.slot_aspect_ratios[old_key]
         
         # Mark page as modified
         self.modified_pages.add(pageno)
@@ -1150,7 +1199,7 @@ class LayoutViewer:
         return new_photos
     
     def _create_initial_layout(self, photos, page_w, page_h, origin_left):
-        """Create initial overlapping layout rectangles for photos.
+        """Create initial diagonally overlapping layout rectangles for photos.
         
         Args:
             photos: List of photo dicts with filename, image_width, image_height
@@ -1172,12 +1221,12 @@ class LayoutViewer:
         base_width = page_w / 10.0
         base_height = page_h / 10.0
         
-        # Horizontal spacing between photos: 1mm = 10 MCF units
-        x_spacing = 100.0
+        # Spacing between photos: 1mm = 10 MCF units
+        spacing = 100.0
         
         # Starting position
         current_x = origin_left + edge_gap
-        y_pos = edge_gap
+        current_y = edge_gap
         
         layout_photos = []
         for photo in photos:
@@ -1215,14 +1264,15 @@ class LayoutViewer:
             # Create photo dict with layout position
             photo_copy = photo.copy()
             photo_copy['area_left'] = current_x
-            photo_copy['area_top'] = y_pos
+            photo_copy['area_top'] = current_y
             photo_copy['area_width'] = slot_width
             photo_copy['area_height'] = slot_height
             
             layout_photos.append(photo_copy)
             
-            # Move x position for next photo (overlapping)
-            current_x += x_spacing
+            # Move position for next photo (diagonally overlapping)
+            current_x += spacing
+            current_y += spacing
         
         return layout_photos
     
