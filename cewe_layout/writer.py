@@ -606,7 +606,7 @@ def update_page_layout(path: str, pageno: int, photos: List[Dict[str, Any]],
             
             # Create new <area> element for text
             new_area = etree.Element('area', areatype='textarea')
-            new_area.text = '\\n            '  # Indent for <position>
+            new_area.text = '\n            '  # Indent for <position>
             
             # Create <position> child
             position = etree.SubElement(new_area, 'position')
@@ -616,11 +616,11 @@ def update_page_layout(path: str, pageno: int, photos: List[Dict[str, Any]],
             position.set('top', f"{text_layout.get('area_top', 0):.2f}")
             position.set('width', f"{text_layout.get('area_width', 0):.2f}")
             position.set('zposition', '7000')  # Default z-position for text
-            position.tail = '\\n            '  # Newline after <position>
+            position.tail = '\n            '  # Newline after <position>
             
             # Create <decoration/> child
             decoration = etree.SubElement(new_area, 'decoration')
-            decoration.tail = '\\n            '  # Newline after <decoration/>
+            decoration.tail = '\n            '  # Newline after <decoration/>
             
             # Create <text> child with default empty HTML content
             text_elem = etree.SubElement(new_area, 'text')
@@ -629,21 +629,22 @@ def update_page_layout(path: str, pageno: int, photos: List[Dict[str, Any]],
             # Default empty HTML content
             default_html = ('<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.0//EN" "http://www.w3.org/TR/REC-html40/strict.dtd">'
                           '<html><head><meta name="qrichtext" content="1" /><meta charset="utf-8" />'
-                          '<style type="text/css">\\np, li { white-space: pre-wrap; }\\n'
-                          'hr { height: 1px; border-width: 0; }\\n'
-                          'li.unchecked::marker { content: "\\\\2610"; }\\n'
-                          'li.checked::marker { content: "\\\\2612"; }\\n'
+                          '<style type="text/css">\n'
+                          'p, li { white-space: pre-wrap; }\n'
+                          'hr { height: 1px; border-width: 0; }\n'
+                          'li.unchecked::marker { content: "\\2610"; }\n'
+                          'li.checked::marker { content: "\\2612"; }\n'
                           '</style></head>'
-                          '<body style=" font-family:\\'CEWE Head\\'; font-size:12pt; font-weight:400; font-style:normal;">'
+                          '<body style=" font-family:\'CEWE Head\'; font-size:12pt; font-weight:400; font-style:normal;">'
                           '<p style="-qt-paragraph-type:empty; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><br /></p>'
                           '</body></html>')
             text_elem.text = default_html
-            text_elem.tail = '\\n        '  # Newline after </text>
+            text_elem.tail = '\n        '  # Newline after </text>
             
             # Add outline and textFormat children
             outline = etree.SubElement(text_elem, 'outline')
             outline.set('width', '0')
-            outline.tail = '\\n                    '
+            outline.tail = '\n                    '
             
             textFormat = etree.SubElement(text_elem, 'textFormat')
             textFormat.set('Alignment', 'ALIGNLEADING')
@@ -656,10 +657,10 @@ def update_page_layout(path: str, pageno: int, photos: List[Dict[str, Any]],
             textFormat.set('hyphenation', '0')
             textFormat.set('letterSpacing', '0')
             textFormat.set('lineHeight', '100')
-            textFormat.tail = '\\n            '
+            textFormat.tail = '\n            '
             
             # Add to parent with proper tail indentation
-            new_area.tail = '\\n        '  # Newline after </area>
+            new_area.tail = '\n        '  # Newline after </area>
             areas_parent.append(new_area)
             added_texts += 1
     
