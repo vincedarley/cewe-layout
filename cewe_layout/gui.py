@@ -612,12 +612,35 @@ class LayoutViewer:
             return
         
         # Determine which pages to render
-        if in_spread_mode and self.index < len(self.pages) - 1:
-            # Spread mode: render current page (left/even) and next page (right/odd)
-            page_indices = [self.index, self.index + 1]
-            self.current_spread_pages = [self.pages[self.index][0], self.pages[self.index + 1][0]]
+        if in_spread_mode:
+            # Spread mode: ensure even page on left, odd page on right
+            current_pageno = self.pages[self.index][0]
+            
+            if current_pageno % 2 == 0:
+                # Current page is even - it goes on left, find next odd page for right
+                left_idx = self.index
+                # Find next page (should be odd if pages are consecutive)
+                if self.index < len(self.pages) - 1:
+                    right_idx = self.index + 1
+                    page_indices = [left_idx, right_idx]
+                    self.current_spread_pages = [self.pages[left_idx][0], self.pages[right_idx][0]]
+                else:
+                    # Even page is last page - show it alone
+                    page_indices = [left_idx]
+                    self.current_spread_pages = [self.pages[left_idx][0]]
+            else:
+                # Current page is odd - find previous even page for left
+                if self.index > 0:
+                    left_idx = self.index - 1
+                    right_idx = self.index
+                    page_indices = [left_idx, right_idx]
+                    self.current_spread_pages = [self.pages[left_idx][0], self.pages[right_idx][0]]
+                else:
+                    # Odd page is first page - show it alone
+                    page_indices = [self.index]
+                    self.current_spread_pages = [self.pages[self.index][0]]
         else:
-            # Single page mode or last page in spread mode
+            # Single page mode
             page_indices = [self.index]
             self.current_spread_pages = [self.pages[self.index][0]]
         
@@ -2136,45 +2159,66 @@ class LayoutViewer:
 
     def prev_page(self):
         if self.spread_mode.get():
-            # In spread mode, jump by 2 pages
-            if self.index > 1:
-                self.index -= 2
-            elif self.index > 0:
-                self.index -= 1
-            else:
-                return  # Already at first page
+            # In spread mode, navigate to previous even page
+            current_pageno = self.pages[self.index][0]
+            
+            # Find previous even page
+            for i in range(self.index - 1, -1, -1):
+                pageno = self.pages[i][0]
+                if pageno % 2 == 0:
+                    self.index = i
+                    self.show_status(f'Loading pages {pageno}-{pageno+1}...')
+                    self.root.update_idletasks()
+                    self.render_page()
+                    return
+            
+            # No even page found before current - stay where we are
+            return
         else:
             if self.index > 0:
                 self.index -= 1
+                pageno = self.pages[self.index][0]
+                self.show_status(f'Loading page {pageno}...')
+                self.root.update_idletasks()
+                self.render_page()
             else:
                 return
-        
-        pageno = self.pages[self.index][0]
-        self.show_status(f'Loading page {pageno}...')
-        self.root.update_idletasks()
-        self.render_page()
 
     def next_page(self):
         if self.spread_mode.get():
-            # In spread mode, jump by 2 pages
-            if self.index < len(self.pages) - 2:
-                self.index += 2
-            elif self.index < len(self.pages) - 1:
-                self.index += 1
-            else:
-                self.show_status('Last page of book')
-                return
+            # In spread mode, navigate to next even page
+            current_pageno = self.pages[self.index][0]
+            
+            # Find next even page after current spread
+            start_search = self.index + 2 if current_pageno % 2 == 0 else self.index + 1
+            
+            for i in range(start_search, len(self.pages)):
+                pageno = self.pages[i][0]
+                if pageno % 2 == 0:
+                    self.index = i
+                    # Check if there's an odd page following
+                    if i < len(self.pages) - 1:
+                        next_pageno = self.pages[i + 1][0]
+                        self.show_status(f'Loading pages {pageno}-{next_pageno}...')
+                    else:
+                        self.show_status(f'Loading page {pageno}...')
+                    self.root.update_idletasks()
+                    self.render_page()
+                    return
+            
+            # No more even pages - we're at the end
+            self.show_status('Last page of book')
+            return
         else:
             if self.index < len(self.pages) - 1:
                 self.index += 1
+                pageno = self.pages[self.index][0]
+                self.show_status(f'Loading page {pageno}...')
+                self.root.update_idletasks()
+                self.render_page()
             else:
                 self.show_status('Last page of book')
                 return
-        
-        pageno = self.pages[self.index][0]
-        self.show_status(f'Loading page {pageno}...')
-        self.root.update_idletasks()
-        self.render_page()
 
     def goto_page(self):
         try:
@@ -2236,6 +2280,15 @@ class LayoutViewer:
             page_h = 2970.0
         
         if self.spread_mode.get():
+            # Entering spread mode: navigate to nearest even page
+            current_pageno = self.pages[self.index][0]
+            if current_pageno % 2 != 0:
+                # Current page is odd - navigate to previous even page if possible
+                for i in range(self.index - 1, -1, -1):
+                    if self.pages[i][0] % 2 == 0:
+                        self.index = i
+                        break
+            
             # Spread mode: double width for two pages
             total_w_mcf = (2 * page_w) + 2 * self.margin_mcf
             total_h_mcf = page_h + 2 * self.margin_mcf
