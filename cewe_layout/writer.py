@@ -168,10 +168,10 @@ def _validate_saved_page(path: str, pageno: int, expected_photos: List[Dict[str,
         x_min = 0.0
         x_max = half_width
     
+    # Use shared page assignment logic
     def belongs_to_page(area_left: float, area_width: float) -> bool:
-        """Check if an area's center is within this page's x-range."""
-        center_x = area_left + area_width / 2.0
-        return x_min <= center_x < x_max
+        """Check if an area belongs to this page."""
+        return page_belongs_to_page(area_left, area_width, x_min, x_max)
     
     # Re-parse the saved file
     try:
