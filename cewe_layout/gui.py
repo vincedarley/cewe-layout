@@ -2566,6 +2566,11 @@ class LayoutViewer:
                 texts_page0 = []
                 texts_page1 = []
                 
+                # Collect new photos from both source pages to transfer tracking
+                all_new_photos = set()
+                for pn in page_numbers:
+                    all_new_photos.update(self.layout_mgr.get_new_photos(pn))
+                
                 for photo in updated_photos:
                     area_left = photo.get('area_left', 0)
                     if area_left < page_w:
@@ -2598,6 +2603,18 @@ class LayoutViewer:
                     
                     self.layout_mgr.push_layout(page_numbers[0], photos_page0, texts_page0)
                     self.layout_mgr.push_layout(page_numbers[1], photos_page1, texts_page1)
+                    
+                    # Transfer new photo tracking to destination pages
+                    # After algorithm splits photos, ensure they're still marked as new on the correct page
+                    for photo in photos_page0:
+                        filename = photo.get('filename', '')
+                        if filename in all_new_photos:
+                            self.layout_mgr.mark_photo_as_new(page_numbers[0], filename)
+                    
+                    for photo in photos_page1:
+                        filename = photo.get('filename', '')
+                        if filename in all_new_photos:
+                            self.layout_mgr.mark_photo_as_new(page_numbers[1], filename)
                     
                     self.modified_pages.add(page_numbers[0])
                     self.modified_pages.add(page_numbers[1])
