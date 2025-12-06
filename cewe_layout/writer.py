@@ -7,6 +7,36 @@ This module provides utilities to:
 from lxml import etree
 import os
 from typing import List, Dict, Any
+import re
+
+
+def _extract_base_filename(filename: str) -> str:
+    """Extract base filename without -szXX-pgYY suffix.
+    
+    Args:
+        filename: Filename possibly with metadata suffix
+    
+    Returns:
+        Base filename without suffix
+    
+    Example:
+        'safecontainer:/photo-sz10-pg5.jpeg' -> 'safecontainer:/photo.jpeg'
+        'photo.jpeg' -> 'photo.jpeg'
+    """
+    # Split into prefix and filename
+    if ':/' in filename:
+        prefix, name = filename.split(':/', 1)
+        prefix_with_sep = prefix + ':/'
+    else:
+        prefix_with_sep = ''
+        name = filename
+    
+    # Remove -szXX-pgYY suffix
+    # Pattern: -sz followed by digits/decimal, -pg followed by digits, before the extension
+    pattern = r'-sz[\d.]+-pg\d+(?=\.[^.]+$)'
+    base_name = re.sub(pattern, '', name)
+    
+    return prefix_with_sep + base_name
 
 
 def _calculate_cutout(slot_width_mcf, slot_height_mcf, image_width_px, image_height_px):
@@ -386,11 +416,21 @@ def update_page_layout(path: str, pageno: int, photos: List[Dict[str, Any]],
         
         # Find matching photo in our layout
         # Account for renamed files: old XML filename might map to new photo filename
+        # Also account for metadata suffixes (-szXX-pgYY) that may be present in memory but not in XML
         matching_photo = None
+        xml_base_filename = _extract_base_filename(filename)
+        
         for p in photos:
             photo_filename = p.get('filename', '')
-            # Match either directly or through rename map (old XML name -> new photo name)
-            if photo_filename == filename or (rename_map and rename_map.get(filename) == photo_filename):
+            photo_base_filename = _extract_base_filename(photo_filename)
+            
+            # Match if:
+            # 1. Exact match (photo_filename == filename)
+            # 2. Base filenames match (ignoring metadata suffixes)
+            # 3. Rename map match (old XML name -> new photo name)
+            if (photo_filename == filename or 
+                photo_base_filename == xml_base_filename or
+                (rename_map and rename_map.get(filename) == photo_filename)):
                 matching_photo = p
                 break
         
