@@ -3,6 +3,7 @@ from lxml import etree
 import os
 import glob
 import logging
+from .page_utils import determine_page_owner
 
 logger = logging.getLogger(__name__)
 
@@ -103,7 +104,7 @@ def extract_pages_info(fotobook_root):
                 left_owner = max(1, pagenr - 1)
                 right_owner = pagenr
 
-            owner = left_owner if area_left < half else right_owner
+            owner = determine_page_owner(area_left, half, left_owner, right_owner)
 
             # record page meta for this owner: page width/height and the origin offset
             # origin_left is 0 for left pages, half for right pages
