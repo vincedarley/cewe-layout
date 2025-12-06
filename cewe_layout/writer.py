@@ -301,7 +301,8 @@ def update_page_layout(path: str, pageno: int, photos: List[Dict[str, Any]],
     deleted_photos = deleted_photos or []
     rename_map = rename_map or {}
     new_photos_set = set(new_photos)
-    deleted_photos_set = set(deleted_photos)
+    # Create set of base filenames for deleted photos (to match with/without metadata suffixes)
+    deleted_photos_base_set = set(_extract_base_filename(fn) for fn in deleted_photos)
     
     # CRITICAL: Validate ALL photos have dimensions BEFORE making any changes
     for photo in photos:
@@ -408,8 +409,9 @@ def update_page_layout(path: str, pageno: int, photos: List[Dict[str, Any]],
             areas_to_remove.append(area)
             continue
         
-        # Check if this photo was deleted
-        if filename in deleted_photos_set:
+        # Check if this photo was deleted (match by base filename to handle metadata suffixes)
+        xml_base_filename = _extract_base_filename(filename)
+        if xml_base_filename in deleted_photos_base_set:
             areas_to_remove.append(area)
             deleted_photos_count += 1
             continue
@@ -418,7 +420,6 @@ def update_page_layout(path: str, pageno: int, photos: List[Dict[str, Any]],
         # Account for renamed files: old XML filename might map to new photo filename
         # Also account for metadata suffixes (-szXX-pgYY) that may be present in memory but not in XML
         matching_photo = None
-        xml_base_filename = _extract_base_filename(filename)
         
         for p in photos:
             photo_filename = p.get('filename', '')
