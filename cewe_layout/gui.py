@@ -753,7 +753,7 @@ class LayoutViewer:
             
             # Render texts for this page
             self._render_texts(draw, texts, frame_x, frame_y, scale, origin_left,
-                              text_counter, delete_button_info)
+                              text_counter, pageno, delete_button_info)
             text_counter += len(texts)
             
             # Draw page frame for this page
@@ -866,14 +866,16 @@ class LayoutViewer:
             # Store delete button position info
             if fn:  # Only add delete button if photo has a filename
                 delete_button_info.append({
-                    'photo_index': i - 1,  # Convert to 0-based
+                    'photo_index': i - 1,  # Convert to 0-based (within combined list)
+                    'page_index': i - start_number,  # 0-based index within this page's photos
+                    'pageno': pageno,  # Which page this photo belongs to
                     'filename': fn,
                     'x': int(x1) - 20,  # 20px from right edge
                     'y': int(y0) + 2,   # 2px from top edge
                 })
     
     def _render_texts(self, draw, texts, frame_x, frame_y, scale, origin_left,
-                     start_number, delete_button_info):
+                     start_number, pageno, delete_button_info):
         """Render text blocks for a single page.
         
         Args:
@@ -883,6 +885,7 @@ class LayoutViewer:
             scale: MCF to pixel scale factor
             origin_left: Origin left for right-page adjustment
             start_number: Starting number for text labels
+            pageno: Page number for this text
             delete_button_info: List to append delete button info to
         """
         try:
@@ -913,7 +916,9 @@ class LayoutViewer:
             
             # Store delete button position info for text boxes
             delete_button_info.append({
-                'text_index': i - 1,  # Convert to 0-based
+                'text_index': i - 1,  # Convert to 0-based (within combined list)
+                'page_index': i - start_number,  # 0-based index within this page's texts
+                'pageno': pageno,  # Which page this text belongs to
                 'x': int(x1) - 20,  # 20px from right edge
                 'y': int(y0) + 2,   # 2px from top edge
             })
@@ -1007,12 +1012,14 @@ class LayoutViewer:
             
             # Determine if this is a photo or text box
             if 'photo_index' in info:
-                photo_idx = info['photo_index']
+                page_idx = info['page_index']
+                pn = info['pageno']
                 filename = info['filename']
-                cmd = lambda idx=photo_idx, fn=filename: self._delete_photo(idx, fn)
+                cmd = lambda idx=page_idx, pageno=pn, fn=filename: self._delete_photo(idx, pageno, fn)
             else:  # text_index
-                text_idx = info['text_index']
-                cmd = lambda idx=text_idx: self._delete_text(idx)
+                page_idx = info['page_index']
+                pn = info['pageno']
+                cmd = lambda idx=page_idx, pageno=pn: self._delete_text(idx, pageno)
             
             # Create small white X button with red text and precise pixel sizing
             btn = tk.Button(
@@ -1037,17 +1044,17 @@ class LayoutViewer:
             btn.place(x=x, y=y)
             self.delete_buttons.append(btn)
     
-    def _delete_photo(self, photo_index, filename):
-        """Delete a photo from the current page layout.
+    def _delete_photo(self, photo_index, pageno, filename):
+        """Delete a photo from a page layout.
         
         Args:
-            photo_index: 0-based index of photo in current layout
+            photo_index: 0-based index of photo in the page's layout
+            pageno: Page number that owns this photo
             filename: Filename of the photo to delete
         """
         if not self.pages:
             return
         
-        pageno, info = self.pages[self.index]
         current_layout = self.layout_mgr.get_current(pageno)
         if not current_layout:
             return
@@ -1109,16 +1116,16 @@ class LayoutViewer:
         shortfn = deleted_filename.split('/')[-1] if deleted_filename else f'photo {photo_index+1}'
         self.show_status(f'Deleted {shortfn} from page {pageno}')
     
-    def _delete_text(self, text_index):
-        """Delete a text box from the current page layout.
+    def _delete_text(self, text_index, pageno):
+        """Delete a text box from a page layout.
         
         Args:
-            text_index: 0-based index of text box in current layout
+            text_index: 0-based index of text box in the page's layout
+            pageno: Page number that owns this text
         """
         if not self.pages:
             return
         
-        pageno, info = self.pages[self.index]
         current_layout = self.layout_mgr.get_current(pageno)
         if not current_layout:
             return
