@@ -349,6 +349,11 @@ class LayoutViewer:
         goto_btn = ttk.Button(goto_frame, text='Go', command=self.goto_page)
         goto_btn.pack(side='left', pady=2)
         
+        # Page range label (e.g., "Pages 2-58")
+        self.page_range_var = tk.StringVar(value='')
+        self.page_range_label = ttk.Label(goto_frame, textvariable=self.page_range_var, foreground='gray')
+        self.page_range_label.pack(side='left', padx=(8,0))
+        
         # Row 1: Algorithm selection and Generate button - pack in single frame
         algo_frame = ttk.Frame(self.ctrl)
         algo_frame.grid(row=1, column=0, columnspan=2, sticky='w', padx=4, pady=4)
@@ -597,6 +602,7 @@ class LayoutViewer:
             draw = ImageDraw.Draw(img)
             draw.text((10,10), 'No pages found', fill='black')
             self._show_image(img)
+            self._update_page_range_display()
             return
 
         pageno, info = self.pages[self.index]
@@ -805,6 +811,9 @@ class LayoutViewer:
         draw_dashed_line(frame_x, frame_y + frame_h, frame_x, frame_y)  # Left
 
         self._show_image(img)
+        
+        # Update page range display
+        self._update_page_range_display()
         
         # Create delete buttons AFTER image is shown so they overlay on top
         self._create_delete_buttons(delete_button_info)
@@ -2000,6 +2009,8 @@ class LayoutViewer:
             self.show_status(f'Loading page {pageno}...')
             self.root.update_idletasks()
             self.render_page()
+        else:
+            self.show_status('Last page of book')
 
     def goto_page(self):
         try:
@@ -2017,6 +2028,16 @@ class LayoutViewer:
 
     def quit(self):
         self.root.quit()
+    
+    def _update_page_range_display(self):
+        """Update the page range label to show valid page numbers."""
+        if not self.pages:
+            self.page_range_var.set('')
+            return
+        
+        min_page = min(pn for pn, _ in self.pages)
+        max_page = max(pn for pn, _ in self.pages)
+        self.page_range_var.set(f'Pages {min_page}-{max_page}')
     
     def _on_window_resize(self, event):
         """Handle window resize events by redrawing the page at the new scale.
