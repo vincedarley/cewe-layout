@@ -92,8 +92,8 @@ def extract_pages_info(fotobook_root):
                 logger.error(f"Page {pagenr}: Failed to parse area position coordinates: {e} - MCF file format may have changed")
                 raise ValueError(f"Page {pagenr}: Invalid area position data") from e
 
-            # decide which logical page the area belongs to by its horizontal centre
-            center_x = area_left + area_width / 2.0
+            # Decide which logical page the area belongs to by its left edge
+            # A photo that starts on the left page should be on the left page
             # If the page element represents the left side (even pagenr) then left->pagenr, right->pagenr+1
             # otherwise (odd pagenr) left->pagenr-1, right->pagenr
             if (pagenr % 2) == 0:
@@ -103,7 +103,7 @@ def extract_pages_info(fotobook_root):
                 left_owner = max(1, pagenr - 1)
                 right_owner = pagenr
 
-            owner = left_owner if center_x < half else right_owner
+            owner = left_owner if area_left < half else right_owner
 
             # record page meta for this owner: page width/height and the origin offset
             # origin_left is 0 for left pages, half for right pages

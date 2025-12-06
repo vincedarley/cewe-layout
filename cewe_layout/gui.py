@@ -1455,14 +1455,56 @@ class LayoutViewer:
         if not self.pages:
             return
         
-        pageno, info = self.pages[self.index]
-        current_layout = self.layout_mgr.get_current(pageno)
-        photos = current_layout.photos if current_layout else info.get('photos', [])
-        texts = current_layout.texts if current_layout else info.get('texts', [])
-        
-        page_w = info.get('page_width', 2100.0)
-        page_h = info.get('page_height', 2970.0)
-        origin_left = info.get('origin_left', 0.0)
+        # In spread mode, combine data from both pages
+        if self.spread_mode.get() and len(self.current_spread_pages) == 2:
+            # Get data from both pages in the spread
+            all_photos = []
+            all_texts = []
+            # Use first (left/even) page for dimensions and gaps
+            pageno = self.current_spread_pages[0]
+            
+            # Find the page info for both pages
+            page_info_left = None
+            page_info_right = None
+            for pn, info in self.pages:
+                if pn == self.current_spread_pages[0]:
+                    page_info_left = info
+                elif pn == self.current_spread_pages[1]:
+                    page_info_right = info
+            
+            if not page_info_left:
+                return
+            
+            # Collect photos and texts from both pages
+            for pn in self.current_spread_pages:
+                current_layout = self.layout_mgr.get_current(pn)
+                if current_layout:
+                    all_photos.extend(current_layout.photos)
+                    all_texts.extend(current_layout.texts)
+                else:
+                    # Fallback to original
+                    for pn_check, info_check in self.pages:
+                        if pn_check == pn:
+                            all_photos.extend(info_check.get('photos', []))
+                            all_texts.extend(info_check.get('texts', []))
+                            break
+            
+            photos = all_photos
+            texts = all_texts
+            info = page_info_left
+            page_w = info.get('page_width', 2100.0) * 2  # Double width for spread
+            page_h = info.get('page_height', 2970.0)
+            origin_left = info.get('origin_left', 0.0)
+        else:
+            # Single page mode
+            pageno, info = self.pages[self.index]
+            current_layout = self.layout_mgr.get_current(pageno)
+            photos = current_layout.photos if current_layout else info.get('photos', [])
+            texts = current_layout.texts if current_layout else info.get('texts', [])
+            
+            page_w = info.get('page_width', 2100.0)
+            page_h = info.get('page_height', 2970.0)
+            origin_left = info.get('origin_left', 0.0)
         
         # Initialize gaps from ORIGINAL layout on first visit to this page
         # Check if gaps have been set (key exists, not value-based check)
