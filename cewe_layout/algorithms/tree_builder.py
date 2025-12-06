@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 def build_tree_from_layout(rectangles: List[LayoutRectangle], 
                            page_width: float, 
                            page_height: float,
-                           tolerance: float = 20.0) -> Optional[TreeNode]:
+                           tolerance: float = 60.0) -> Optional[TreeNode]:
     """Build a binary slicing tree from a layout.
     
     Algorithm:
@@ -37,7 +37,7 @@ def build_tree_from_layout(rectangles: List[LayoutRectangle],
         page_width: Width of the page/region (informational only)
         page_height: Height of the page/region (informational only)
         tolerance: Tolerance for alignment in MCF units (0.1mm each).
-                   Default 20.0 = 2.0mm, allows for small overlaps/bleeds.
+                   Default 60.0 = 6.0mm, allows for gaps between rectangles in gap-free space.
         
     Returns:
         Root TreeNode, or None if layout cannot be represented as a slicing tree

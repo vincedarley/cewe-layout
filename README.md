@@ -39,7 +39,7 @@ Here's my current workflow:
 6) Examine your photos, in approximate date order, and drag and drop as many photos as you want onto that empty page.
 7) Run the "Fan-GA" algorithm.  Tweak slot aspect ratio and "preferred size" for any of the photos you want -- simplest is to give the very best 2-4 photos a preferred size of somewhere between 3.0 and 6.0.
 8) Re-run the "Fan-GA" algorithm. Sometimes you might wish to re-run the algorithm a few times to check out the different results and pick the one you like best. If you don't quite like any, you can delete some photos, add some new photos and try again.
-9) Hit "Save" when you are done with the page.  The photos used disappear from your directory - they've been moved into the photo album. This is very helpful, since you can then focus only on the focus you've not yet added. If there are photos I've decided I no longer want, I simply delete them from the directory (they are exported copies, so...).
+9) Hit "Save" when you are done with the page.  The photos used disappear from your directory - they've been moved into the photo album. This is very helpful, since you can then focus only on the photos you've not yet added. If there are photos I've decided I no longer want, I simply delete them from the directory (they are exported copies, so...).
 10) Move to the next empty page and go back to step 6.
 
 Once you're done. Open the book in CEWE Creator and do any fine-tuning you wish.
