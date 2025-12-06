@@ -2613,6 +2613,8 @@ class LayoutViewer:
                 current_layout = self.layout_mgr.get_current(pageno)
                 photos = current_layout.photos if current_layout else info.get('photos', [])
 
+                # Filter out empty photo slots (photos with no filename)
+                photos = [p for p in photos if p.get('filename')]
                 if not photos:
                     # re-enable on main thread
                     self.root.after(0, lambda: self.gen_btn.config(state='normal'))

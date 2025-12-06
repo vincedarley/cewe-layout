@@ -8,6 +8,10 @@ from lxml import etree
 import os
 from typing import List, Dict, Any
 import re
+import logging
+from .page_utils import belongs_to_page as page_belongs_to_page
+
+logger = logging.getLogger(__name__)
 
 
 def _extract_base_filename(filename: str) -> str:
