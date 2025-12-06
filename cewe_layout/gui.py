@@ -1100,9 +1100,8 @@ class LayoutViewer:
                 self.use_slot_aspect[new_key] = self.use_slot_aspect[old_key]
                 del self.use_slot_aspect[old_key]
         
-        # Mark page as modified
-        self.modified_pages.add(pageno)
-        self._update_modified_pages_display()
+        # Mark page(s) as modified
+        self._mark_current_pages_modified()
         
         # Re-render to show updated layout
         self.render_page()
@@ -1159,9 +1158,8 @@ class LayoutViewer:
                 self.slot_aspect_ratios[new_key] = self.slot_aspect_ratios[old_key]
                 del self.slot_aspect_ratios[old_key]
         
-        # Mark page as modified
-        self.modified_pages.add(pageno)
-        self._update_modified_pages_display()
+        # Mark page(s) as modified
+        self._mark_current_pages_modified()
         
         # Re-render to show updated layout
         self.render_page()
@@ -1265,9 +1263,8 @@ class LayoutViewer:
         for key in keys_to_remove:
             del self.slot_aspect_ratios[key]
         
-        # Mark page as modified
-        self.modified_pages.add(pageno)
-        self._update_modified_pages_display()
+        # Mark page(s) as modified
+        self._mark_current_pages_modified()
         
         # Set preferred sizes for ALL photos (existing + new) based on EXIF data
         # and populate photo_dimensions cache for algorithm use
@@ -1913,9 +1910,8 @@ class LayoutViewer:
         text_id = f'TEXT_{len(texts)}'
         self.layout_mgr.set_size(pageno, text_id, 1.0)
         
-        # Mark page as modified
-        self.modified_pages.add(pageno)
-        self._update_modified_pages_display()
+        # Mark page(s) as modified
+        self._mark_current_pages_modified()
         
         # Re-render page
         self.render_page()
@@ -1944,9 +1940,8 @@ class LayoutViewer:
                 logger.info(f"Page {pageno}: Setting preferred size for '{base_item_id}' to {new_size}")
                 self.layout_mgr.set_size(pageno, base_item_id, new_size)
                 
-                # Mark page as modified so file rename happens on save
-                self.modified_pages.add(pageno)
-                self._update_modified_pages_display()
+                # Mark page(s) as modified so file rename happens on save
+                self._mark_current_pages_modified()
                 
                 self.update_weights_display()  # Refresh display
             else:
@@ -2010,9 +2005,8 @@ class LayoutViewer:
             # Update stored gap value
             self.layout_mgr.set_edge_gap(pageno, new_edge_gap)
             
-            # Mark page as modified
-            self.modified_pages.add(pageno)
-            self._update_modified_pages_display()
+            # Mark page(s) as modified
+            self._mark_current_pages_modified()
             
             # Re-render with adjusted layout
             self.render_page()
@@ -2053,9 +2047,8 @@ class LayoutViewer:
             # Update stored gap value
             self.layout_mgr.set_internal_gap(pageno, new_internal_gap)
             
-            # Mark page as modified
-            self.modified_pages.add(pageno)
-            self._update_modified_pages_display()
+            # Mark page(s) as modified
+            self._mark_current_pages_modified()
             
             # Re-render with adjusted layout
             self.render_page()
@@ -2366,6 +2359,22 @@ class LayoutViewer:
             page_str = ', '.join(str(p) for p in sorted_pages)
             self.modified_pages_var.set(page_str)
             self.modified_pages_label.config(foreground='red')
+    
+    def _mark_current_pages_modified(self):
+        """Mark the current page(s) as modified.
+        
+        In spread mode, marks both pages in the spread.
+        In single page mode, marks only the current page.
+        """
+        if self.spread_mode.get() and len(self.current_spread_pages) == 2:
+            # Spread mode - mark both pages
+            self.modified_pages.add(self.current_spread_pages[0])
+            self.modified_pages.add(self.current_spread_pages[1])
+        else:
+            # Single page mode - mark current page only
+            pageno, _ = self.pages[self.index]
+            self.modified_pages.add(pageno)
+        self._update_modified_pages_display()
     
     def show_status(self, message, error=False):
         """Display a status message in the UI.
@@ -2698,9 +2707,8 @@ class LayoutViewer:
                     # Push new layout (both photos and texts) to manager and refresh view
                     self.layout_mgr.push_layout(pageno, updated_photos, updated_texts)
                     
-                    # Mark page as modified
-                    self.modified_pages.add(pageno)
-                    self._update_modified_pages_display()
+                    # Mark page(s) as modified
+                    self._mark_current_pages_modified()
                     
                     self.render_page()
 
