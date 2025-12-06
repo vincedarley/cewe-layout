@@ -194,6 +194,12 @@ class LayoutViewer:
         # Debug flag for diagnostic output
         self.debug_var = tk.BooleanVar(value=False)
         
+        # Spread mode flag - when True, show two pages (even+odd) as a spread
+        self.spread_mode = tk.BooleanVar(value=False)
+        
+        # Track current spread pages (list of 1 or 2 page numbers)
+        self.current_spread_pages = []
+        
         # Track which photos should use slot aspect ratio (dict: {(pageno, photo_idx): BooleanVar})
         self.use_slot_aspect = {}
         
@@ -353,6 +359,10 @@ class LayoutViewer:
         self.page_range_var = tk.StringVar(value='')
         self.page_range_label = ttk.Label(goto_frame, textvariable=self.page_range_var, foreground='gray')
         self.page_range_label.pack(side='left', padx=(8,0))
+        
+        # Spread mode checkbox
+        spread_check = ttk.Checkbutton(goto_frame, text='Spread', variable=self.spread_mode, command=self._on_spread_mode_change)
+        spread_check.pack(side='left', padx=(8,0))
         
         # Row 1: Algorithm selection and Generate button - pack in single frame
         algo_frame = ttk.Frame(self.ctrl)
@@ -574,12 +584,48 @@ class LayoutViewer:
         # Clear status message when changing pages
         self.status_var.set('')
         
-        # Update page number display
-        if self.pages:
-            pageno = self.pages[self.index][0]
-            self.page_num_var.set(f'Page {pageno}:')
-        else:
+        # Determine pages to render based on spread mode
+        in_spread_mode = self.spread_mode.get()
+        
+        if not self.pages:
+            # Update page number display
             self.page_num_var.set('Page:')
+            
+            # Get current canvas dimensions
+            self.root.update_idletasks()
+            canvas_w = self.img_label.winfo_width()
+            canvas_h = self.img_label.winfo_height()
+            if canvas_w <= 1 or canvas_h <= 1:
+                canvas_w = self.root.winfo_width()
+                canvas_h = self.root.winfo_height()
+            if canvas_w < 100:
+                canvas_w = 800
+            if canvas_h < 100:
+                canvas_h = int(800 / self.canvas_aspect_ratio)
+            
+            img = Image.new('RGB', (canvas_w, canvas_h), 'white')
+            draw = ImageDraw.Draw(img)
+            draw.text((10,10), 'No pages found', fill='black')
+            self._show_image(img)
+            self._update_page_range_display()
+            self.current_spread_pages = []
+            return
+        
+        # Determine which pages to render
+        if in_spread_mode and self.index < len(self.pages) - 1:
+            # Spread mode: render current page (left/even) and next page (right/odd)
+            page_indices = [self.index, self.index + 1]
+            self.current_spread_pages = [self.pages[self.index][0], self.pages[self.index + 1][0]]
+        else:
+            # Single page mode or last page in spread mode
+            page_indices = [self.index]
+            self.current_spread_pages = [self.pages[self.index][0]]
+        
+        # Update page number display
+        if len(self.current_spread_pages) == 2:
+            self.page_num_var.set(f'Pages {self.current_spread_pages[0]}-{self.current_spread_pages[1]}:')
+        else:
+            self.page_num_var.set(f'Page {self.current_spread_pages[0]}:')
         
         # Get current canvas dimensions from the window
         self.root.update_idletasks()  # Ensure geometry is current
@@ -597,30 +643,42 @@ class LayoutViewer:
         if canvas_h < 100:
             canvas_h = int(800 / self.canvas_aspect_ratio)
         
-        if not self.pages:
-            img = Image.new('RGB', (canvas_w, canvas_h), 'white')
-            draw = ImageDraw.Draw(img)
-            draw.text((10,10), 'No pages found', fill='black')
-            self._show_image(img)
-            self._update_page_range_display()
-            return
-
-        pageno, info = self.pages[self.index]
-        # Fetch current layout from layout manager (may be modified or original)
-        current_layout = self.layout_mgr.get_current(pageno)
-        photos = current_layout.photos if current_layout else info.get('photos', [])
-        texts = current_layout.texts if current_layout else info.get('texts', [])
-
+        # Collect all photos/texts for title and determine background color
+        all_photos = []
+        all_texts = []
+        background_id = None
+        page_w = 2100.0
+        page_h = 2970.0
+        
+        for page_idx in page_indices:
+            pageno_i, info_i = self.pages[page_idx]
+            current_layout_i = self.layout_mgr.get_current(pageno_i)
+            photos_i = current_layout_i.photos if current_layout_i else info_i.get('photos', [])
+            texts_i = current_layout_i.texts if current_layout_i else info_i.get('texts', [])
+            all_photos.extend(photos_i)
+            all_texts.extend(texts_i)
+            
+            # Use first page's dimensions and background
+            if page_idx == page_indices[0]:
+                page_w = info_i.get('page_width', 2100.0)
+                page_h = info_i.get('page_height', 2970.0)
+                background_id = info_i.get('background_id')
+        
         # Update window title with photobook name and page info
-        text_label = 'text' if len(texts) == 1 else 'texts'
-        if texts:
-            title = f'{self.photobook_name} - Page {pageno} : {len(photos)} photos, {len(texts)} {text_label}'
+        text_label = 'text' if len(all_texts) == 1 else 'texts'
+        if len(self.current_spread_pages) == 2:
+            if all_texts:
+                title = f'{self.photobook_name} - Pages {self.current_spread_pages[0]}-{self.current_spread_pages[1]} : {len(all_photos)} photos, {len(all_texts)} {text_label}'
+            else:
+                title = f'{self.photobook_name} - Pages {self.current_spread_pages[0]}-{self.current_spread_pages[1]} : {len(all_photos)} photos'
         else:
-            title = f'{self.photobook_name} - Page {pageno} : {len(photos)} photos'
+            if all_texts:
+                title = f'{self.photobook_name} - Page {self.current_spread_pages[0]} : {len(all_photos)} photos, {len(all_texts)} {text_label}'
+            else:
+                title = f'{self.photobook_name} - Page {self.current_spread_pages[0]} : {len(all_photos)} photos'
         self.root.title(title)
         
         # Determine page background color from designElementId
-        background_id = info.get('background_id')
         if background_id == '212':
             page_bg_color = 'black'
             frame_color = 'white'  # White frame for black background
@@ -630,32 +688,92 @@ class LayoutViewer:
         
         img = Image.new('RGB', (canvas_w, canvas_h), page_bg_color)
         draw = ImageDraw.Draw(img)
-
-        # Use page meta to map coordinates. page_width/height are in MCF units (0.1mm)
-        page_w = info.get('page_width', 2100.0)
-        page_h = info.get('page_height', 2970.0)
-        origin_left = info.get('origin_left', 0.0)
-
+        
         # 5mm margin on all sides (50 MCF units)
         margin_mcf = self.margin_mcf
         
-        # Calculate scale to fit page + margins in canvas
-        # Canvas dimensions were set to match (page + 2*margin) aspect ratio
-        total_w_mcf = page_w + 2 * margin_mcf
+        # Calculate scale to fit page(s) + margins in canvas
+        if len(page_indices) == 2:
+            # Spread mode: double width
+            total_w_mcf = (2 * page_w) + 2 * margin_mcf
+        else:
+            # Single page mode
+            total_w_mcf = page_w + 2 * margin_mcf
         total_h_mcf = page_h + 2 * margin_mcf
         scale = min(canvas_w / total_w_mcf, canvas_h / total_h_mcf)
-
-        # Calculate frame size and position
-        # Page frame starts at margin offset and has size of page
-        frame_w = page_w * scale
-        frame_h = page_h * scale
-        frame_x = margin_mcf * scale
-        frame_y = margin_mcf * scale
-
+        
         # Store delete button info for later widget creation
         delete_button_info = []
-
-        for i, p in enumerate(photos, start=1):
+        photo_counter = 1
+        text_counter = 1
+        
+        # Render each page
+        for page_offset, page_idx in enumerate(page_indices):
+            pageno, info = self.pages[page_idx]
+            current_layout = self.layout_mgr.get_current(pageno)
+            photos = current_layout.photos if current_layout else info.get('photos', [])
+            texts = current_layout.texts if current_layout else info.get('texts', [])
+            origin_left = info.get('origin_left', 0.0)
+            
+            # Calculate frame position for this page
+            # In spread mode, second page is offset by page_w
+            page_x_offset = page_offset * page_w if len(page_indices) == 2 else 0
+            frame_x = margin_mcf * scale + page_x_offset * scale
+            frame_y = margin_mcf * scale
+            frame_w = page_w * scale
+            frame_h = page_h * scale
+            
+            # Render photos for this page
+            self._render_photos(img, draw, photos, frame_x, frame_y, scale, origin_left, 
+                               photo_counter, pageno, delete_button_info, page_bg_color)
+            photo_counter += len(photos)
+            
+            # Render texts for this page
+            self._render_texts(draw, texts, frame_x, frame_y, scale, origin_left,
+                              text_counter, delete_button_info)
+            text_counter += len(texts)
+            
+            # Draw page frame for this page
+            self._draw_page_frame(draw, frame_x, frame_y, frame_w, frame_h, frame_color)
+        
+        # In spread mode, draw dotted line down the crease (center)
+        if len(page_indices) == 2:
+            crease_x = margin_mcf * scale + page_w * scale
+            self._draw_crease_line(draw, crease_x, frame_y, frame_h, frame_color)
+        
+        self._show_image(img)
+        
+        # Update page range display
+        self._update_page_range_display()
+        
+        # Create delete buttons AFTER image is shown so they overlay on top
+        self._create_delete_buttons(delete_button_info)
+        
+        self.update_weights_display()
+    
+    def _render_photos(self, img, draw, photos, frame_x, frame_y, scale, origin_left, 
+                      start_number, pageno, delete_button_info, page_bg_color):
+        """Render photos for a single page.
+        
+        Args:
+            img: PIL Image object
+            draw: PIL ImageDraw object
+            photos: List of photo dicts
+            frame_x, frame_y: Frame position in pixels
+            scale: MCF to pixel scale factor
+            origin_left: Origin left for right-page adjustment
+            start_number: Starting number for photo labels
+            pageno: Page number for logging
+            delete_button_info: List to append delete button info to
+            page_bg_color: Background color for placeholders
+        """
+        try:
+            from PIL import ImageFont
+            label_font = ImageFont.truetype('Arial', 16)
+        except:
+            label_font = None
+        
+        for i, p in enumerate(photos, start=start_number):
             left = p.get('area_left') or 0
             top = p.get('area_top') or 0
             w = p.get('area_width') or 0
@@ -709,13 +827,6 @@ class LayoutViewer:
             draw.rectangle([x0, y0, x1, y1], outline='blue', width=2)
             
             # Photo number label with light grey background
-            try:
-                from PIL import ImageFont
-                label_font = ImageFont.truetype('Arial', 16)
-            except:
-                label_font = None
-            
-            # Draw background rectangle for photo number
             label_text = f'{i}'
             if label_font:
                 bbox = draw.textbbox((x0+4, y0+4), label_text, font=label_font)
@@ -732,14 +843,32 @@ class LayoutViewer:
             # Store delete button position info
             if fn:  # Only add delete button if photo has a filename
                 delete_button_info.append({
-                    'photo_index': i - 1,  # 0-based index
+                    'photo_index': i - 1,  # Convert to 0-based
                     'filename': fn,
                     'x': int(x1) - 20,  # 20px from right edge
                     'y': int(y0) + 2,   # 2px from top edge
                 })
+    
+    def _render_texts(self, draw, texts, frame_x, frame_y, scale, origin_left,
+                     start_number, delete_button_info):
+        """Render text blocks for a single page.
         
-        # Draw text blocks
-        for i, t in enumerate(texts, start=1):
+        Args:
+            draw: PIL ImageDraw object
+            texts: List of text dicts
+            frame_x, frame_y: Frame position in pixels
+            scale: MCF to pixel scale factor
+            origin_left: Origin left for right-page adjustment
+            start_number: Starting number for text labels
+            delete_button_info: List to append delete button info to
+        """
+        try:
+            from PIL import ImageFont
+            label_font = ImageFont.truetype('Arial', 16)
+        except:
+            label_font = None
+        
+        for i, t in enumerate(texts, start=start_number):
             left = t.get('area_left') or 0
             top = t.get('area_top') or 0
             w = t.get('area_width') or 0
@@ -757,22 +886,24 @@ class LayoutViewer:
             draw.rectangle([x0, y0, x1, y1], fill='#ffffcc')  # Light yellow background
             # wireframe overlay in green
             draw.rectangle([x0, y0, x1, y1], outline='green', width=2)
-            try:
-                from PIL import ImageFont
-                label_font = ImageFont.truetype('Arial', 16)
-            except:
-                label_font = None
             draw.text((x0+4, y0+4), f'T{i}', fill='green', font=label_font)
             
             # Store delete button position info for text boxes
             delete_button_info.append({
-                'text_index': i - 1,  # 0-based index
+                'text_index': i - 1,  # Convert to 0-based
                 'x': int(x1) - 20,  # 20px from right edge
                 'y': int(y0) + 2,   # 2px from top edge
             })
-
-        # Draw page frame LAST so it's on top of photos/texts in bleed situations
-        # Draw as dashed rectangle (4 sides with dashes)
+    
+    def _draw_page_frame(self, draw, frame_x, frame_y, frame_w, frame_h, frame_color):
+        """Draw dashed frame around a page.
+        
+        Args:
+            draw: PIL ImageDraw object
+            frame_x, frame_y: Frame top-left position
+            frame_w, frame_h: Frame dimensions
+            frame_color: Color for the frame
+        """
         dash_length = 10
         gap_length = 5
         line_width = 2
@@ -809,16 +940,25 @@ class LayoutViewer:
         draw_dashed_line(frame_x + frame_w, frame_y, frame_x + frame_w, frame_y + frame_h)  # Right
         draw_dashed_line(frame_x + frame_w, frame_y + frame_h, frame_x, frame_y + frame_h)  # Bottom
         draw_dashed_line(frame_x, frame_y + frame_h, frame_x, frame_y)  # Left
-
-        self._show_image(img)
+    
+    def _draw_crease_line(self, draw, crease_x, crease_y, crease_h, color):
+        """Draw dotted line down the center crease in spread mode.
         
-        # Update page range display
-        self._update_page_range_display()
+        Args:
+            draw: PIL ImageDraw object
+            crease_x: X position of crease
+            crease_y: Y start position
+            crease_h: Height of crease line
+            color: Color for the crease line
+        """
+        dot_length = 5
+        gap_length = 5
         
-        # Create delete buttons AFTER image is shown so they overlay on top
-        self._create_delete_buttons(delete_button_info)
-        
-        self.update_weights_display()
+        y_pos = crease_y
+        while y_pos < crease_y + crease_h:
+            end_y = min(y_pos + dot_length, crease_y + crease_h)
+            draw.line([(crease_x, y_pos), (crease_x, end_y)], fill=color, width=1)
+            y_pos += dot_length + gap_length
 
     def _show_image(self, pil_img):
         self.photo_image = ImageTk.PhotoImage(pil_img)
@@ -1995,22 +2135,46 @@ class LayoutViewer:
         return thumb
 
     def prev_page(self):
-        if self.index > 0:
-            self.index -= 1
-            pageno = self.pages[self.index][0]
-            self.show_status(f'Loading page {pageno}...')
-            self.root.update_idletasks()
-            self.render_page()
+        if self.spread_mode.get():
+            # In spread mode, jump by 2 pages
+            if self.index > 1:
+                self.index -= 2
+            elif self.index > 0:
+                self.index -= 1
+            else:
+                return  # Already at first page
+        else:
+            if self.index > 0:
+                self.index -= 1
+            else:
+                return
+        
+        pageno = self.pages[self.index][0]
+        self.show_status(f'Loading page {pageno}...')
+        self.root.update_idletasks()
+        self.render_page()
 
     def next_page(self):
-        if self.index < len(self.pages)-1:
-            self.index += 1
-            pageno = self.pages[self.index][0]
-            self.show_status(f'Loading page {pageno}...')
-            self.root.update_idletasks()
-            self.render_page()
+        if self.spread_mode.get():
+            # In spread mode, jump by 2 pages
+            if self.index < len(self.pages) - 2:
+                self.index += 2
+            elif self.index < len(self.pages) - 1:
+                self.index += 1
+            else:
+                self.show_status('Last page of book')
+                return
         else:
-            self.show_status('Last page of book')
+            if self.index < len(self.pages) - 1:
+                self.index += 1
+            else:
+                self.show_status('Last page of book')
+                return
+        
+        pageno = self.pages[self.index][0]
+        self.show_status(f'Loading page {pageno}...')
+        self.root.update_idletasks()
+        self.render_page()
 
     def goto_page(self):
         try:
@@ -2060,6 +2224,36 @@ class LayoutViewer:
         self._resize_pending = False
         self.render_page()
     
+    def _on_spread_mode_change(self):
+        """Handle spread mode checkbox toggle - re-render current page(s)."""
+        # Update canvas aspect ratio and window geometry based on spread mode
+        if self.pages:
+            _, first_page_info = self.pages[0]
+            page_w = first_page_info.get('page_width', 2100.0)
+            page_h = first_page_info.get('page_height', 2970.0)
+        else:
+            page_w = 2100.0
+            page_h = 2970.0
+        
+        if self.spread_mode.get():
+            # Spread mode: double width for two pages
+            total_w_mcf = (2 * page_w) + 2 * self.margin_mcf
+            total_h_mcf = page_h + 2 * self.margin_mcf
+        else:
+            # Single page mode
+            total_w_mcf = page_w + 2 * self.margin_mcf
+            total_h_mcf = page_h + 2 * self.margin_mcf
+        
+        self.canvas_aspect_ratio = total_w_mcf / total_h_mcf
+        
+        # Update window aspect ratio
+        ratio_num = int(self.canvas_aspect_ratio * 1000)
+        ratio_denom = 1000
+        self.root.aspect(ratio_num, ratio_denom, ratio_num, ratio_denom)
+        
+        # Re-render with new mode
+        self.render_page()
+    
     def _update_modified_pages_display(self):
         """Update the modified pages label in Controls window."""
         if not self.modified_pages:
@@ -2086,8 +2280,11 @@ class LayoutViewer:
         # Message persists until page change or new message
 
     def generate_layout(self):
-        """Run collage-generator on current page photos in a background thread.
+        """Run layout algorithm on current page(s) in a background thread.
 
+        In spread mode, combines photos from both pages, runs algorithm on double-width
+        page, then splits results back to individual pages.
+        
         The Generate button is disabled while the operation runs and re-enabled
         when finished. Errors are shown; successful completion updates the UI
         without a popup.
@@ -2102,120 +2299,311 @@ class LayoutViewer:
         self.show_status('Running...')
 
         def worker():
-            pageno, info = self.pages[self.index]
-            current_layout = self.layout_mgr.get_current(pageno)
-            photos = current_layout.photos if current_layout else info.get('photos', [])
-
-            if not photos:
-                # re-enable on main thread
-                self.root.after(0, lambda: self.gen_btn.config(state='normal'))
-                return
-
-            page_w = info.get('page_width', 2100.0)
-            page_h = info.get('page_height', 2970.0)
+            in_spread_mode = self.spread_mode.get()
             
-            # Get current gaps for this page from layout manager
-            internal_gap = self.layout_mgr.get_internal_gap(pageno)
-            edge_gap = self.layout_mgr.get_edge_gap(pageno)
-
-            # Get texts for this page (from current layout, not original)
-            texts = current_layout.texts if current_layout else info.get('texts', [])
-            
-            # Create algorithm instance based on selection
-            algo_name = self.algorithm_var.get()
-            if algo_name == 'Collage-Gen':
-                algorithm = CollageGeneratorAlgorithm(temperature=1.0)
-            elif algo_name == 'Fan-GA':
-                algorithm = FanLayoutAlgorithm(
-                    size_importance=self.size_importance,
-                    undersized_threshold=self.undersized_threshold,
-                    undersized_penalty=self.undersized_penalty
-                )
-            elif algo_name == 'Gridify':
-                algorithm = GridifyAlgorithm(debug=self.debug_var.get())
-            elif algo_name == 'Tree-Builder':
-                algorithm = TreeBuilderAlgorithm(tolerance=20.0)
-            else:
-                algorithm = CollageGeneratorAlgorithm(temperature=1.0)  # fallback
-            
-            # Collect checkbox states for photos on this page
-            use_slot_aspect_for_photos = {}
-            for photo_idx in range(len(photos)):
-                checkbox_key = (pageno, photo_idx)
-                if checkbox_key in self.use_slot_aspect:
-                    use_slot_aspect_for_photos[photo_idx] = self.use_slot_aspect[checkbox_key].get()
-            
-            # Collect custom slot aspect ratios for all items on this page
-            slot_aspect_ratios_for_page = {}
-            num_items = len(photos) + len(texts)
-            for item_idx in range(num_items):
-                ar_key = (pageno, item_idx)
-                if ar_key in self.slot_aspect_ratios:
-                    slot_aspect_ratios_for_page[item_idx] = self.slot_aspect_ratios[ar_key]
-
-            # Build preferred_sizes dict from layout manager
-            preferred_sizes = {}
-            for i, p in enumerate(photos):
-                fn = p.get('filename', '')
-                if fn:
-                    base_fn, _, _ = extract_metadata_from_filename(fn)
-                    preferred_sizes[fn] = self.layout_mgr.get_size(pageno, base_fn)
-            for i, t in enumerate(texts):
-                text_id = f'TEXT_{i}'
-                preferred_sizes[text_id] = self.layout_mgr.get_size(pageno, text_id)
-            
-            success, updated_photos, updated_texts, error_msg = generate_layout_for_page(
-                photos, page_w, page_h, self.photo_dimensions,
-                algorithm=algorithm, edge_gap=edge_gap, internal_gap=internal_gap, texts=texts,
-                preferred_sizes=preferred_sizes,
-                use_slot_aspect=use_slot_aspect_for_photos, 
-                slot_aspect_ratios=slot_aspect_ratios_for_page,
-                origin_left=info.get('origin_left', 0.0), pageno=pageno
-            )
-            
-            # MCF stores area_left as absolute coordinates relative to the full spread.
-            # The collage generator returns coordinates relative to the single-page
-            # width (0..page_w). Add origin_left back so updated area_left matches
-            # the original absolute coordinate system.
-            if success and updated_photos:
-                origin_left = info.get('origin_left', 0.0)
-                if origin_left:
-                    for up in updated_photos:
-                        # Some items may lack area_left; guard the addition
-                        if 'area_left' in up and up['area_left'] is not None:
-                            up['area_left'] = up['area_left'] + origin_left
-            
-            # Apply origin_left to updated_texts as well
-            if success and updated_texts:
-                origin_left = info.get('origin_left', 0.0)
-                if origin_left:
-                    for ut in updated_texts:
-                        if 'area_left' in ut and ut['area_left'] is not None:
-                            ut['area_left'] = ut['area_left'] + origin_left
-
-            def on_done():
-                # re-enable button
-                try:
-                    self.gen_btn.config(state='normal')
-                except Exception as e:
-                    logger.error(f"Failed to re-enable Generate Layout button: {e}")
-
-                if not success:
-                    self.show_status(f'Layout generation failed: {error_msg}', error=True)
+            if in_spread_mode and len(self.current_spread_pages) == 2:
+                # Spread mode: work with both pages combined
+                page_indices = [self.index, self.index + 1]
+                page_numbers = self.current_spread_pages
+                
+                # Collect photos and texts from both pages
+                all_photos = []
+                all_texts = []
+                page_infos = []
+                
+                for page_idx in page_indices:
+                    pageno, info = self.pages[page_idx]
+                    page_infos.append((pageno, info))
+                    current_layout = self.layout_mgr.get_current(pageno)
+                    photos = current_layout.photos if current_layout else info.get('photos', [])
+                    texts = current_layout.texts if current_layout else info.get('texts', [])
+                    all_photos.extend(photos)
+                    all_texts.extend(texts)
+                
+                if not all_photos:
+                    self.root.after(0, lambda: self.gen_btn.config(state='normal'))
                     return
                 
-                self.show_status(f'Layout generated successfully using {self.algorithm_var.get()}')
-
-                # Push new layout (both photos and texts) to manager and refresh view
-                self.layout_mgr.push_layout(pageno, updated_photos, updated_texts)
+                # Use first page's dimensions (they should be identical)
+                _, info0 = page_infos[0]
+                page_w = info0.get('page_width', 2100.0)
+                page_h = info0.get('page_height', 2970.0)
                 
-                # Mark page as modified
-                self.modified_pages.add(pageno)
-                self._update_modified_pages_display()
+                # Double width for spread
+                spread_w = 2 * page_w
                 
-                self.render_page()
+                # Offset right page photos by page_w (they're currently relative to right page's origin)
+                # First page photos are already correct (left-aligned)
+                # Right page photos need their coordinates adjusted to be relative to spread origin
+                _, info1 = page_infos[1]
+                origin_left_1 = info1.get('origin_left', 0.0)
+                num_photos_page0 = len(page_infos[0][1].get('photos', []))
+                
+                # Adjust right-page photo coordinates to be relative to spread (not individual page)
+                # Right page photos start at index num_photos_page0
+                for i in range(num_photos_page0, len(all_photos)):
+                    photo = all_photos[i]
+                    # Remove origin_left offset (which positioned it on right page)
+                    # Then add page_w to position it on the right half of the spread
+                    if 'area_left' in photo and photo['area_left'] is not None:
+                        photo['area_left'] = (photo['area_left'] - origin_left_1) + page_w
+                
+                # Similar adjustment for texts
+                num_texts_page0 = len(page_infos[0][1].get('texts', []))
+                for i in range(num_texts_page0, len(all_texts)):
+                    text = all_texts[i]
+                    if 'area_left' in text and text['area_left'] is not None:
+                        text['area_left'] = (text['area_left'] - origin_left_1) + page_w
+                
+                # Get gaps (use first page's gaps for the whole spread)
+                pageno0 = page_numbers[0]
+                internal_gap = self.layout_mgr.get_internal_gap(pageno0)
+                edge_gap = self.layout_mgr.get_edge_gap(pageno0)
+                
+                # Build preferred_sizes from both pages
+                preferred_sizes = {}
+                for page_idx, (pageno, _) in enumerate(page_infos):
+                    current_layout = self.layout_mgr.get_current(pageno)
+                    photos_for_page = current_layout.photos if current_layout else page_infos[page_idx][1].get('photos', [])
+                    texts_for_page = current_layout.texts if current_layout else page_infos[page_idx][1].get('texts', [])
+                    
+                    for p in photos_for_page:
+                        fn = p.get('filename', '')
+                        if fn:
+                            base_fn, _, _ = extract_metadata_from_filename(fn)
+                            preferred_sizes[fn] = self.layout_mgr.get_size(pageno, base_fn)
+                    for i, t in enumerate(texts_for_page):
+                        text_id = f'TEXT_{i}'
+                        preferred_sizes[text_id] = self.layout_mgr.get_size(pageno, text_id)
+                
+                # Create algorithm instance
+                algo_name = self.algorithm_var.get()
+                if algo_name == 'Collage-Gen':
+                    algorithm = CollageGeneratorAlgorithm(temperature=1.0)
+                elif algo_name == 'Fan-GA':
+                    algorithm = FanLayoutAlgorithm(
+                        size_importance=self.size_importance,
+                        undersized_threshold=self.undersized_threshold,
+                        undersized_penalty=self.undersized_penalty
+                    )
+                elif algo_name == 'Gridify':
+                    algorithm = GridifyAlgorithm(debug=self.debug_var.get())
+                elif algo_name == 'Tree-Builder':
+                    algorithm = TreeBuilderAlgorithm(tolerance=60.0)
+                else:
+                    algorithm = CollageGeneratorAlgorithm(temperature=1.0)
+                
+                # Collect checkbox states and slot aspect ratios (combine from both pages)
+                use_slot_aspect_for_photos = {}
+                slot_aspect_ratios_combined = {}
+                photo_offset = 0
+                text_offset = 0
+                
+                for page_idx, (pageno, _) in enumerate(page_infos):
+                    current_layout = self.layout_mgr.get_current(pageno)
+                    photos_for_page = current_layout.photos if current_layout else page_infos[page_idx][1].get('photos', [])
+                    texts_for_page = current_layout.texts if current_layout else page_infos[page_idx][1].get('texts', [])
+                    
+                    for local_photo_idx in range(len(photos_for_page)):
+                        checkbox_key = (pageno, local_photo_idx)
+                        if checkbox_key in self.use_slot_aspect:
+                            use_slot_aspect_for_photos[photo_offset + local_photo_idx] = self.use_slot_aspect[checkbox_key].get()
+                    
+                    num_items = len(photos_for_page) + len(texts_for_page)
+                    for local_item_idx in range(num_items):
+                        ar_key = (pageno, local_item_idx)
+                        if ar_key in self.slot_aspect_ratios:
+                            slot_aspect_ratios_combined[photo_offset + text_offset + local_item_idx] = self.slot_aspect_ratios[ar_key]
+                    
+                    photo_offset += len(photos_for_page)
+                    text_offset += len(texts_for_page)
+                
+                # Run algorithm on combined spread
+                success, updated_photos, updated_texts, error_msg = generate_layout_for_page(
+                    all_photos, spread_w, page_h, self.photo_dimensions,
+                    algorithm=algorithm, edge_gap=edge_gap, internal_gap=internal_gap, texts=all_texts,
+                    preferred_sizes=preferred_sizes,
+                    use_slot_aspect=use_slot_aspect_for_photos,
+                    slot_aspect_ratios=slot_aspect_ratios_combined,
+                    origin_left=0.0,  # Spread starts at 0
+                    pageno=pageno0  # For logging
+                )
+                
+                if not success:
+                    def on_error():
+                        try:
+                            self.gen_btn.config(state='normal')
+                        except Exception as e:
+                            logger.error(f"Failed to re-enable Generate Layout button: {e}")
+                        self.show_status(f'Layout generation failed: {error_msg}', error=True)
+                    self.root.after(0, on_error)
+                    return
+                
+                # Split results back into two pages
+                # Photos/texts on left half (x < page_w) go to page 0
+                # Photos/texts on right half (x >= page_w) go to page 1
+                photos_page0 = []
+                photos_page1 = []
+                texts_page0 = []
+                texts_page1 = []
+                
+                for photo in updated_photos:
+                    area_left = photo.get('area_left', 0)
+                    if area_left < page_w:
+                        # Left page - coordinates stay as-is
+                        photos_page0.append(photo)
+                    else:
+                        # Right page - adjust coordinates
+                        photo_copy = dict(photo)
+                        # Subtract page_w to get page-relative coordinate, then add origin_left
+                        photo_copy['area_left'] = (area_left - page_w) + origin_left_1
+                        photos_page1.append(photo_copy)
+                
+                for text in updated_texts:
+                    area_left = text.get('area_left', 0)
+                    if area_left < page_w:
+                        texts_page0.append(text)
+                    else:
+                        text_copy = dict(text)
+                        text_copy['area_left'] = (area_left - page_w) + origin_left_1
+                        texts_page1.append(text_copy)
+                
+                # Push layouts and mark both pages modified
+                def on_spread_done():
+                    try:
+                        self.gen_btn.config(state='normal')
+                    except Exception as e:
+                        logger.error(f"Failed to re-enable Generate Layout button: {e}")
+                    
+                    self.show_status(f'Layout generated successfully using {self.algorithm_var.get()} (spread)')
+                    
+                    self.layout_mgr.push_layout(page_numbers[0], photos_page0, texts_page0)
+                    self.layout_mgr.push_layout(page_numbers[1], photos_page1, texts_page1)
+                    
+                    self.modified_pages.add(page_numbers[0])
+                    self.modified_pages.add(page_numbers[1])
+                    self._update_modified_pages_display()
+                    
+                    self.render_page()
+                
+                self.root.after(0, on_spread_done)
+                
+            else:
+                # Single page mode - original logic
+                pageno, info = self.pages[self.index]
+                current_layout = self.layout_mgr.get_current(pageno)
+                photos = current_layout.photos if current_layout else info.get('photos', [])
 
-            self.root.after(0, on_done)
+                if not photos:
+                    # re-enable on main thread
+                    self.root.after(0, lambda: self.gen_btn.config(state='normal'))
+                    return
+
+                page_w = info.get('page_width', 2100.0)
+                page_h = info.get('page_height', 2970.0)
+                
+                # Get current gaps for this page from layout manager
+                internal_gap = self.layout_mgr.get_internal_gap(pageno)
+                edge_gap = self.layout_mgr.get_edge_gap(pageno)
+
+                # Get texts for this page (from current layout, not original)
+                texts = current_layout.texts if current_layout else info.get('texts', [])
+                
+                # Create algorithm instance based on selection
+                algo_name = self.algorithm_var.get()
+                if algo_name == 'Collage-Gen':
+                    algorithm = CollageGeneratorAlgorithm(temperature=1.0)
+                elif algo_name == 'Fan-GA':
+                    algorithm = FanLayoutAlgorithm(
+                        size_importance=self.size_importance,
+                        undersized_threshold=self.undersized_threshold,
+                        undersized_penalty=self.undersized_penalty
+                    )
+                elif algo_name == 'Gridify':
+                    algorithm = GridifyAlgorithm(debug=self.debug_var.get())
+                elif algo_name == 'Tree-Builder':
+                    algorithm = TreeBuilderAlgorithm(tolerance=60.0)
+                else:
+                    algorithm = CollageGeneratorAlgorithm(temperature=1.0)  # fallback
+                
+                # Collect checkbox states for photos on this page
+                use_slot_aspect_for_photos = {}
+                for photo_idx in range(len(photos)):
+                    checkbox_key = (pageno, photo_idx)
+                    if checkbox_key in self.use_slot_aspect:
+                        use_slot_aspect_for_photos[photo_idx] = self.use_slot_aspect[checkbox_key].get()
+                
+                # Collect custom slot aspect ratios for all items on this page
+                slot_aspect_ratios_for_page = {}
+                num_items = len(photos) + len(texts)
+                for item_idx in range(num_items):
+                    ar_key = (pageno, item_idx)
+                    if ar_key in self.slot_aspect_ratios:
+                        slot_aspect_ratios_for_page[item_idx] = self.slot_aspect_ratios[ar_key]
+
+                # Build preferred_sizes dict from layout manager
+                preferred_sizes = {}
+                for i, p in enumerate(photos):
+                    fn = p.get('filename', '')
+                    if fn:
+                        base_fn, _, _ = extract_metadata_from_filename(fn)
+                        preferred_sizes[fn] = self.layout_mgr.get_size(pageno, base_fn)
+                for i, t in enumerate(texts):
+                    text_id = f'TEXT_{i}'
+                    preferred_sizes[text_id] = self.layout_mgr.get_size(pageno, text_id)
+                
+                success, updated_photos, updated_texts, error_msg = generate_layout_for_page(
+                    photos, page_w, page_h, self.photo_dimensions,
+                    algorithm=algorithm, edge_gap=edge_gap, internal_gap=internal_gap, texts=texts,
+                    preferred_sizes=preferred_sizes,
+                    use_slot_aspect=use_slot_aspect_for_photos, 
+                    slot_aspect_ratios=slot_aspect_ratios_for_page,
+                    origin_left=info.get('origin_left', 0.0), pageno=pageno
+                )
+                
+                # MCF stores area_left as absolute coordinates relative to the full spread.
+                # The collage generator returns coordinates relative to the single-page
+                # width (0..page_w). Add origin_left back so updated area_left matches
+                # the original absolute coordinate system.
+                if success and updated_photos:
+                    origin_left = info.get('origin_left', 0.0)
+                    if origin_left:
+                        for up in updated_photos:
+                            # Some items may lack area_left; guard the addition
+                            if 'area_left' in up and up['area_left'] is not None:
+                                up['area_left'] = up['area_left'] + origin_left
+                
+                # Apply origin_left to updated_texts as well
+                if success and updated_texts:
+                    origin_left = info.get('origin_left', 0.0)
+                    if origin_left:
+                        for ut in updated_texts:
+                            if 'area_left' in ut and ut['area_left'] is not None:
+                                ut['area_left'] = ut['area_left'] + origin_left
+
+                def on_done():
+                    # re-enable button
+                    try:
+                        self.gen_btn.config(state='normal')
+                    except Exception as e:
+                        logger.error(f"Failed to re-enable Generate Layout button: {e}")
+
+                    if not success:
+                        self.show_status(f'Layout generation failed: {error_msg}', error=True)
+                        return
+                    
+                    self.show_status(f'Layout generated successfully using {self.algorithm_var.get()}')
+
+                    # Push new layout (both photos and texts) to manager and refresh view
+                    self.layout_mgr.push_layout(pageno, updated_photos, updated_texts)
+                    
+                    # Mark page as modified
+                    self.modified_pages.add(pageno)
+                    self._update_modified_pages_display()
+                    
+                    self.render_page()
+
+                self.root.after(0, on_done)
 
         t = threading.Thread(target=worker, daemon=True)
         t.start()
