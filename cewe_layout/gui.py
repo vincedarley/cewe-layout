@@ -1270,8 +1270,10 @@ class LayoutViewer:
         for key in keys_to_remove:
             del self.slot_aspect_ratios[key]
         
-        # Mark page(s) as modified
-        self._mark_current_pages_modified()
+        # Mark only the page where photos were actually added as modified
+        # (not both pages in spread mode, since photos are added to one page only)
+        self.modified_pages.add(pageno)
+        self._update_modified_pages_display()
         
         # Set preferred sizes for ALL photos (existing + new) based on EXIF data
         # and populate photo_dimensions cache for algorithm use
