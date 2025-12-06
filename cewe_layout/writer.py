@@ -370,9 +370,12 @@ def update_page_layout(path: str, pageno: int, photos: List[Dict[str, Any]],
     
     # Helper function to check if an area belongs to this logical page
     def belongs_to_page(area_left: float, area_width: float) -> bool:
-        """Check if an area's center is within this page's x-range."""
-        center_x = area_left + area_width / 2.0
-        return x_min <= center_x < x_max
+        """Check if an area's left edge is within this page's x-range.
+        
+        Uses left edge (not center) to match the logic used everywhere else in the codebase.
+        Photos are assigned to the page where they start, even if they span across pages.
+        """
+        return x_min <= area_left < x_max
     
     # Track statistics
     modified_photos = 0
