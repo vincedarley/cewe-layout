@@ -2346,7 +2346,13 @@ class LayoutViewer:
         ratio_denom = 1000
         self.root.aspect(ratio_num, ratio_denom, ratio_num, ratio_denom)
         
-        # Re-render with new mode
+        # Clear gaps for all pages so they get recalculated with new page dimensions
+        # When switching to spread mode, gaps need to be analyzed across double-width spread
+        # When switching to single page, gaps need to be analyzed for single page width
+        for pageno, _ in self.pages:
+            self.layout_mgr.clear_gaps(pageno)
+        
+        # Re-render with new mode (this will trigger update_weights_display which recalculates gaps)
         self.render_page()
     
     def _update_modified_pages_display(self):
