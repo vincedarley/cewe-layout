@@ -2118,8 +2118,8 @@ class LayoutViewer:
             internal_gap = self.layout_mgr.get_internal_gap(pageno)
             edge_gap = self.layout_mgr.get_edge_gap(pageno)
 
-            # Get texts for this page
-            texts = info.get('texts', [])
+            # Get texts for this page (from current layout, not original)
+            texts = current_layout.texts if current_layout else info.get('texts', [])
             
             # Create algorithm instance based on selection
             algo_name = self.algorithm_var.get()
