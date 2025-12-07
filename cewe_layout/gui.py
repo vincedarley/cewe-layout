@@ -218,13 +218,13 @@ class LayoutViewer:
             photos = info.get('photos', [])
             texts = info.get('texts', [])
             all_items = photos + texts
-            page_w = info.get('page_width', 2100.0)
-            page_h = info.get('page_height', 2970.0)
+            page_w = info.get('page_width')
+            page_h = info.get('page_height')
             origin_left = info.get('origin_left', 0.0)
             
             # Estimate gap to compute gap-free areas (matching evaluation coordinate space)
             # Use internal gap preferentially
-            edge_gap, inter_gap = analyze_gaps(all_items, page_w, page_h, origin_left) if all_items else (0.0, 0.0)
+            edge_gap, inter_gap = analyze_gaps(all_items, page_w, page_h, origin_left, self.spread_mode.get()) if all_items else (0.0, 0.0)
             gap = inter_gap if inter_gap > 0 else edge_gap
             
             # Compute total area in gap-free space (add gap to each photo dimension)
@@ -273,16 +273,12 @@ class LayoutViewer:
         self.button_pixel = tk.PhotoImage(width=1, height=1)  # For compact buttons
 
         # Calculate canvas dimensions based on actual page size from first page
-        # Add 5mm (50 MCF units) margin on all sides
+        # Add 5mm (50 MCF units) margin on all sides, just for display purposes. 
+        # It is not a part of the actual book!
         self.margin_mcf = 50.0
-        if self.pages:
-            _, first_page_info = self.pages[0]
-            page_w = first_page_info.get('page_width', 2100.0)
-            page_h = first_page_info.get('page_height', 2970.0)
-        else:
-            # Fallback if no pages
-            page_w = 2100.0
-            page_h = 2970.0
+        _, first_page_info = self.pages[0]
+        page_w = first_page_info.get('page_width')
+        page_h = first_page_info.get('page_height')
         
         # Total dimensions including margins (this is our fixed aspect ratio)
         total_w_mcf = page_w + 2 * self.margin_mcf
@@ -680,8 +676,6 @@ class LayoutViewer:
         all_photos = []
         all_texts = []
         background_id = None
-        page_w = 2100.0
-        page_h = 2970.0
         
         for page_idx in page_indices:
             pageno_i, info_i = self.pages[page_idx]
@@ -693,8 +687,8 @@ class LayoutViewer:
             
             # Use first page's dimensions and background
             if page_idx == page_indices[0]:
-                page_w = info_i.get('page_width', 2100.0)
-                page_h = info_i.get('page_height', 2970.0)
+                page_w = info_i.get('page_width')
+                page_h = info_i.get('page_height')
                 background_id = info_i.get('background_id')
         
         # Update window title with photobook name and page info
@@ -1262,8 +1256,8 @@ class LayoutViewer:
         all_photos = list(non_empty_photos) + new_photos
         
         # Create initial layout rectangles for all photos
-        page_w = info.get('page_width', 2100.0)
-        page_h = info.get('page_height', 2970.0)
+        page_w = info.get('page_width')
+        page_h = info.get('page_height')
         origin_left = info.get('origin_left', 0.0)
         
         layout_photos = self._create_initial_layout(all_photos, page_w, page_h, origin_left)
@@ -1475,7 +1469,8 @@ class LayoutViewer:
             all_texts = []
             # Use first (left/even) page for dimensions and gaps
             pageno = self.current_spread_pages[0]
-            
+            is_left_page = False
+
             # Find the page info for both pages
             page_info_left = None
             page_info_right = None
@@ -1505,9 +1500,9 @@ class LayoutViewer:
             photos = all_photos
             texts = all_texts
             info = page_info_left
-            page_w = info.get('page_width', 2100.0) * 2  # Double width for spread
-            page_h = info.get('page_height', 2970.0)
-            origin_left = info.get('origin_left', 0.0)
+            page_w = info.get('page_width') * 2  # Double width for spread
+            page_h = info.get('page_height')
+            origin_left = info.get('origin_left')
         else:
             # Single page mode
             pageno, info = self.pages[self.index]
@@ -1515,9 +1510,10 @@ class LayoutViewer:
             photos = current_layout.photos if current_layout else info.get('photos', [])
             texts = current_layout.texts if current_layout else info.get('texts', [])
             
-            page_w = info.get('page_width', 2100.0)
-            page_h = info.get('page_height', 2970.0)
-            origin_left = info.get('origin_left', 0.0)
+            page_w = info.get('page_width')
+            page_h = info.get('page_height')
+            origin_left = info.get('origin_left')
+            is_left_page = origin_left == 0.0
         
         # Initialize gaps from ORIGINAL layout on first visit to this page
         # Check if gaps have been set (key exists, not value-based check)
@@ -1526,27 +1522,23 @@ class LayoutViewer:
             original_photos = info.get('photos', [])
             original_texts = info.get('texts', [])
             original_items = original_photos + original_texts
-            
+
             if original_items:
-                analysis = analyze_gap_details(original_items, page_w, page_h, origin_left)
-                
-                # Set edge_gap: use negative value for bleed, positive for margin
+                analysis = analyze_gap_details(original_items, page_w, page_h, origin_left, self.spread_mode.get())
+
+                # For now, use negative edge_gap for bleed, positive for margin
                 if analysis.bleed > 0:
-                    # Bleed detected: use negative edge_gap
                     self.layout_mgr.set_edge_gap(pageno, -analysis.bleed)
                 else:
-                    # No bleed: use positive edge_gap (margin)
                     self.layout_mgr.set_edge_gap(pageno, analysis.edge_gap)
-                
+
                 # Set internal_gap: prefer internal, fallback to edge
                 if analysis.internal_gap > 0:
                     self.layout_mgr.set_internal_gap(pageno, analysis.internal_gap)
                 else:
-                    # No internal gaps detected, use edge_gap as fallback
-                    self.layout_mgr.set_internal_gap(pageno, analysis.edge_gap)
+                    self.layout_mgr.set_internal_gap(pageno, 0)
             else:
                 # No items to analyze, set defaults (14mm edge, 9mm internal)
-                # MCF units are 0.1mm, so 14mm = 140 units, 9mm = 90 units
                 self.layout_mgr.set_edge_gap(pageno, 140.0)
                 self.layout_mgr.set_internal_gap(pageno, 90.0)
         
@@ -1593,14 +1585,11 @@ class LayoutViewer:
             top = p.get('area_top', 0)
             w = p.get('area_width', 0)
             h = p.get('area_height', 0)
-            
             fn = p.get('filename', '')
             base_fn, _, _ = extract_metadata_from_filename(fn)
             preferred_size = self.layout_mgr.get_size(pageno, base_fn)
-            
-            # Transform to gap-free space using centralized function
             gf_left, gf_top, gf_width, gf_height = transform_item_to_gapfree(
-                left, top, w, h, edge_gap, internal_gap
+                left, top, w, h, edge_gap, internal_gap, self.spread_mode.get(), is_left_page
             )
             
             rect = LayoutRectangle(
@@ -1622,13 +1611,10 @@ class LayoutViewer:
             top = t.get('area_top', 0)
             w = t.get('area_width', 0)
             h = t.get('area_height', 0)
-            
             text_id = f'TEXT_{i}'
             preferred_size = self.layout_mgr.get_size(pageno, text_id)
-            
-            # Transform to gap-free space using centralized function
             gf_left, gf_top, gf_width, gf_height = transform_item_to_gapfree(
-                left, top, w, h, edge_gap, internal_gap
+                left, top, w, h, edge_gap, internal_gap, self.spread_mode.get(), is_left_page
             )
             
             rect = LayoutRectangle(
@@ -1646,7 +1632,7 @@ class LayoutViewer:
         
         # Evaluate in gap-free coordinate space using centralized transformation
         eval_page_w, eval_page_h = transform_page_to_gapfree(
-            page_w, page_h, edge_gap, internal_gap
+            page_w, page_h, edge_gap, internal_gap, self.spread_mode.get()
         )
         
         # DEBUG: Print evaluation inputs if debug flag is set
@@ -1898,8 +1884,8 @@ class LayoutViewer:
         photos = current_layout.photos if current_layout else info.get('photos', [])
         texts = current_layout.texts if current_layout else info.get('texts', [])
         
-        page_w = info.get('page_width', 2100.0)
-        page_h = info.get('page_height', 2970.0)
+        page_w = info.get('page_width')
+        page_h = info.get('page_height')
         origin_left = info.get('origin_left', 0.0)
         
         # Create new text box with default dimensions (20% of page width, 10% of page height)
@@ -2093,8 +2079,8 @@ class LayoutViewer:
             return  # No layout to transform
         
         _, info = self.pages[self.index]
-        page_w = info.get('page_width', 2100.0)
-        page_h = info.get('page_height', 2970.0)
+        page_w = info.get('page_width')
+        page_h = info.get('page_height')
         origin_left = info.get('origin_left', 0.0)
         
         # Transform photos using centralized helper
@@ -2108,10 +2094,11 @@ class LayoutViewer:
             
             # Convert to page-relative coordinates for transformation
             page_left = spread_left - origin_left
-            
+            # Determine spread mode for transformation
             new_left, new_top, new_width, new_height = transform_item_for_gap_change(
                 page_left, top, width, height, page_w, page_h,
-                old_edge_gap, old_internal_gap, new_edge_gap, new_internal_gap
+                old_edge_gap, old_internal_gap, new_edge_gap, new_internal_gap, self.spread_mode.get(),
+                origin_left == 0.0  # Is left page
             )
             
             # Convert back to spread-relative coordinates
@@ -2135,10 +2122,10 @@ class LayoutViewer:
             
             # Convert to page-relative coordinates for transformation
             page_left = spread_left - origin_left
-            
             new_left, new_top, new_width, new_height = transform_item_for_gap_change(
                 page_left, top, width, height, page_w, page_h,
-                old_edge_gap, old_internal_gap, new_edge_gap, new_internal_gap
+                old_edge_gap, old_internal_gap, new_edge_gap, new_internal_gap, self.spread_mode.get(),
+                origin_left == 0.0  # Is left page
             )
             
             # Convert back to spread-relative coordinates
@@ -2386,13 +2373,9 @@ class LayoutViewer:
     def _on_spread_mode_change(self):
         """Handle spread mode checkbox toggle - re-render current page(s)."""
         # Update canvas aspect ratio and window geometry based on spread mode
-        if self.pages:
-            _, first_page_info = self.pages[0]
-            page_w = first_page_info.get('page_width', 2100.0)
-            page_h = first_page_info.get('page_height', 2970.0)
-        else:
-            page_w = 2100.0
-            page_h = 2970.0
+        _, first_page_info = self.pages[0]
+        page_w = first_page_info.get('page_width')
+        page_h = first_page_info.get('page_height')
         
         if self.spread_mode.get():
             # Entering spread mode: navigate to nearest even page
@@ -2539,8 +2522,8 @@ class LayoutViewer:
                 
                 # Use first page's dimensions (they should be identical)
                 _, info0 = page_infos[0]
-                page_w = info0.get('page_width', 2100.0)
-                page_h = info0.get('page_height', 2970.0)
+                page_w = info0.get('page_width')
+                page_h = info0.get('page_height')
                 
                 # Double width for spread
                 spread_w = 2 * page_w
@@ -2844,8 +2827,8 @@ class LayoutViewer:
                     self.root.after(0, lambda: self.gen_btn.config(state='normal'))
                     return
 
-                page_w = info.get('page_width', 2100.0)
-                page_h = info.get('page_height', 2970.0)
+                page_w = info.get('page_width')
+                page_h = info.get('page_height')
                 
                 # Get current gaps for this page from layout manager
                 internal_gap = self.layout_mgr.get_internal_gap(pageno)
@@ -3251,8 +3234,8 @@ class LayoutViewer:
         if not self.pages:
             return
         pageno, info = self.pages[self.index]
-        page_w = info.get('page_width', 2100.0)
-        page_h = info.get('page_height', 2970.0)
+        page_w = info.get('page_width')
+        page_h = info.get('page_height')
         origin_left = info.get('origin_left', 0.0)
         stored = self.layout_mgr.get_stored_sizes_for_page(pageno, page_w, page_h, origin_left)
         if not stored:

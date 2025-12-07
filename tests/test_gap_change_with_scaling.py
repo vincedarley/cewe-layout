@@ -14,6 +14,10 @@ old_gap = 112.0
 new_edge = 50.0
 new_gap = 10.0
 
+# Assume single page, left side
+is_spread = False
+is_left_page = True
+
 # Bottom-right photo in MCF with old gaps
 br_left = 1106.0
 br_top = 1541.0
@@ -26,18 +30,18 @@ print(f"Right edge: {br_left + br_width} (should be {page_w - old_edge})")
 print(f"Bottom edge: {br_top + br_height} (should be {page_h - old_edge})")
 
 print("\n=== Transform to gap-free (old gaps) ===")
-old_gf_page_w, old_gf_page_h = transform_page_to_gapfree(page_w, page_h, old_edge, old_gap)
+old_gf_page_w, old_gf_page_h = transform_page_to_gapfree(page_w, page_h, old_edge, old_gap, is_spread)
 print(f"Old gap-free page: {old_gf_page_w} x {old_gf_page_h}")
 
 gf_left, gf_top, gf_width, gf_height = transform_item_to_gapfree(
-    br_left, br_top, br_width, br_height, old_edge, old_gap
+    br_left, br_top, br_width, br_height, old_edge, old_gap, is_spread, is_left_page
 )
 print(f"Gap-free photo: ({gf_left}, {gf_top}, {gf_width}, {gf_height})")
 print(f"Right edge: {gf_left + gf_width} (should be {old_gf_page_w})")
 print(f"Bottom edge: {gf_top + gf_height} (should be {old_gf_page_h})")
 
 print("\n=== Calculate new gap-free page ===")
-new_gf_page_w, new_gf_page_h = transform_page_to_gapfree(page_w, page_h, new_edge, new_gap)
+new_gf_page_w, new_gf_page_h = transform_page_to_gapfree(page_w, page_h, new_edge, new_gap, is_spread)
 print(f"New gap-free page: {new_gf_page_w} x {new_gf_page_h}")
 
 scale_w = new_gf_page_w / old_gf_page_w
@@ -56,7 +60,7 @@ print(f"Bottom edge: {scaled_gf_top + scaled_gf_height:.1f} (should be {new_gf_p
 print("\n=== Transform back to MCF (new gaps) ===")
 new_left, new_top, new_width, new_height = transform_item_from_gapfree(
     scaled_gf_left, scaled_gf_top, scaled_gf_width, scaled_gf_height,
-    new_edge, new_gap
+    new_edge, new_gap, is_spread, is_left_page
 )
 print(f"New MCF: ({new_left:.1f}, {new_top:.1f}, {new_width:.1f}, {new_height:.1f})")
 print(f"Right edge: {new_left + new_width:.1f} (should be {page_w - new_edge})")

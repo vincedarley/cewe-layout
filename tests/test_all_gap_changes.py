@@ -14,6 +14,8 @@ from cewe_layout.gap_utils import transform_item_for_gap_change, transform_page_
 # Test setup
 page_w = 2100.0
 page_h = 2970.0
+is_spread = False  # Single page mode
+is_left_page = True
 
 def calculate_br_photo_for_gaps(edge, internal):
     """Calculate bottom-right photo position for a 2x2 grid with given gaps."""
@@ -39,8 +41,8 @@ def test_change(name, old_edge, old_internal, new_edge, new_internal):
     original_left, original_top, original_width, original_height = calculate_br_photo_for_gaps(old_edge, old_internal)
     
     # Calculate gap-free page sizes
-    old_gf_w, old_gf_h = transform_page_to_gapfree(page_w, page_h, old_edge, old_internal)
-    new_gf_w, new_gf_h = transform_page_to_gapfree(page_w, page_h, new_edge, new_internal)
+    old_gf_w, old_gf_h = transform_page_to_gapfree(page_w, page_h, old_edge, old_internal, is_spread)
+    new_gf_w, new_gf_h = transform_page_to_gapfree(page_w, page_h, new_edge, new_internal, is_spread)
     
     print(f"\nGap-free pages:")
     print(f"  Old: {old_gf_w} x {old_gf_h}")
@@ -51,7 +53,8 @@ def test_change(name, old_edge, old_internal, new_edge, new_internal):
     new_left, new_top, new_width, new_height = transform_item_for_gap_change(
         original_left, original_top, original_width, original_height,
         page_w, page_h,
-        old_edge, old_internal, new_edge, new_internal
+        old_edge, old_internal, new_edge, new_internal,
+        is_spread, is_left_page
     )
     
     print(f"\nPhoto transformation:")
@@ -59,7 +62,14 @@ def test_change(name, old_edge, old_internal, new_edge, new_internal):
     print(f"  New MCF: ({new_left:.1f}, {new_top:.1f}, {new_width:.1f}, {new_height:.1f})")
     
     # Check if photo fits within page bounds (accounting for new edge_gap)
-    expected_right = page_w - new_edge
+    # For single page mode with negative edge_gap (bleed), right edge is at page_w (no bleed at centerfold)
+    if not is_spread and new_edge < 0:
+        if is_left_page:
+            expected_right = page_w  # No bleed at centerfold (right edge)
+        else:
+            expected_right = page_w - new_edge  # Bleed on outer edge (right)
+    else:
+        expected_right = page_w - new_edge
     expected_bottom = page_h - new_edge
     
     actual_right = new_left + new_width

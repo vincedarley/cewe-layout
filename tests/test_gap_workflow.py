@@ -13,7 +13,7 @@ import sys
 sys.path.insert(0, '.')
 
 from cewe_layout.layout_ops import LayoutManager
-from cewe_layout.gap_utils import analyze_gaps, transform_item_to_gapfree, transform_item_from_gapfree
+from cewe_layout.gap_utils import analyze_gap_details, transform_item_to_gapfree, transform_item_from_gapfree
 
 
 def test_complete_gap_workflow():
@@ -38,7 +38,8 @@ def test_complete_gap_workflow():
     
     # Step 2: Analyze and initialize gaps
     print("\nStep 2: Initialize gaps from layout analysis")
-    analysis = analyze_gaps(original_photos, page_w, page_h, origin_left=0.0)
+    is_spread = False  # Single page
+    analysis = analyze_gap_details(original_photos, page_w, page_h, origin_left=0.0, is_spread=is_spread)
     print(f"  Analysis: edge_gap={analysis.edge_gap:.1f}, internal_gap={analysis.internal_gap:.1f}, bleed={analysis.bleed:.1f}")
     
     # Initialize based on analysis (simulating GUI logic)
@@ -62,18 +63,19 @@ def test_complete_gap_workflow():
     old_edge_gap = mgr.get_edge_gap(pageno)
     old_internal_gap = mgr.get_internal_gap(pageno)
     new_edge_gap = 50.0  # 5mm margin
+    is_left_page = True  # Assume left page
     
     # Transform layout: MCF (old gaps) → gap-free → MCF (new gaps)
     photo = original_photos[0]
     gf_left, gf_top, gf_width, gf_height = transform_item_to_gapfree(
         photo['area_left'], photo['area_top'], photo['area_width'], photo['area_height'],
-        old_edge_gap, old_internal_gap
+        old_edge_gap, old_internal_gap, is_spread, is_left_page
     )
     print(f"  Gap-free coords: ({gf_left:.1f}, {gf_top:.1f}, {gf_width:.1f}, {gf_height:.1f})")
     
     new_left, new_top, new_width, new_height = transform_item_from_gapfree(
         gf_left, gf_top, gf_width, gf_height,
-        new_edge_gap, old_internal_gap
+        new_edge_gap, old_internal_gap, is_spread, is_left_page
     )
     print(f"  New MCF coords: ({new_left:.1f}, {new_top:.1f}, {new_width:.1f}, {new_height:.1f})")
     

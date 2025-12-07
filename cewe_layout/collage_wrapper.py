@@ -73,20 +73,24 @@ def generate_layout_for_page(photos, page_width_mcf, page_height_mcf, photo_dime
         # Force all photos to use slot dimensions from CURRENT layout
         use_slot_aspect = {i: True for i in range(len(photos))}
     
+    # Determine spread mode
+    is_spread = page_width_mcf > page_height_mcf * 1.5 or (origin_left if origin_left else 0.0) > 0.0
+    # Determine if this is a left page (origin_left == 0) or right page (origin_left > 0)
+    is_left_page = (origin_left if origin_left else 0.0) == 0.0
     # Transform page to gap-free space (algorithm operates in gap-free coordinates)
     algo_page_width, algo_page_height = transform_page_to_gapfree(
-        page_width_mcf, page_height_mcf, edge_gap, internal_gap
+        page_width_mcf, page_height_mcf, edge_gap, internal_gap, is_spread
     )
     
     # Step 1: Translate MCF photos and texts to abstract layout rectangles
     photo_rects, error = _photos_to_rectangles(
         photos, photo_dimensions, preferred_sizes, edge_gap, internal_gap, 
-        use_slot_aspect, slot_aspect_ratios, origin_left
+        use_slot_aspect, slot_aspect_ratios, origin_left, is_spread, is_left_page
     )
     if error:
         return False, [], [], error
     
-    text_rects, error = _texts_to_rectangles(texts, preferred_sizes, edge_gap, internal_gap, origin_left, pageno)
+    text_rects, error = _texts_to_rectangles(texts, preferred_sizes, edge_gap, internal_gap, origin_left, pageno, is_spread, is_left_page)
     if error:
         return False, [], [], error
     
@@ -163,13 +167,13 @@ def generate_layout_for_page(photos, page_width_mcf, page_height_mcf, photo_dime
     photo_positioned = [r for r in positioned_rects if r.item_id.isdigit()]
     text_positioned = [r for r in positioned_rects if r.item_id.startswith('TEXT_')]
     
-    updated_photos = _rectangles_to_photos(photos, photo_positioned, edge_gap, internal_gap)
-    updated_texts = _rectangles_to_texts(texts, text_positioned, edge_gap, internal_gap)
+    updated_photos = _rectangles_to_photos(photos, photo_positioned, edge_gap, internal_gap, is_spread, is_left_page)
+    updated_texts = _rectangles_to_texts(texts, text_positioned, edge_gap, internal_gap, is_spread, is_left_page)
     
     return True, updated_photos, updated_texts, ""
 
 
-def _photos_to_rectangles(photos, photo_dimensions, preferred_sizes=None, edge_gap=0.0, internal_gap=0.0, use_slot_aspect=None, slot_aspect_ratios=None, origin_left=0.0):
+def _photos_to_rectangles(photos, photo_dimensions, preferred_sizes=None, edge_gap=0.0, internal_gap=0.0, use_slot_aspect=None, slot_aspect_ratios=None, origin_left=0.0, is_spread=False, is_left_page=True):
     """
     Convert MCF photo list to abstract LayoutRectangle objects in gap-free space.
     
@@ -186,6 +190,8 @@ def _photos_to_rectangles(photos, photo_dimensions, preferred_sizes=None, edge_g
         use_slot_aspect: Optional dict mapping photo_idx -> bool. If True, use current slot aspect ratio instead of image aspect ratio.
         slot_aspect_ratios: Optional dict mapping item_idx -> aspect_ratio. Custom aspect ratios for slots.
         origin_left: Origin offset for right-side pages in MCF units.
+        is_spread: True if spread mode (double page), False if single page.
+        is_left_page: True if left/even page, False if right/odd page.
     
     Returns:
         Tuple (rectangles: list, error: str).
@@ -258,10 +264,17 @@ def _photos_to_rectangles(photos, photo_dimensions, preferred_sizes=None, edge_g
         rect_x = None
         rect_y = None
         if 'area_left' in photo and 'area_top' in photo:
-            # Adjust from MCF coordinates (with edge gap and origin offset) to algorithm coordinates (gap-free, page-relative)
-            # Subtract origin_left to convert from spread coordinates to page coordinates
-            rect_x = float(photo['area_left']) - origin_left - edge_gap
-            rect_y = float(photo['area_top']) - edge_gap
+            # Transform from MCF coordinates to gap-free coordinates
+            # First adjust for origin_left to get page-relative MCF coordinates
+            page_left = float(photo['area_left']) - origin_left
+            page_top = float(photo['area_top'])
+            page_width = float(photo.get('area_width', 0))
+            page_height = float(photo.get('area_height', 0))
+            # Then transform to gap-free space
+            rect_x, rect_y, _, _ = transform_item_to_gapfree(
+                page_left, page_top, page_width, page_height,
+                edge_gap, internal_gap, is_spread, is_left_page
+            )
         
         # Use determined dimensions (either image or slot)
         rect = LayoutRectangle(
@@ -278,7 +291,7 @@ def _photos_to_rectangles(photos, photo_dimensions, preferred_sizes=None, edge_g
     return rectangles, ""
 
 
-def _texts_to_rectangles(texts, preferred_sizes=None, edge_gap=0.0, internal_gap=0.0, origin_left=0.0, pageno=None):
+def _texts_to_rectangles(texts, preferred_sizes=None, edge_gap=0.0, internal_gap=0.0, origin_left=0.0, pageno=None, is_spread=False, is_left_page=True):
     """
     Convert MCF text block list to abstract LayoutRectangle objects in gap-free space.
     
@@ -292,6 +305,8 @@ def _texts_to_rectangles(texts, preferred_sizes=None, edge_gap=0.0, internal_gap
         internal_gap: Internal gap (spacing between items) in MCF units.
         origin_left: Origin offset for right-side pages in MCF units.
         pageno: Optional page number for error messages.
+        is_spread: True if spread mode (double page), False if single page.
+        is_left_page: True if left/even page, False if right/odd page.
     
     Returns:
         Tuple (rectangles: list, error: str).
@@ -316,10 +331,15 @@ def _texts_to_rectangles(texts, preferred_sizes=None, edge_gap=0.0, internal_gap
         rect_x = None
         rect_y = None
         if 'area_left' in text and 'area_top' in text:
-            # Adjust from MCF coordinates (with edge gap and origin offset) to algorithm coordinates (gap-free, page-relative)
-            # Subtract origin_left to convert from spread coordinates to page coordinates
-            rect_x = float(text['area_left']) - origin_left - edge_gap
-            rect_y = float(text['area_top']) - edge_gap
+            # Transform from MCF coordinates to gap-free coordinates
+            # First adjust for origin_left to get page-relative MCF coordinates
+            page_left = float(text['area_left']) - origin_left
+            page_top = float(text['area_top'])
+            # Then transform to gap-free space
+            rect_x, rect_y, _, _ = transform_item_to_gapfree(
+                page_left, page_top, float(area_width), float(area_height),
+                edge_gap, internal_gap, is_spread, is_left_page
+            )
         
         # Transform dimensions to gap-free space (same as photos for consistency)
         # MCF dimensions need internal_gap added to match gap-free coordinate system
@@ -337,7 +357,7 @@ def _texts_to_rectangles(texts, preferred_sizes=None, edge_gap=0.0, internal_gap
     return rectangles, ""
 
 
-def _rectangles_to_photos(photos, rectangles, edge_gap=0.0, internal_gap=0.0):
+def _rectangles_to_photos(photos, rectangles, edge_gap=0.0, internal_gap=0.0, is_spread=False, is_left_page=True):
     """
     Convert algorithm output (positioned LayoutRectangle) back to MCF photo format.
     
@@ -348,6 +368,8 @@ def _rectangles_to_photos(photos, rectangles, edge_gap=0.0, internal_gap=0.0):
         rectangles: List of positioned LayoutRectangle objects from algorithm.
         edge_gap: Edge gap (margin) in MCF units.
         internal_gap: Internal gap (spacing between items) in MCF units.
+        is_spread: True if spread mode (double page), False if single page.
+        is_left_page: True if left/even page, False if right/odd page.
     
     Returns:
         Updated photos list with new area_left/top/width/height in same order as input.
@@ -364,7 +386,7 @@ def _rectangles_to_photos(photos, rectangles, edge_gap=0.0, internal_gap=0.0):
             # Transform from gap-free space back to MCF space
             left, top, width, height = transform_item_from_gapfree(
                 rect.x, rect.y, rect.width, rect.height,
-                edge_gap, internal_gap
+                edge_gap, internal_gap, is_spread, is_left_page
             )
             photo['area_left'] = left
             photo['area_top'] = top
@@ -378,7 +400,7 @@ def _rectangles_to_photos(photos, rectangles, edge_gap=0.0, internal_gap=0.0):
     return updated_photos
 
 
-def _rectangles_to_texts(texts, rectangles, edge_gap=0.0, internal_gap=0.0):
+def _rectangles_to_texts(texts, rectangles, edge_gap=0.0, internal_gap=0.0, is_spread=False, is_left_page=True):
     """
     Convert algorithm output (positioned LayoutRectangle) back to MCF text block format.
     
@@ -389,6 +411,8 @@ def _rectangles_to_texts(texts, rectangles, edge_gap=0.0, internal_gap=0.0):
         rectangles: List of positioned LayoutRectangle objects from algorithm.
         edge_gap: Edge gap (margin) in MCF units.
         internal_gap: Internal gap (spacing between items) in MCF units.
+        is_spread: True if spread mode (double page), False if single page.
+        is_left_page: True if left/even page, False if right/odd page.
     
     Returns:
         Updated texts list with new area_left/top/width/height in same order as input.
@@ -408,7 +432,7 @@ def _rectangles_to_texts(texts, rectangles, edge_gap=0.0, internal_gap=0.0):
             # Transform from gap-free space back to MCF space
             left, top, width, height = transform_item_from_gapfree(
                 rect.x, rect.y, rect.width, rect.height,
-                edge_gap, internal_gap
+                edge_gap, internal_gap, is_spread, is_left_page
             )
             text['area_left'] = left
             text['area_top'] = top

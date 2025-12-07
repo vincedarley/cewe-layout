@@ -25,6 +25,10 @@ def test_gap_change_preserves_centering():
     edge_gap = 200.0  # 20mm
     old_internal_gap = 100.0  # 10mm
     
+    # Assume spread mode for this test
+    is_spread = True
+    is_left_page = True
+    
     # Test both directions: reducing gap and increasing gap
     test_cases = [
         ("Reduce gap 10->5", 50.0),   # Reduce to 5mm
@@ -78,7 +82,8 @@ def test_gap_change_preserves_centering():
                 rect['left'], rect['top'], rect['width'], rect['height'],
                 page_width, page_height,
                 edge_gap, old_internal_gap,
-                edge_gap, new_internal_gap
+                edge_gap, new_internal_gap,
+                is_spread, is_left_page
             )
             transformed_layout.append({
                 'left': new_left,
