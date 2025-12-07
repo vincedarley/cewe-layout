@@ -44,7 +44,9 @@ print(f"Number of texts: {len(texts)}")
 
 # Analyze gaps
 all_items = photos + texts
-edge_gap, internal_gap = analyze_gaps(all_items, page_w, page_h, origin_left) if all_items else (0.0, 0.0)
+# Determine if this is a spread page
+is_spread = page_w > page_h * 1.5 or origin_left > 0.0
+edge_gap, internal_gap = analyze_gaps(all_items, page_w, page_h, origin_left, is_spread) if all_items else (0.0, 0.0)
 
 print(f"\nGaps:")
 print(f"  Edge gap: {edge_gap}")

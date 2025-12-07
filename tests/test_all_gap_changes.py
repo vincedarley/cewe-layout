@@ -29,7 +29,7 @@ def calculate_br_photo_for_gaps(edge, internal):
     
     return left, top, item_w, item_h
 
-def test_change(name, old_edge, old_internal, new_edge, new_internal):
+def run_gap_change_test(name, old_edge, old_internal, new_edge, new_internal):
     """Test a gap change scenario."""
     print(f"\n{'='*60}")
     print(f"TEST: {name}")
@@ -103,56 +103,56 @@ print("=" * 60)
 results = []
 
 # Scenario 1: Change internal_gap only (decrease)
-results.append(test_change(
+results.append(run_gap_change_test(
     "Change internal_gap only (decrease 112→10)",
     old_edge=50.0, old_internal=112.0,
     new_edge=50.0, new_internal=10.0
 ))
 
 # Scenario 2: Change internal_gap only (increase)
-results.append(test_change(
+results.append(run_gap_change_test(
     "Change internal_gap only (increase 10→112)",
     old_edge=50.0, old_internal=10.0,
     new_edge=50.0, new_internal=112.0
 ))
 
 # Scenario 3: Change edge_gap only (increase)
-results.append(test_change(
+results.append(run_gap_change_test(
     "Change edge_gap only (increase 50→100)",
     old_edge=50.0, old_internal=112.0,
     new_edge=100.0, new_internal=112.0
 ))
 
 # Scenario 4: Change edge_gap only (decrease)
-results.append(test_change(
+results.append(run_gap_change_test(
     "Change edge_gap only (decrease 100→50)",
     old_edge=100.0, old_internal=112.0,
     new_edge=50.0, new_internal=112.0
 ))
 
 # Scenario 5: Change edge_gap to negative (bleed)
-results.append(test_change(
+results.append(run_gap_change_test(
     "Change edge_gap to negative bleed (50→-20)",
     old_edge=50.0, old_internal=112.0,
     new_edge=-20.0, new_internal=112.0
 ))
 
 # Scenario 6: Change both gaps (decrease both)
-results.append(test_change(
+results.append(run_gap_change_test(
     "Change both gaps (decrease: edge 100→50, internal 112→10)",
     old_edge=100.0, old_internal=112.0,
     new_edge=50.0, new_internal=10.0
 ))
 
 # Scenario 7: Change both gaps (increase both)
-results.append(test_change(
+results.append(run_gap_change_test(
     "Change both gaps (increase: edge 50→100, internal 10→112)",
     old_edge=50.0, old_internal=10.0,
     new_edge=100.0, new_internal=112.0
 ))
 
 # Scenario 8: Change both gaps (opposite directions)
-results.append(test_change(
+results.append(run_gap_change_test(
     "Change both gaps (edge↑ 50→100, internal↓ 112→10)",
     old_edge=50.0, old_internal=112.0,
     new_edge=100.0, new_internal=10.0

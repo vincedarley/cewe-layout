@@ -58,18 +58,20 @@ def generate_layout_for_page(photos, page_width_mcf, page_height_mcf, photo_dime
     if slot_aspect_ratios is None:
         slot_aspect_ratios = {}
     
-    # TreeBuilderAlgorithm and GridifyAlgorithm MUST use slot dimensions
+    # TreeBuilderAlgorithm, GridifyAlgorithm, and GapPerfecterAlgorithm MUST use slot dimensions
     # TreeBuilder: operates on layout structure, not image aspect ratios
     # Gridify: refines existing layout by snapping to grid, needs actual slot dimensions
+    # GapPerfecter: refines existing layout by eliminating gaps, needs actual slot dimensions
     # 
     # TODO: DESIGN ISSUE - This violates separation of concerns. The wrapper should not
     # need to know what each algorithm requires. Instead, algorithms should declare their
     # requirements (e.g., via a property like algorithm.requires_slot_dimensions or
     # algorithm.requires_current_layout) and the wrapper should query those properties.
-    # Currently the wrapper must special-case TreeBuilder/Gridify behavior.
+    # Currently the wrapper must special-case TreeBuilder/Gridify/GapPerfecter behavior.
     from .algorithms.tree_builder import TreeBuilderAlgorithm
     from .algorithms.gridify import GridifyAlgorithm
-    if isinstance(algorithm, (TreeBuilderAlgorithm, GridifyAlgorithm)):
+    from .algorithms.gap_perfecter import GapPerfecterAlgorithm
+    if isinstance(algorithm, (TreeBuilderAlgorithm, GridifyAlgorithm, GapPerfecterAlgorithm)):
         # Force all photos to use slot dimensions from CURRENT layout
         use_slot_aspect = {i: True for i in range(len(photos))}
     

@@ -13,6 +13,8 @@ from pathlib import Path
 
 # Add parent to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
+# Add tests directory to path for samples_helpers
+sys.path.insert(0, str(Path(__file__).parent))
 
 from samples_helpers import read_page_file
 from cewe_layout.algorithms.fan_layout import FanLayoutAlgorithm
