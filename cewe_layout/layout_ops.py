@@ -174,6 +174,11 @@ class LayoutManager:
         """Get set of filenames for photos deleted from this page."""
         return self.deleted_photos[pageno]
     
+    def clear_new_photos(self, pageno):
+        """Clear new photo tracking for a page (e.g., when rebuilding tracking after algorithm)."""
+        if pageno in self.new_photos:
+            self.new_photos[pageno].clear()
+    
     def clear_photo_tracking(self, pageno):
         """Clear new/deleted photo tracking for a page (call after successful save)."""
         if pageno in self.new_photos:

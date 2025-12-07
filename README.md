@@ -42,7 +42,7 @@ Here's my current workflow:
 9) Hit "Save" when you are done with the page.  The photos used disappear from your directory - they've been moved into the photo album. This is very helpful, since you can then focus only on the photos you've not yet added. If there are photos I've decided I no longer want, I simply delete them from the directory (they are exported copies, so...).
 10) Move to the next empty page and go back to step 6.
 
-Once you're done. Open the book in CEWE Creator and do any fine-tuning you wish.
+Once you're done: open the book in CEWE Creator and do any fine-tuning you wish.
 
 **Safety features**
 
@@ -74,9 +74,7 @@ Details for the technically minded:
 
 **TO DO and Decisions**
 
-- Workflow: do we continue to use MacOS Photos as an efficient way to examine photos? Or just for tagging, and then mass export?
 - More layout clean-up algorithms? (beyond Gridify)
-- Consider adding support for other star ratings (1-3 stars) if needed
 
 **Layout Algorithms**
 

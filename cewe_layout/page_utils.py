@@ -26,25 +26,3 @@ def determine_page_owner(area_left: float, half_width: float, left_owner: int, r
         - Even though center (3820) >= half_width, it still belongs to left page
     """
     return left_owner if area_left < half_width else right_owner
-
-
-def belongs_to_page(area_left: float, area_width: float, x_min: float, x_max: float) -> bool:
-    """Check if an area belongs to a specific page based on its left edge.
-    
-    Used by the writer to filter areas that belong to a specific logical page
-    within a two-page spread.
-    
-    Args:
-        area_left: Left edge x-coordinate of the area (in MCF units)
-        area_width: Width of the area (unused, kept for API compatibility)
-        x_min: Minimum x-coordinate for this page (inclusive)
-        x_max: Maximum x-coordinate for this page (exclusive)
-    
-    Returns:
-        True if the area's left edge is within [x_min, x_max)
-    
-    Note:
-        The area_width parameter is included for backward compatibility but not used.
-        Assignment is based solely on the left edge position.
-    """
-    return x_min <= area_left < x_max

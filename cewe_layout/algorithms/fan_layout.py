@@ -16,7 +16,6 @@ Attribution:
     Adapted for cewe-layout as a pluggable layout algorithm.
 """
 
-import copy
 import random
 from typing import List, Tuple
 
@@ -191,16 +190,14 @@ def _crossover_trees(tree1: TreeNode, tree2: TreeNode) -> Tuple[TreeNode, TreeNo
     Returns:
         Tuple of two offspring trees
     """
-    # Deep copy to avoid modifying parents
-    offspring1 = copy.deepcopy(tree1)
-    offspring2 = copy.deepcopy(tree2)
-    
+    # Find candidate subtrees BEFORE copying (work on original trees)
     # Find all subtrees with >= 3 leaves (excluding the root to avoid issues)
-    subtrees1 = [st for st in offspring1.collect_subtrees(min_leaves=3) if st.parent is not None]
-    subtrees2 = [st for st in offspring2.collect_subtrees(min_leaves=3) if st.parent is not None]
+    subtrees1 = [st for st in tree1.collect_subtrees(min_leaves=3) if st.parent is not None]
+    subtrees2 = [st for st in tree2.collect_subtrees(min_leaves=3) if st.parent is not None]
     
     if not subtrees1 or not subtrees2:
-        return offspring1, offspring2
+        # No crossover possible - return clones
+        return tree1.clone(), tree2.clone()
     
     # Find pairs with matching leaf counts
     pairs = []
@@ -212,7 +209,8 @@ def _crossover_trees(tree1: TreeNode, tree2: TreeNode) -> Tuple[TreeNode, TreeNo
                 pairs.append((st1, st2))
     
     if not pairs:
-        return offspring1, offspring2
+        # No crossover possible - return clones
+        return tree1.clone(), tree2.clone()
     
     # Randomly select a pair to crossover
     st1, st2 = random.choice(pairs)
@@ -233,12 +231,46 @@ def _crossover_trees(tree1: TreeNode, tree2: TreeNode) -> Tuple[TreeNode, TreeNo
         # Identical structure - crossover would be no-op, try to find different pair
         valid_pairs = [(s1, s2) for s1, s2 in pairs if not trees_have_same_structure(s1, s2)]
         if not valid_pairs:
-            return offspring1, offspring2  # All pairs have identical structure
+            # No valid crossover - return clones
+            return tree1.clone(), tree2.clone()
         st1, st2 = random.choice(valid_pairs)
     
-    # Deep copy the subtrees
-    st1_copy = copy.deepcopy(st1)
-    st2_copy = copy.deepcopy(st2)
+    # NOW clone entire trees (only when we know crossover will happen)
+    offspring1 = tree1.clone()
+    offspring2 = tree2.clone()
+    
+    # Find the corresponding subtrees in the offspring copies
+    # We need to locate them by following the same path from root
+    def find_subtree_in_copy(original_tree, original_subtree, copied_tree):
+        """Find the corresponding subtree in a copied tree by matching path from root."""
+        # Build path from root to subtree in original
+        path = []
+        node = original_subtree
+        while node.parent is not None:
+            parent = node.parent
+            if parent.left == node:
+                path.append('L')
+            else:
+                path.append('R')
+            node = parent
+        path.reverse()
+        
+        # Follow same path in copied tree
+        node = copied_tree
+        for direction in path:
+            if direction == 'L':
+                node = node.left
+            else:
+                node = node.right
+        return node
+    
+    # Locate the subtrees in offspring copies
+    st1_in_offspring1 = find_subtree_in_copy(tree1, st1, offspring1)
+    st2_in_offspring2 = find_subtree_in_copy(tree2, st2, offspring2)
+    
+    # Clone ONLY the selected subtrees (these will be swapped)
+    st1_copy = st1_in_offspring1.clone()
+    st2_copy = st2_in_offspring2.clone()
     
     # Collect indices from both subtrees
     def collect_leaf_indices(node):
@@ -286,17 +318,17 @@ def _crossover_trees(tree1: TreeNode, tree2: TreeNode) -> Tuple[TreeNode, TreeNo
     #      st2_copy has parent2's structure with parent1's photos
     # Replace: st1_copy goes into offspring2 (parent2), st2_copy goes into offspring1 (parent1)
     
-    fix_parent_pointers(st2_copy, st1.parent)
-    if st1.parent.left == st1:
-        st1.parent.left = st2_copy
+    fix_parent_pointers(st2_copy, st1_in_offspring1.parent)
+    if st1_in_offspring1.parent.left == st1_in_offspring1:
+        st1_in_offspring1.parent.left = st2_copy
     else:
-        st1.parent.right = st2_copy
+        st1_in_offspring1.parent.right = st2_copy
     
-    fix_parent_pointers(st1_copy, st2.parent)
-    if st2.parent.left == st2:
-        st2.parent.left = st1_copy
+    fix_parent_pointers(st1_copy, st2_in_offspring2.parent)
+    if st2_in_offspring2.parent.left == st2_in_offspring2:
+        st2_in_offspring2.parent.left = st1_copy
     else:
-        st2.parent.right = st1_copy
+        st2_in_offspring2.parent.right = st1_copy
     
     return offspring1, offspring2
 
@@ -393,7 +425,7 @@ class FanLayoutAlgorithm(LayoutAlgorithm):
                     
                     if cost < best_cost:
                         best_cost = cost
-                        best_tree = copy.deepcopy(tree)
+                        best_tree = tree.clone()
                 
                 # Selection: keep elite + tournament selection
                 sorted_pop = sorted(zip(fitness_scores, population), 
@@ -414,14 +446,28 @@ class FanLayoutAlgorithm(LayoutAlgorithm):
                     if random.random() < self.crossover_rate:
                         child1, child2 = _crossover_trees(parent1, parent2)
                     else:
-                        child1 = copy.deepcopy(parent1)
-                        child2 = copy.deepcopy(parent2)
+                        # No crossover - delay deepcopy until needed
+                        # Mutation will need copies, but if no mutation we can reuse parents
+                        child1, child2 = parent1, parent2
                     
-                    # Mutation
+                    # Mutation - only deepcopy if we're going to mutate
                     if random.random() < self.mutation_rate:
+                        # Need to clone before mutating (mutate modifies in place)
+                        if child1 is parent1:  # Haven't cloned yet
+                            child1 = parent1.clone()
                         child1 = _mutate_tree(child1)
+                    else:
+                        # No mutation - clone to avoid sharing references in population
+                        if child1 is parent1:
+                            child1 = parent1.clone()
+                    
                     if random.random() < self.mutation_rate:
+                        if child2 is parent2:
+                            child2 = parent2.clone()
                         child2 = _mutate_tree(child2)
+                    else:
+                        if child2 is parent2:
+                            child2 = parent2.clone()
                     
                     new_population.append(child1)
                     if len(new_population) < self.population_size:

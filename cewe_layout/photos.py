@@ -21,6 +21,9 @@ logger = logging.getLogger(__name__)
 _image_load_failures = set()  # Track which files have been logged
 
 
+# Cache for IPTC keywords to avoid repeated exiftool calls
+_iptc_keywords_cache = {}
+
 def get_iptc_keywords(img_path: Path) -> List[str]:
     """
     Extract IPTC keywords from image metadata using exiftool.
@@ -34,6 +37,11 @@ def get_iptc_keywords(img_path: Path) -> List[str]:
     if not img_path or not img_path.exists():
         return []
     
+    # Check cache first
+    cache_key = str(img_path)
+    if cache_key in _iptc_keywords_cache:
+        return _iptc_keywords_cache[cache_key]
+    
     try:
         import subprocess
         result = subprocess.run(
@@ -44,10 +52,17 @@ def get_iptc_keywords(img_path: Path) -> List[str]:
         )
         if result.returncode == 0 and result.stdout.strip():
             # Keywords are comma-separated in exiftool output
-            return [kw.strip() for kw in result.stdout.strip().split(',')]
-        return []
+            keywords = [kw.strip() for kw in result.stdout.strip().split(',')]
+        else:
+            keywords = []
+        
+        # Cache the result
+        _iptc_keywords_cache[cache_key] = keywords
+        return keywords
     except Exception as e:
         logger.warning(f"exiftool not available or failed: {e}")
+        # Cache empty result to avoid repeated failures
+        _iptc_keywords_cache[cache_key] = []
         return []
 
 
@@ -271,6 +286,30 @@ def get_image_aspect_ratio(img_path: Path) -> Optional[float]:
     return None
 
 
+# Image load tracking
+_image_load_count = 0
+_image_load_times = {}
+
+def get_load_stats():
+    """Get image loading statistics."""
+    total_loads = _image_load_count
+    if not _image_load_times:
+        return f"No images loaded yet"
+    
+    all_times = []
+    for times in _image_load_times.values():
+        all_times.extend(times)
+    
+    if not all_times:
+        return f"Total loads: {total_loads}, but no timing data"
+    
+    avg_time = sum(all_times) / len(all_times)
+    max_time = max(all_times)
+    min_time = min(all_times)
+    
+    return (f"Image loads from disk: {total_loads} | "
+            f"Avg: {avg_time:.1f}ms | Min: {min_time:.1f}ms | Max: {max_time:.1f}ms")
+
 def load_thumbnail(path: Path, width: int, height: int, verbose: bool = True) -> Optional[Image.Image]:
     """
     Load an image and create a thumbnail of specified size.
@@ -288,14 +327,24 @@ def load_thumbnail(path: Path, width: int, height: int, verbose: bool = True) ->
     Returns:
         PIL Image of size (width, height), or None if load fails
     """
+    global _image_load_count, _image_load_times
+    import time
+    from pathlib import Path as PathlibPath
+    
     if width <= 0 or height <= 0:
         return None
     
     if not path or not Path(path).exists():
         return None
     
+    # Track this load
+    _image_load_count += 1
+    path_str = str(PathlibPath(path).name)  # Just filename for readability
+    load_start = time.time()
+    
     try:
         im = Image.open(path)
+        print(f"  [DISK LOAD #{_image_load_count}] {path_str} ({width}x{height})")
         # Auto-rotate based on EXIF orientation (support older Pillow)
         exif_transpose = getattr(Image, 'exif_transpose', None) or getattr(ImageOps, 'exif_transpose', None)
         if exif_transpose:
@@ -311,6 +360,13 @@ def load_thumbnail(path: Path, width: int, height: int, verbose: bool = True) ->
         x = max(0, (width - im.width) // 2)
         y = max(0, (height - im.height) // 2)
         bg.paste(im, (x, y))
+        
+        # Track load time
+        load_time = (time.time() - load_start) * 1000
+        _image_load_times[path_str] = _image_load_times.get(path_str, []) + [load_time]
+        if load_time > 50:
+            print(f"    [SLOW LOAD] {path_str}: {load_time:.1f}ms")
+        
         return bg
     except Exception as e:
         # Log first-time failures for specific paths

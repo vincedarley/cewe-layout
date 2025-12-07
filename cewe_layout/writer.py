@@ -9,7 +9,7 @@ import os
 from typing import List, Dict, Any
 import re
 import logging
-from .page_utils import belongs_to_page as page_belongs_to_page
+from .page_utils import determine_page_owner
 
 logger = logging.getLogger(__name__)
 
@@ -160,19 +160,6 @@ def _validate_saved_page(path: str, pageno: int, expected_photos: List[Dict[str,
     """
     errors = []
     
-    # Determine x-coordinate range for this logical page
-    if is_right_page:
-        x_min = half_width
-        x_max = spread_width
-    else:
-        x_min = 0.0
-        x_max = half_width
-    
-    # Use shared page assignment logic
-    def belongs_to_page(area_left: float, area_width: float) -> bool:
-        """Check if an area belongs to this page."""
-        return page_belongs_to_page(area_left, area_width, x_min, x_max)
-    
     # Re-parse the saved file
     try:
         tree = etree.parse(path)
@@ -180,8 +167,12 @@ def _validate_saved_page(path: str, pageno: int, expected_photos: List[Dict[str,
     except Exception as e:
         return [f"Failed to re-parse saved file: {e}"]
     
-    # Find the page element
+    # Find the page element and count photos/texts using same logic as save
     page_elem = None
+    photo_count = 0
+    photo_filenames = []
+    text_count = 0
+    
     for page in root.findall('.//page'):
         page_nr = int(page.get('pagenr', '0'))
         
@@ -192,53 +183,39 @@ def _validate_saved_page(path: str, pageno: int, expected_photos: List[Dict[str,
             left_owner = max(1, page_nr - 1)
             right_owner = page_nr
         
-        if pageno == left_owner:
-            page_elem = page
-            break
-        elif pageno == right_owner:
-            page_elem = page
-            break
+        # Check if this is the page we're validating
+        if pageno not in (left_owner, right_owner):
+            continue
+            
+        page_elem = page
+        
+        # Count photos and texts on this page using same logic as save
+        for area in page_elem.findall('.//area'):
+            pos = area.find('position')
+            if pos is None:
+                continue
+            
+            current_left = float(pos.get('left', '0').replace(',', '.'))
+            
+            # Use determine_page_owner to check if area belongs to our page
+            area_owner = determine_page_owner(current_left, half_width, left_owner, right_owner)
+            if area_owner != pageno:
+                continue
+            
+            # Check if it's a photo or text
+            image = area.find('image')
+            if image is not None:
+                filename = image.get('filename', '')
+                if filename:
+                    photo_count += 1
+                    photo_filenames.append(filename)
+            elif area.find('text') is not None:
+                text_count += 1
+        
+        break  # Found the page, no need to continue
     
     if page_elem is None:
         return [f"Page {pageno} not found in saved XML"]
-    
-    # Count photos on this page
-    photo_count = 0
-    photo_filenames = []
-    for area in page_elem.findall('.//area'):
-        pos = area.find('position')
-        if pos is None:
-            continue
-        
-        current_left = float(pos.get('left', '0').replace(',', '.'))
-        current_width = float(pos.get('width', '0').replace(',', '.'))
-        
-        if not belongs_to_page(current_left, current_width):
-            continue
-        
-        image = area.find('image')
-        if image is not None:
-            filename = image.get('filename', '')
-            if filename:
-                photo_count += 1
-                photo_filenames.append(filename)
-    
-    # Count text blocks on this page
-    text_count = 0
-    for area in page_elem.findall('.//area'):
-        pos = area.find('position')
-        if pos is None:
-            continue
-        
-        current_left = float(pos.get('left', '0').replace(',', '.'))
-        current_width = float(pos.get('width', '0').replace(',', '.'))
-        
-        if not belongs_to_page(current_left, current_width):
-            continue
-        
-        # Text area has <text> element instead of <image>
-        if area.find('text') is not None:
-            text_count += 1
     
     # Validate counts
     expected_photo_count = len(expected_photos)
@@ -363,19 +340,15 @@ def update_page_layout(path: str, pageno: int, photos: List[Dict[str, Any]],
     
     half_width = spread_width / 2.0
     
-    # Determine x-coordinate range for areas on this logical page
-    # Left page: [0, half_width), Right page: [half_width, spread_width]
-    if is_right_page:
-        x_min = half_width
-        x_max = spread_width
+    # Determine left and right page owners for this spread
+    # (Already computed in the loop above, but extract for clarity)
+    page_nr = int(page_elem.get('pagenr', '0'))
+    if page_nr % 2 == 0:
+        left_owner = page_nr
+        right_owner = page_nr + 1
     else:
-        x_min = 0.0
-        x_max = half_width
-    
-    # Helper function to check if an area belongs to this logical page
-    def belongs_to_page(area_left: float, area_width: float) -> bool:
-        """Check if an area's left edge is within this page's x-range."""
-        return page_belongs_to_page(area_left, area_width, x_min, x_max)
+        left_owner = max(1, page_nr - 1)
+        right_owner = page_nr
     
     # Track statistics
     modified_photos = 0
@@ -395,9 +368,10 @@ def update_page_layout(path: str, pageno: int, photos: List[Dict[str, Any]],
             continue
         
         current_left = float(pos.get('left', '0').replace(',', '.'))
-        current_width = float(pos.get('width', '0').replace(',', '.'))
         
-        if not belongs_to_page(current_left, current_width):
+        # Use determine_page_owner to check if area belongs to our page
+        area_owner = determine_page_owner(current_left, half_width, left_owner, right_owner)
+        if area_owner != pageno:
             continue  # This area is on the other page of the spread
         
         # Find image element
@@ -439,15 +413,12 @@ def update_page_layout(path: str, pageno: int, photos: List[Dict[str, Any]],
                 break
         
         if matching_photo is None:
-            # Photo not in current layout - this is a BUG, not a valid state
-            photo_filenames = [p.get('filename', '') for p in photos[:5]]
-            rename_map_sample = dict(list(rename_map.items())[:3]) if rename_map else {}
-            raise ValueError(
-                f"Page {pageno}: XML photo '{filename}' not found in layout. "
-                f"This is a bug - every photo in the XML should match the layout.\n"
-                f"Photo filenames in layout (first 5): {photo_filenames}\n"
-                f"Rename map (first 3 entries): {rename_map_sample}"
-            )
+            # Photo exists in XML but not in current layout - it was removed by algorithm
+            # Mark it for deletion
+            areas_to_remove.append(area)
+            deleted_photos_count += 1
+            logger.info(f"Page {pageno}: Removing photo '{filename}' (not in current layout)")
+            continue
         
         # Track that we've matched this photo (so we don't add it again)
         matched_photos.add(matching_photo['filename'])
@@ -622,11 +593,12 @@ def update_page_layout(path: str, pageno: int, photos: List[Dict[str, Any]],
         
         try:
             current_left = float(pos.get('left', '0').replace(',', '.'))
-            current_width = float(pos.get('width', '0').replace(',', '.'))
         except Exception:
             continue
         
-        if not belongs_to_page(current_left, current_width):
+        # Use determine_page_owner to check if area belongs to our page
+        area_owner = determine_page_owner(current_left, half_width, left_owner, right_owner)
+        if area_owner != pageno:
             continue
         
         text_areas.append(area)
@@ -734,8 +706,6 @@ def update_page_layout(path: str, pageno: int, photos: List[Dict[str, Any]],
         raise RuntimeError(f"Failed to write MCF file: {e}") from e
     
     # Validate the saved XML matches expectations
-    import logging
-    logger = logging.getLogger(__name__)
     validation_errors = _validate_saved_page(path, pageno, photos, texts, is_right_page, half_width, spread_width, validate_files)
     if validation_errors:
         for error in validation_errors:

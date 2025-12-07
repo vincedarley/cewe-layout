@@ -21,6 +21,7 @@ from .algorithms.tree_builder import TreeBuilderAlgorithm
 from .algorithms.gridify import GridifyAlgorithm
 from .photos import get_image_dimensions, load_thumbnail, get_photo_preferred_size
 from .writer import update_page_layout
+from .page_utils import determine_page_owner
 from .gap_utils import (
     analyze_gaps,
     analyze_gap_details,
@@ -559,7 +560,16 @@ class LayoutViewer:
         self.ctrl.bind('<Return>', lambda e: self.goto_page())
 
         self.photo_image = None
-        self.thumb_cache = {}  # filename -> PIL.Image (thumbnail)
+        
+        # Image cache configuration
+        # If True, cache full images and render directly (uses more RAM, faster rendering)
+        # If False, cache size-specific thumbnails (uses less RAM, slower when sizes change)
+        self.cache_full_images = True
+        
+        # Image caches
+        self.thumb_cache = {}  # For thumbnail mode: (base_filename, file_size, w, h) -> thumbnail
+        self.full_image_cache = {}  # For full image mode: (base_filename, file_size) -> full PIL Image
+        
         self.delete_buttons = []  # List of delete button widgets
         self.size_importance = 100.0  # Default size importance factor
         self.undersized_threshold = 0.5  # Default undersized threshold (50%)
@@ -765,13 +775,10 @@ class LayoutViewer:
             self._draw_crease_line(draw, crease_x, frame_y, frame_h, frame_color)
         
         self._show_image(img)
-        
-        # Update page range display
         self._update_page_range_display()
         
         # Create delete buttons AFTER image is shown so they overlay on top
         self._create_delete_buttons(delete_button_info)
-        
         self.update_weights_display()
     
     def _render_photos(self, img, draw, photos, frame_x, frame_y, scale, origin_left, 
@@ -2180,6 +2187,10 @@ class LayoutViewer:
     def _get_thumbnail(self, path, w, h):
         """Get thumbnail for an image, using cache if available.
         
+        Two modes:
+        1. cache_full_images=True: Cache full image, render on-the-fly (faster, more RAM)
+        2. cache_full_images=False: Cache size-specific thumbnails (slower, less RAM)
+        
         Args:
             path: Path to the image file
             w: Thumbnail width in pixels
@@ -2188,18 +2199,78 @@ class LayoutViewer:
         Returns:
             PIL Image of size (w, h), or None if load fails
         """
-        # Avoid creating huge thumbnails; enforce minimums
+        from pathlib import Path as PathlibPath
+        from PIL import Image, ImageOps
+        import os
+        
+        # Avoid creating huge thumbnails
         if w <= 0 or h <= 0:
             return None
-        key = (path, w, h)
-        if key in self.thumb_cache:
-            return self.thumb_cache[key]
         
-        # Load thumbnail using shared function
-        thumb = load_thumbnail(Path(path), w, h, verbose=True)
-        if thumb is not None:
-            self.thumb_cache[key] = thumb
-        return thumb
+        # Get cache key components
+        path_obj = PathlibPath(path)
+        filename = path_obj.name
+        base_filename, _, _ = extract_metadata_from_filename(filename)
+        
+        try:
+            file_size = os.path.getsize(path) if os.path.exists(path) else 0
+        except:
+            file_size = 0
+        
+        if self.cache_full_images:
+            # MODE 1: Cache full image, render on-the-fly
+            cache_key = (base_filename, file_size)
+            
+            if cache_key not in self.full_image_cache:
+                # Cache miss - load full image
+                if not path or not path_obj.exists():
+                    return None
+                
+                try:
+                    im = Image.open(path)
+                    # Auto-rotate based on EXIF
+                    exif_transpose = getattr(Image, 'exif_transpose', None) or getattr(ImageOps, 'exif_transpose', None)
+                    if exif_transpose:
+                        try:
+                            im = exif_transpose(im)
+                        except:
+                            pass
+                    im = im.convert('RGB')
+                    
+                    # Cache the full image
+                    self.full_image_cache[cache_key] = im
+                except Exception as e:
+                    return None
+            
+            # Render from cached full image
+            full_img = self.full_image_cache.get(cache_key)
+            if full_img is None:
+                return None
+            
+            # Use thumbnail() on a copy (faster than resize() for large downscaling)
+            # thumbnail() has internal optimizations for large size reductions
+            thumb = full_img.copy()
+            thumb.thumbnail((w, h), Image.LANCZOS)
+            
+            # Create background and paste centered
+            bg = Image.new('RGB', (w, h), '#cccccc')
+            x = max(0, (w - thumb.width) // 2)
+            y = max(0, (h - thumb.height) // 2)
+            bg.paste(thumb, (x, y))
+            
+            return bg
+        
+        else:
+            # MODE 2: Cache size-specific thumbnails (original behavior)
+            key = (base_filename, file_size, w, h)
+            
+            if key in self.thumb_cache:
+                return self.thumb_cache[key]
+            
+            thumb = load_thumbnail(Path(path), w, h, verbose=False)
+            if thumb is not None:
+                self.thumb_cache[key] = thumb
+            return thumb
 
     def prev_page(self):
         if self.spread_mode.get():
@@ -2418,6 +2489,11 @@ class LayoutViewer:
         self.show_status('Running...')
 
         def worker():
+            from time import time
+            
+            # Start overall timing
+            t_start = time()
+            
             in_spread_mode = self.spread_mode.get()
             
             if in_spread_mode and len(self.current_spread_pages) == 2:
@@ -2430,13 +2506,31 @@ class LayoutViewer:
                 all_texts = []
                 page_infos = []
                 
+                # Track original photos/texts by page to restore order after split
+                original_photos_by_page = {}  # pageno -> list of photos in original order
+                original_texts_by_page = {}
+                original_xml_photos_by_page = {}  # pageno -> set of filenames from ORIGINAL XML
+                
                 for page_idx in page_indices:
                     pageno, info = self.pages[page_idx]
                     page_infos.append((pageno, info))
+                    
+                    # Store original XML photos for later comparison
+                    original_xml_photos = {p.get('filename') for p in info.get('photos', []) if p.get('filename')}
+                    original_xml_photos_by_page[pageno] = original_xml_photos
+                    
+                    # Get CURRENT layout (may differ from XML if algorithm was run before)
                     current_layout = self.layout_mgr.get_current(pageno)
                     photos = current_layout.photos if current_layout else info.get('photos', [])
                     texts = current_layout.texts if current_layout else info.get('texts', [])
-                    all_photos.extend(photos)
+                    # Filter out empty photo slots (photos with no filename)
+                    valid_photos = [p for p in photos if p.get('filename')]
+                    
+                    # Store current photos for algorithm processing
+                    original_photos_by_page[pageno] = valid_photos
+                    original_texts_by_page[pageno] = texts
+                    
+                    all_photos.extend(valid_photos)
                     all_texts.extend(texts)
                 
                 if not all_photos:
@@ -2538,6 +2632,7 @@ class LayoutViewer:
                     text_offset += len(texts_for_page)
                 
                 # Run algorithm on combined spread
+                algo_start = time()
                 success, updated_photos, updated_texts, error_msg = generate_layout_for_page(
                     all_photos, spread_w, page_h, self.photo_dimensions,
                     algorithm=algorithm, edge_gap=edge_gap, internal_gap=internal_gap, texts=all_texts,
@@ -2547,6 +2642,8 @@ class LayoutViewer:
                     origin_left=0.0,  # Spread starts at 0
                     pageno=pageno0  # For logging
                 )
+                algo_time = time() - algo_start
+                print(f"Algorithm: {algo_time:.3f}s")
                 
                 if not success:
                     def on_error():
@@ -2558,42 +2655,129 @@ class LayoutViewer:
                     self.root.after(0, on_error)
                     return
                 
-                # Split results back into two pages
-                # Photos/texts on left half (x < page_w) go to page 0
-                # Photos/texts on right half (x >= page_w) go to page 1
+                # Split results back into two pages, preserving original order within each page
+                # Match updated photos back to originals by filename
                 photos_page0 = []
                 photos_page1 = []
                 texts_page0 = []
                 texts_page1 = []
+                
+                # Get page numbers for owner determination
+                pageno0, pageno1 = page_numbers
                 
                 # Collect new photos from both source pages to transfer tracking
                 all_new_photos = set()
                 for pn in page_numbers:
                     all_new_photos.update(self.layout_mgr.get_new_photos(pn))
                 
-                for photo in updated_photos:
-                    area_left = photo.get('area_left', 0)
-                    if area_left < page_w:
-                        # Left page - coordinates stay as-is
-                        photos_page0.append(photo)
+                # Build lookup of updated photos by filename
+                updated_by_filename = {p.get('filename'): p for p in updated_photos if p.get('filename')}
+                
+                # Validation: Check we got back all photos from algorithm
+                expected_photo_count = len(all_photos)
+                actual_photo_count = len(updated_photos)
+                if actual_photo_count != expected_photo_count:
+                    error_msg = f"Algorithm photo count mismatch: expected {expected_photo_count}, got {actual_photo_count}"
+                    logger.error(error_msg)
+                    def on_error():
+                        try:
+                            self.gen_btn.config(state='normal')
+                        except Exception as e:
+                            logger.error(f"Failed to re-enable Generate Layout button: {e}")
+                        self.show_status(error_msg, error=True)
+                    self.root.after(0, on_error)
+                    return
+                
+                # Validation: Check we got back all texts from algorithm
+                expected_text_count = len(all_texts)
+                actual_text_count = len(updated_texts)
+                if actual_text_count != expected_text_count:
+                    error_msg = f"Algorithm text count mismatch: expected {expected_text_count}, got {actual_text_count}"
+                    logger.error(error_msg)
+                    def on_error():
+                        try:
+                            self.gen_btn.config(state='normal')
+                        except Exception as e:
+                            logger.error(f"Failed to re-enable Generate Layout button: {e}")
+                        self.show_status(error_msg, error=True)
+                    self.root.after(0, on_error)
+                    return
+                
+                # Reconstruct photos for both pages
+                # Process ALL photos (from both original pages) and assign to final page based on position
+                all_original_photos = list(original_photos_by_page[pageno0]) + list(original_photos_by_page[pageno1])
+                
+                for orig_photo in all_original_photos:
+                    filename = orig_photo.get('filename')
+                    if filename not in updated_by_filename:
+                        logger.error(f"Photo {filename} missing from algorithm results")
+                        continue
+                    
+                    updated_photo = updated_by_filename[filename]
+                    area_left = updated_photo.get('area_left', 0)
+                    owner = determine_page_owner(area_left, page_w, pageno0, pageno1)
+                    
+                    if owner == pageno0:
+                        photos_page0.append(updated_photo)
                     else:
-                        # Right page - adjust coordinates
-                        photo_copy = dict(photo)
-                        # Subtract page_w to get page-relative coordinate, then add origin_left
+                        # Adjust coordinates to be page-relative
+                        photo_copy = dict(updated_photo)
                         photo_copy['area_left'] = (area_left - page_w) + origin_left_1
                         photos_page1.append(photo_copy)
                 
-                for text in updated_texts:
-                    area_left = text.get('area_left', 0)
-                    if area_left < page_w:
-                        texts_page0.append(text)
-                    else:
-                        text_copy = dict(text)
-                        text_copy['area_left'] = (area_left - page_w) + origin_left_1
-                        texts_page1.append(text_copy)
+                # Validation: Check reconstruction produced correct counts
+                if len(photos_page0) + len(photos_page1) != expected_photo_count:
+                    error_msg = f"Photo reconstruction mismatch: input={expected_photo_count}, output page {pageno0}={len(photos_page0)} + page {pageno1}={len(photos_page1)}"
+                    logger.error(error_msg)
+                    def on_error():
+                        try:
+                            self.gen_btn.config(state='normal')
+                        except Exception as e:
+                            logger.error(f"Failed to re-enable Generate Layout button: {e}")
+                        self.show_status(error_msg, error=True)
+                    self.root.after(0, on_error)
+                    return
+                
+                # Same for texts - match by index since texts don't have filenames
+                updated_texts_by_idx = {i: t for i, t in enumerate(updated_texts)}
+                text_idx = 0
+                for orig_text in original_texts_by_page[pageno0]:
+                    if text_idx in updated_texts_by_idx:
+                        updated_text = updated_texts_by_idx[text_idx]
+                        area_left = updated_text.get('area_left', 0)
+                        owner = determine_page_owner(area_left, page_w, pageno0, pageno1)
+                        if owner == pageno0:
+                            texts_page0.append(updated_text)
+                    text_idx += 1
+                
+                for orig_text in original_texts_by_page[pageno1]:
+                    if text_idx in updated_texts_by_idx:
+                        updated_text = updated_texts_by_idx[text_idx]
+                        area_left = updated_text.get('area_left', 0)
+                        owner = determine_page_owner(area_left, page_w, pageno0, pageno1)
+                        if owner == pageno1:
+                            text_copy = dict(updated_text)
+                            text_copy['area_left'] = (area_left - page_w) + origin_left_1
+                            texts_page1.append(text_copy)
+                    text_idx += 1
+                
+                # Validation: Check text reconstruction produced correct counts
+                if len(texts_page0) + len(texts_page1) != expected_text_count:
+                    error_msg = f"Text reconstruction mismatch: input={expected_text_count}, output page {pageno0}={len(texts_page0)} + page {pageno1}={len(texts_page1)}"
+                    logger.error(error_msg)
+                    def on_error():
+                        try:
+                            self.gen_btn.config(state='normal')
+                        except Exception as e:
+                            logger.error(f"Failed to re-enable Generate Layout button: {e}")
+                        self.show_status(error_msg, error=True)
+                    self.root.after(0, on_error)
+                    return
                 
                 # Push layouts and mark both pages modified
                 def on_spread_done():
+                    ui_update_start = time()
+                    
                     try:
                         self.gen_btn.config(state='normal')
                     except Exception as e:
@@ -2604,16 +2788,36 @@ class LayoutViewer:
                     self.layout_mgr.push_layout(page_numbers[0], photos_page0, texts_page0)
                     self.layout_mgr.push_layout(page_numbers[1], photos_page1, texts_page1)
                     
-                    # Transfer new photo tracking to destination pages
-                    # After algorithm splits photos, ensure they're still marked as new on the correct page
+                    # Rebuild new photo tracking for both pages after algorithm split
+                    # A photo is "new" to a page if it wasn't on that page in the original XML
+                    # This includes both genuinely new photos AND photos that moved from the other page
+                    
+                    # Clear existing tracking
+                    self.layout_mgr.clear_new_photos(page_numbers[0])
+                    self.layout_mgr.clear_new_photos(page_numbers[1])
+                    
+                    # Get original XML photos for each page (what was in XML before any algorithms)
+                    original_page0_photos = original_xml_photos_by_page.get(page_numbers[0], set())
+                    original_page1_photos = original_xml_photos_by_page.get(page_numbers[1], set())
+                    
+                    logger.info(f"Rebuilding new photo tracking:")
+                    logger.info(f"  Page {page_numbers[0]} original XML photos: {sorted(original_page0_photos)}")
+                    logger.info(f"  Page {page_numbers[1]} original XML photos: {sorted(original_page1_photos)}")
+                    logger.info(f"  Page {page_numbers[0]} current photos: {[p.get('filename') for p in photos_page0]}")
+                    logger.info(f"  Page {page_numbers[1]} current photos: {[p.get('filename') for p in photos_page1]}")
+                    
                     for photo in photos_page0:
                         filename = photo.get('filename', '')
-                        if filename in all_new_photos:
+                        if filename and filename not in original_page0_photos:
+                            # Photo is new to page 0 (either genuinely new or moved from page 1)
+                            logger.info(f"  Marking {filename} as new to page {page_numbers[0]}")
                             self.layout_mgr.mark_photo_as_new(page_numbers[0], filename)
                     
                     for photo in photos_page1:
                         filename = photo.get('filename', '')
-                        if filename in all_new_photos:
+                        if filename and filename not in original_page1_photos:
+                            # Photo is new to page 1 (either genuinely new or moved from page 0)
+                            logger.info(f"  Marking {filename} as new to page {page_numbers[1]}")
                             self.layout_mgr.mark_photo_as_new(page_numbers[1], filename)
                     
                     self.modified_pages.add(page_numbers[0])
@@ -2621,6 +2825,9 @@ class LayoutViewer:
                     self._update_modified_pages_display()
                     
                     self.render_page()
+                    
+                    total_ui_time = time() - ui_update_start
+                    print(f"UI update: {total_ui_time:.3f}s")
                 
                 self.root.after(0, on_spread_done)
                 
@@ -2690,6 +2897,7 @@ class LayoutViewer:
                     text_id = f'TEXT_{i}'
                     preferred_sizes[text_id] = self.layout_mgr.get_size(pageno, text_id)
                 
+                algo_start = time()
                 success, updated_photos, updated_texts, error_msg = generate_layout_for_page(
                     photos, page_w, page_h, self.photo_dimensions,
                     algorithm=algorithm, edge_gap=edge_gap, internal_gap=internal_gap, texts=texts,
@@ -2698,6 +2906,8 @@ class LayoutViewer:
                     slot_aspect_ratios=slot_aspect_ratios_for_page,
                     origin_left=info.get('origin_left', 0.0), pageno=pageno
                 )
+                algo_time = time() - algo_start
+                print(f"Algorithm: {algo_time:.3f}s")
                 
                 # MCF stores area_left as absolute coordinates relative to the full spread.
                 # The collage generator returns coordinates relative to the single-page
@@ -2720,6 +2930,8 @@ class LayoutViewer:
                                 ut['area_left'] = ut['area_left'] + origin_left
 
                 def on_done():
+                    ui_update_start = time()
+                    
                     # re-enable button
                     try:
                         self.gen_btn.config(state='normal')
@@ -2739,6 +2951,9 @@ class LayoutViewer:
                     self._mark_current_pages_modified()
                     
                     self.render_page()
+                    
+                    total_ui_time = time() - ui_update_start
+                    print(f"UI update: {total_ui_time:.3f}s")
 
                 self.root.after(0, on_done)
 
@@ -2827,16 +3042,15 @@ class LayoutViewer:
                 new_photos = self.layout_mgr.get_new_photos(pageno)
                 deleted_photos = self.layout_mgr.get_deleted_photos(pageno)
                 
+                logger.info(f"Save: Page {pageno} - new_photos={sorted(new_photos)}, deleted_photos={sorted(deleted_photos)}")
+                
                 # Rename photos to include preferred size and page number in filename
                 # Skip newly added photos that haven't been moved yet
                 rename_map = {}  # old_filename -> new_filename (for XML update)
+                renamed_new_photos = {}  # old_filename -> new_filename for photos in new_photos
                 for photo in photos:
                     old_filename = photo.get('filename', '')
                     if not old_filename:
-                        continue
-                    
-                    # Skip newly added photos - they'll be moved with metadata already encoded
-                    if old_filename in new_photos:
                         continue
                     
                     # Get base filename (without any -sz or -pg suffixes)
@@ -2847,6 +3061,14 @@ class LayoutViewer:
                     
                     # Generate new filename with size and page number encoded
                     new_filename = encode_metadata_in_filename(old_filename, preferred_size, pageno)
+                    
+                    # Track if this photo was marked as new and is being renamed
+                    if old_filename in new_photos and new_filename != old_filename:
+                        renamed_new_photos[old_filename] = new_filename
+                    
+                    # Skip newly added photos that haven't been moved yet - they'll be moved with metadata already encoded
+                    if old_filename in new_photos and '_source_path' in photo:
+                        continue
                     
                     # Populate rename_map to handle multiple possible XML filename formats
                     # XML might have: base name, name with -sz, or name with -sz-pgN (from different page)
@@ -2886,7 +3108,13 @@ class LayoutViewer:
                 # Move staged photos from source to album root
                 # Encode preferred size and page number into filename before moving
                 moved_photos = []
-                new_photos_updated = set()  # Track updated filenames for new photos
+                new_photos_final = set(new_photos)  # Start with tracked new photos
+                
+                # Update new_photos_final to reflect any renamed photos
+                for old_fn, new_fn in renamed_new_photos.items():
+                    new_photos_final.discard(old_fn)
+                    new_photos_final.add(new_fn)
+                
                 for photo in photos:
                     if '_source_path' in photo and photo.get('filename') in new_photos:
                         src_path = Path(photo['_source_path'])
@@ -2902,7 +3130,10 @@ class LayoutViewer:
                         
                         # Update photo dict with encoded filename
                         photo['filename'] = new_filename
-                        new_photos_updated.add(new_filename)  # Track new filename
+                        
+                        # Update tracking: remove old filename, add new filename
+                        new_photos_final.discard(old_filename)
+                        new_photos_final.add(new_filename)
                         
                         # Destination is album root (not images/ folder)
                         safefn = new_filename.replace('safecontainer:/', '').lstrip('/')
@@ -2951,7 +3182,7 @@ class LayoutViewer:
                 result = update_page_layout(
                     self.mcf_file_path, pageno, photos, texts, 
                     make_backup=(total_saved == 0),  # Only backup on first page
-                    new_photos=list(new_photos_updated), deleted_photos=list(deleted_photos),
+                    new_photos=list(new_photos_final), deleted_photos=list(deleted_photos),
                     rename_map=rename_map
                 )
                 
