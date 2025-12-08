@@ -10,6 +10,7 @@ from typing import List, Dict, Any
 import re
 import logging
 from .page_utils import determine_page_owner
+from .parser import is_canvas_format
 
 logger = logging.getLogger(__name__)
 
@@ -299,8 +300,12 @@ def update_page_layout(path: str, pageno: int, photos: List[Dict[str, Any]],
     tree = etree.parse(path)
     root = tree.getroot()
     
+    # Detect Canvas mode
+    canvas_mode = is_canvas_format(root)
+    
     # Find the <page> element that contains this logical page
-    # A <page> with pagenr=N can contain logical pages based on even/odd:
+    # Canvas mode: single page, no left/right splitting
+    # Photobook mode: A <page> with pagenr=N can contain logical pages based on even/odd:
     # - Even N: contains logical pages N (left) and N+1 (right)
     # - Odd N: contains logical pages N-1 (left) and N (right)
     page_elem = None
@@ -312,38 +317,103 @@ def update_page_layout(path: str, pageno: int, photos: List[Dict[str, Any]],
         except ValueError:
             continue
         
-        # Determine which logical pages this <page> element contains
-        if page_nr % 2 == 0:
-            # Even pagenr: left=page_nr, right=page_nr+1
-            left_owner = page_nr
-            right_owner = page_nr + 1
+        if canvas_mode:
+            # Canvas: direct page number match, no splitting
+            if page_nr == pageno:
+                page_elem = page
+                is_right_page = False
+                break
         else:
-            # Odd pagenr: left=page_nr-1, right=page_nr
-            left_owner = max(1, page_nr - 1)
-            right_owner = page_nr
-        
-        if pageno == left_owner:
-            page_elem = page
-            is_right_page = False
-            break
-        elif pageno == right_owner:
-            page_elem = page
-            is_right_page = True
-            break
+            # Photobook: determine which logical pages this <page> element contains
+            if page_nr % 2 == 0:
+                # Even pagenr: left=page_nr, right=page_nr+1
+                left_owner = page_nr
+                right_owner = page_nr + 1
+            else:
+                # Odd pagenr: left=page_nr-1, right=page_nr
+                left_owner = max(1, page_nr - 1)
+                right_owner = page_nr
+            
+            if pageno == left_owner:
+                page_elem = page
+                is_right_page = False
+                break
+            elif pageno == right_owner:
+                page_elem = page
+                is_right_page = True
+                break
     
     if page_elem is None:
         raise ValueError(f'Logical page {pageno} not found in {path}')
     
+    # Get page rotation (for portrait Canvases)
+    page_rotation = page_elem.get('rotation', '0')
+    try:
+        rotation_degrees = float(page_rotation)
+    except (TypeError, ValueError):
+        rotation_degrees = 0.0
+    
     # Get spread dimensions to determine which areas belong to this page
     bundlesize = page_elem.find('./bundlesize')
     spread_width = float(bundlesize.get('width'))
+    spread_height = float(bundlesize.get('height'))
     
-    half_width = spread_width / 2.0
+    def apply_reverse_rotation(left, top, width, height, rot):
+        """Reverse the rotation transformation applied during parsing.
+        
+        Parser rotates physical coords → logical coords for UI
+        Writer must reverse: logical coords → physical coords for MCF file
+        
+        For 90° page rotation:
+          Forward (parser):  physical (x,y,w,h) → logical rotated 90° clockwise: (y, W-x-w, h, w)
+          Reverse (writer): logical (x',y',w',h') → physical rotated 90° counter-clockwise: (W-y'-h', x', h', w')
+        
+        Args:
+            left, top, width, height: Logical coordinates (as used by UI)
+            rot: Logical rotation of the area itself
+            
+        Returns:
+            Tuple of (physical_left, physical_top, physical_width, physical_height, physical_rot)
+        """
+        if rotation_degrees == 90.0:
+            # Reverse 90° clockwise by applying 90° counter-clockwise:
+            # Transform: (x',y',w',h') → (W-y'-h', x', h', w')
+            # Note: we also SWAP width and height
+            physical_left = spread_width - top - height
+            physical_top = left
+            physical_width = height  # SWAPPED
+            physical_height = width  # SWAPPED
+            physical_rot = (rot - 90.0) % 360.0  # Subtract 90 to reverse
+            return physical_left, physical_top, physical_width, physical_height, physical_rot
+        elif rotation_degrees == 270.0:
+            # Reverse 270° clockwise rotation by applying 90° transform
+            # Transform: (x',y',w',h') → (y', W-x'-w', h', w')
+            # Note: we also SWAP width and height
+            physical_left = top
+            physical_top = spread_width - left - width
+            physical_width = height  # SWAPPED
+            physical_height = width  # SWAPPED
+            physical_rot = (rot + 90.0) % 360.0  # Add 90, not subtract
+            return physical_left, physical_top, physical_width, physical_height, physical_rot
+        else:
+            # No rotation - coordinates are already physical
+            return left, top, width, height, rot
+    
+    # Canvas mode: no splitting (half_width = full width)
+    # Photobook mode: split spread in half
+    if canvas_mode:
+        half_width = spread_width  # No splitting for Canvas
+    else:
+        half_width = spread_width / 2.0
     
     # Determine left and right page owners for this spread
     # (Already computed in the loop above, but extract for clarity)
     page_nr = int(page_elem.get('pagenr', '0'))
-    if page_nr % 2 == 0:
+    if canvas_mode:
+        # Canvas: single page owns all areas
+        left_owner = page_nr
+        right_owner = page_nr
+    elif page_nr % 2 == 0:
         left_owner = page_nr
         right_owner = page_nr + 1
     else:
@@ -427,24 +497,33 @@ def update_page_layout(path: str, pageno: int, photos: List[Dict[str, Any]],
         image_width = matching_photo['image_width']
         image_height = matching_photo['image_height']
         
-        # Get new slot dimensions
-        slot_width = matching_photo.get('area_width', 0)
-        slot_height = matching_photo.get('area_height', 0)
+        # Get logical layout dimensions (as used by UI)
+        logical_left = matching_photo.get('area_left', 0)
+        logical_top = matching_photo.get('area_top', 0)
+        logical_width = matching_photo.get('area_width', 0)
+        logical_height = matching_photo.get('area_height', 0)
+        logical_rot = matching_photo.get('area_rot', 0)
         
-        # Calculate correct scale and cutout values
+        # Apply reverse rotation to convert logical coords → physical coords for MCF
+        physical_left, physical_top, physical_width, physical_height, physical_rot = apply_reverse_rotation(
+            logical_left, logical_top, logical_width, logical_height, logical_rot
+        )
+        
+        # Calculate correct scale and cutout values using physical dimensions
         scale, cutout_left, cutout_top = _calculate_cutout(
-            slot_width, slot_height, image_width, image_height
+            physical_width, physical_height, image_width, image_height
         )
         
         # Update XML filename if photo was renamed
         if rename_map and filename in rename_map:
             image.set('filename', rename_map[filename])
         
-        # Update position with new values
-        pos.set('left', f"{matching_photo.get('area_left', 0):.2f}")
-        pos.set('top', f"{matching_photo.get('area_top', 0):.2f}")
-        pos.set('width', f"{matching_photo.get('area_width', 0):.2f}")
-        pos.set('height', f"{matching_photo.get('area_height', 0):.2f}")
+        # Update position with physical values (rotated back for MCF storage)
+        pos.set('left', f"{physical_left:.2f}")
+        pos.set('top', f"{physical_top:.2f}")
+        pos.set('width', f"{physical_width:.2f}")
+        pos.set('height', f"{physical_height:.2f}")
+        pos.set('rotation', f"{physical_rot:.2f}")
         
         # Update cutout values in the image element
         cutout_elem = image.find('cutout')
@@ -524,13 +603,21 @@ def update_page_layout(path: str, pageno: int, photos: List[Dict[str, Any]],
         image_width = photo['image_width']
         image_height = photo['image_height']
         
-        # Get slot dimensions
-        slot_width = photo.get('area_width', 0)
-        slot_height = photo.get('area_height', 0)
+        # Get logical layout dimensions (as used by UI)
+        logical_left = photo.get('area_left', 0)
+        logical_top = photo.get('area_top', 0)
+        logical_width = photo.get('area_width', 0)
+        logical_height = photo.get('area_height', 0)
+        logical_rot = photo.get('area_rot', 0)
         
-        # Calculate correct scale and cutout values
+        # Apply reverse rotation to convert logical coords → physical coords for MCF
+        physical_left, physical_top, physical_width, physical_height, physical_rot = apply_reverse_rotation(
+            logical_left, logical_top, logical_width, logical_height, logical_rot
+        )
+        
+        # Calculate correct scale and cutout values using physical dimensions
         scale, cutout_left, cutout_top = _calculate_cutout(
-            slot_width, slot_height, image_width, image_height
+            physical_width, physical_height, image_width, image_height
         )
         
         # Create new <area> element
@@ -538,12 +625,13 @@ def update_page_layout(path: str, pageno: int, photos: List[Dict[str, Any]],
         new_area.text = '\n            '  # Indent for <position>
         
         # Create <position> child (MCF format: height, left, rotation, top, width, zposition)
+        # Use physical coordinates (rotated back for MCF storage)
         position = etree.SubElement(new_area, 'position')
-        position.set('height', f"{photo.get('area_height', 0):.2f}")
-        position.set('left', f"{photo.get('area_left', 0):.2f}")
-        position.set('rotation', '0')
-        position.set('top', f"{photo.get('area_top', 0):.2f}")
-        position.set('width', f"{photo.get('area_width', 0):.2f}")
+        position.set('height', f"{physical_height:.2f}")
+        position.set('left', f"{physical_left:.2f}")
+        position.set('rotation', f"{physical_rot:.2f}")
+        position.set('top', f"{physical_top:.2f}")
+        position.set('width', f"{physical_width:.2f}")
         position.set('zposition', '100')  # Default z-position
         position.tail = '\n            '  # Newline after <position>
         
@@ -609,10 +697,23 @@ def update_page_layout(path: str, pageno: int, photos: List[Dict[str, Any]],
         if pos is None:
             continue
         
-        pos.set('left', f"{text_layout.get('area_left', 0):.2f}")
-        pos.set('top', f"{text_layout.get('area_top', 0):.2f}")
-        pos.set('width', f"{text_layout.get('area_width', 0):.2f}")
-        pos.set('height', f"{text_layout.get('area_height', 0):.2f}")
+        # Get logical layout dimensions (as used by UI)
+        logical_left = text_layout.get('area_left', 0)
+        logical_top = text_layout.get('area_top', 0)
+        logical_width = text_layout.get('area_width', 0)
+        logical_height = text_layout.get('area_height', 0)
+        logical_rot = text_layout.get('area_rot', 0)
+        
+        # Apply reverse rotation to convert logical coords → physical coords for MCF
+        physical_left, physical_top, physical_width, physical_height, physical_rot = apply_reverse_rotation(
+            logical_left, logical_top, logical_width, logical_height, logical_rot
+        )
+        
+        pos.set('left', f"{physical_left:.2f}")
+        pos.set('top', f"{physical_top:.2f}")
+        pos.set('width', f"{physical_width:.2f}")
+        pos.set('height', f"{physical_height:.2f}")
+        pos.set('rotation', f"{physical_rot:.2f}")
         modified_texts += 1
     
     # Add new text areas if there are more texts than existing areas
@@ -620,17 +721,29 @@ def update_page_layout(path: str, pageno: int, photos: List[Dict[str, Any]],
         for i in range(len(text_areas), len(texts)):
             text_layout = texts[i]
             
+            # Get logical layout dimensions (as used by UI)
+            logical_left = text_layout.get('area_left', 0)
+            logical_top = text_layout.get('area_top', 0)
+            logical_width = text_layout.get('area_width', 0)
+            logical_height = text_layout.get('area_height', 0)
+            logical_rot = text_layout.get('area_rot', 0)
+            
+            # Apply reverse rotation to convert logical coords → physical coords for MCF
+            physical_left, physical_top, physical_width, physical_height, physical_rot = apply_reverse_rotation(
+                logical_left, logical_top, logical_width, logical_height, logical_rot
+            )
+            
             # Create new <area> element for text
             new_area = etree.Element('area', areatype='textarea')
             new_area.text = '\n            '  # Indent for <position>
             
-            # Create <position> child
+            # Create <position> child using physical coordinates
             position = etree.SubElement(new_area, 'position')
-            position.set('height', f"{text_layout.get('area_height', 0):.2f}")
-            position.set('left', f"{text_layout.get('area_left', 0):.2f}")
-            position.set('rotation', '0')
-            position.set('top', f"{text_layout.get('area_top', 0):.2f}")
-            position.set('width', f"{text_layout.get('area_width', 0):.2f}")
+            position.set('height', f"{physical_height:.2f}")
+            position.set('left', f"{physical_left:.2f}")
+            position.set('rotation', f"{physical_rot:.2f}")
+            position.set('top', f"{physical_top:.2f}")
+            position.set('width', f"{physical_width:.2f}")
             position.set('zposition', '7000')  # Default z-position for text
             position.tail = '\n            '  # Newline after <position>
             

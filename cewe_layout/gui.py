@@ -1,6 +1,6 @@
 """Simple Tkinter UI to browse pages and display layout rectangles."""
 import tkinter as tk
-from tkinter import ttk
+from tkinter import ttk, filedialog
 from PIL import Image, ImageDraw, ImageTk
 import math
 import os
@@ -191,6 +191,12 @@ class LayoutViewer:
         self.index = 0
         self.layout_mgr = LayoutManager()
         
+        # Detect Canvas mode from first page
+        self.is_canvas = False
+        if self.pages:
+            _, first_info = self.pages[0]
+            self.is_canvas = first_info.get('is_canvas', False)
+        
         # Algorithm selection
         self.algorithm_var = tk.StringVar(value='Collage-Gen')
         
@@ -198,7 +204,8 @@ class LayoutViewer:
         self.debug_var = tk.BooleanVar(value=False)
         
         # Spread mode flag - when True, show two pages (even+odd) as a spread
-        self.spread_mode = tk.BooleanVar(value=False)
+        # For Canvas, this is forced to True and locked (entire canvas is one "spread")
+        self.spread_mode = tk.BooleanVar(value=self.is_canvas)
         
         # Track current spread pages (list of 1 or 2 page numbers)
         self.current_spread_pages = []
@@ -336,17 +343,21 @@ class LayoutViewer:
         self.ctrl.geometry('+50+50')
 
         # Row 0: Navigation - organize in two frames for tight grouping
+        # For Canvas mode, hide all page navigation controls
         nav_frame = ttk.Frame(self.ctrl)
-        nav_frame.grid(row=0, column=0, sticky='w', padx=4, pady=4)
-        self.page_num_var = tk.StringVar(value='Page:')
-        ttk.Label(nav_frame, textvariable=self.page_num_var, font=('TkDefaultFont', 9)).pack(side='left', padx=(0,4))
+        if not self.is_canvas:
+            nav_frame.grid(row=0, column=0, sticky='w', padx=4, pady=4)
+        self.page_num_var = tk.StringVar(value='Canvas:' if self.is_canvas else 'Page:')
+        self.page_num_label = ttk.Label(nav_frame, textvariable=self.page_num_var, font=('TkDefaultFont', 9))
+        self.page_num_label.pack(side='left', padx=(0,4))
         prev_btn = ttk.Button(nav_frame, text='Prev (←)', command=self.prev_page)
         prev_btn.pack(side='left')
         next_btn = ttk.Button(nav_frame, text='Next (→)', command=self.next_page)
         next_btn.pack(side='left')
         
         goto_frame = ttk.Frame(self.ctrl)
-        goto_frame.grid(row=0, column=1, sticky='w', padx=4, pady=4)
+        if not self.is_canvas:
+            goto_frame.grid(row=0, column=1, sticky='w', padx=4, pady=4)
         ttk.Label(goto_frame, text='Go to:').pack(side='left', pady=2)
         self.goto_var = tk.StringVar()
         goto_entry = ttk.Entry(goto_frame, textvariable=self.goto_var, width=6)
@@ -359,8 +370,10 @@ class LayoutViewer:
         self.page_range_label = ttk.Label(goto_frame, textvariable=self.page_range_var, foreground='gray')
         self.page_range_label.pack(side='left', padx=(8,0))
         
-        # Spread mode checkbox
-        spread_check = ttk.Checkbutton(goto_frame, text='Spread', variable=self.spread_mode, command=self._on_spread_mode_change)
+        # Spread mode checkbox (disabled for Canvas - it's always a single spread)
+        spread_check = ttk.Checkbutton(goto_frame, text='Spread', variable=self.spread_mode, 
+                                       command=self._on_spread_mode_change,
+                                       state='disabled' if self.is_canvas else 'normal')
         spread_check.pack(side='left', padx=(8,0))
         
         # Row 1: Algorithm selection and Generate button - pack in single frame
@@ -399,6 +412,8 @@ class LayoutViewer:
         undo_btn.pack(side='left', padx=(0,4))
         save_btn = ttk.Button(actions_frame, text='Save Modified', command=self.save_layout)
         save_btn.pack(side='left', padx=(0,4))
+        pdf_btn = ttk.Button(actions_frame, text='Export PDF', command=self.export_to_pdf)
+        pdf_btn.pack(side='left', padx=(0,4))
         orig_btn = ttk.Button(actions_frame, text='Use Original Page', command=self.use_original)
         orig_btn.pack(side='left')
 
@@ -528,6 +543,14 @@ class LayoutViewer:
         self.undersized_penalty_entry.bind('<Return>', lambda e: self.on_undersized_penalty_changed())
         self.undersized_penalty_entry.bind('<FocusOut>', lambda e: self.on_undersized_penalty_changed())
         
+        # Empty space threshold parameter
+        ttk.Label(cost_param_frame, text='Empty space threshold (%):').grid(row=3, column=0, sticky='w', pady=2)
+        self.empty_threshold_var = tk.StringVar(value='5.0')
+        self.empty_threshold_entry = ttk.Entry(cost_param_frame, textvariable=self.empty_threshold_var, width=8)
+        self.empty_threshold_entry.grid(row=3, column=1, sticky='w', padx=4, pady=2)
+        self.empty_threshold_entry.bind('<Return>', lambda e: self.on_empty_threshold_changed())
+        self.empty_threshold_entry.bind('<FocusOut>', lambda e: self.on_empty_threshold_changed())
+        
         # Margins frame (bottom of right column)
         margins_frame = ttk.LabelFrame(right_col, text='Margins', padding=6)
         margins_frame.grid(row=2, column=0, sticky='ew')
@@ -572,6 +595,7 @@ class LayoutViewer:
         self.size_importance = 100.0  # Default size importance factor
         self.undersized_threshold = 0.5  # Default undersized threshold (50%)
         self.undersized_penalty = 5.0  # Default undersized penalty factor
+        self.empty_threshold = 0.05  # Default empty space threshold (5%)
         self.modified_pages = set()  # Track pages with unsaved changes
         
         # Find the last page with actual photos (non-empty filenames)
@@ -583,8 +607,13 @@ class LayoutViewer:
             if has_photos:
                 last_page_with_photos = idx
         
-        # Start at the last page with photos (skip page 0)
-        self.index = max(1, last_page_with_photos)
+        # Start at the last page with photos
+        # For Canvas mode, there's only 1 page at index 0
+        # For photobooks, skip page 0 (cover) and start at page 1 or later
+        if self.is_canvas or len(self.pages) == 1:
+            self.index = last_page_with_photos
+        else:
+            self.index = max(1, last_page_with_photos)
         
         self.render_page()
 
@@ -597,7 +626,7 @@ class LayoutViewer:
         
         if not self.pages:
             # Update page number display
-            self.page_num_var.set('Page:')
+            self.page_num_var.set('Canvas:' if self.is_canvas else 'Page:')
             
             # Get current canvas dimensions
             self.root.update_idletasks()
@@ -619,8 +648,13 @@ class LayoutViewer:
             self.current_spread_pages = []
             return
         
-        # Determine which pages to render
-        if in_spread_mode:
+        # Canvas mode: always treat as single page (no spread navigation)
+        # Photobook mode: determine which pages to render based on spread mode
+        if self.is_canvas:
+            # Canvas: single page, always shown in full
+            page_indices = [self.index]
+            self.current_spread_pages = [self.pages[self.index][0]]
+        elif in_spread_mode:
             # Spread mode: ensure even page on left, odd page on right
             current_pageno = self.pages[self.index][0]
             
@@ -653,7 +687,9 @@ class LayoutViewer:
             self.current_spread_pages = [self.pages[self.index][0]]
         
         # Update page number display
-        if len(self.current_spread_pages) == 2:
+        if self.is_canvas:
+            self.page_num_var.set('Canvas:')
+        elif len(self.current_spread_pages) == 2:
             self.page_num_var.set(f'Pages {self.current_spread_pages[0]}-{self.current_spread_pages[1]}:')
         else:
             self.page_num_var.set(f'Page {self.current_spread_pages[0]}:')
@@ -693,9 +729,15 @@ class LayoutViewer:
                 page_h = info_i.get('page_height')
                 background_id = info_i.get('background_id')
         
-        # Update window title with photobook name and page info
+        # Update window title with photobook/canvas name and page info
         text_label = 'text' if len(all_texts) == 1 else 'texts'
-        if len(self.current_spread_pages) == 2:
+        if self.is_canvas:
+            # Canvas mode: show as "Canvas" not "Page"
+            if all_texts:
+                title = f'{self.photobook_name} - Canvas : {len(all_photos)} photos, {len(all_texts)} {text_label}'
+            else:
+                title = f'{self.photobook_name} - Canvas : {len(all_photos)} photos'
+        elif len(self.current_spread_pages) == 2:
             if all_texts:
                 title = f'{self.photobook_name} - Pages {self.current_spread_pages[0]}-{self.current_spread_pages[1]} : {len(all_photos)} photos, {len(all_texts)} {text_label}'
             else:
@@ -766,7 +808,8 @@ class LayoutViewer:
             self._draw_page_frame(draw, frame_x, frame_y, frame_w, frame_h, frame_color)
         
         # In spread mode, draw dotted line down the crease (center)
-        if len(page_indices) == 2:
+        # But not for Canvas mode (single large page, no crease)
+        if len(page_indices) == 2 and not self.is_canvas:
             crease_x = margin_mcf * scale + page_w * scale
             self._draw_crease_line(draw, crease_x, frame_y, frame_h, frame_color)
         
@@ -1662,7 +1705,7 @@ class LayoutViewer:
         cost = evaluate_layout(
             eval_page_w, eval_page_h, rectangles,
             size_importance=self.size_importance,
-            acceptable_empty_fraction=0.05,
+            acceptable_empty_fraction=self.empty_threshold,
             undersized_threshold=self.undersized_threshold,
             undersized_penalty=self.undersized_penalty
         )
@@ -2286,6 +2329,16 @@ class LayoutViewer:
             new_penalty = float(self.undersized_penalty_var.get())
             if 0.1 <= new_penalty <= 100.0:  # Reasonable bounds
                 self.undersized_penalty = new_penalty
+                self.update_weights_display()  # Refresh cost display
+        except ValueError:
+            pass  # Ignore invalid input
+    
+    def on_empty_threshold_changed(self):
+        """Handle empty space threshold parameter change."""
+        try:
+            new_threshold_pct = float(self.empty_threshold_var.get())
+            if 0.0 <= new_threshold_pct <= 100.0:  # 0% to 100%
+                self.empty_threshold = new_threshold_pct / 100.0  # Convert % to fraction
                 self.update_weights_display()  # Refresh cost display
         except ValueError:
             pass  # Ignore invalid input
@@ -3203,6 +3256,110 @@ class LayoutViewer:
             self.render_page()
         else:
             self.show_status('No more layouts to go back to.')
+
+    def export_to_pdf(self):
+        """Export current page to PDF with photos and white text boxes only."""
+        try:
+            from reportlab.pdfgen import canvas
+            from reportlab.lib.utils import ImageReader
+        except ImportError:
+            self.status_var.set('Error: reportlab not installed. Run: pip install reportlab')
+            return
+        
+        # Ask user for save location
+        default_name = f'page_{self.current_spread_pages[0]}.pdf' if self.current_spread_pages else 'page.pdf'
+        filepath = filedialog.asksaveasfilename(
+            defaultextension='.pdf',
+            filetypes=[('PDF files', '*.pdf'), ('All files', '*.*')],
+            initialfile=default_name
+        )
+        
+        if not filepath:
+            return  # User cancelled
+        
+        # Get current page info
+        if not self.pages or self.index >= len(self.pages):
+            self.status_var.set('No page to export')
+            return
+        
+        pageno, info = self.pages[self.index]
+        current_layout = self.layout_mgr.get_current(pageno)
+        photos = current_layout.photos if current_layout else info.get('photos', [])
+        texts = current_layout.texts if current_layout else info.get('texts', [])
+        
+        # Get page dimensions (in MCF units, 0.1mm)
+        page_w = info.get('page_width', 0)
+        page_h = info.get('page_height', 0)
+        origin_left = info.get('origin_left', 0.0)
+        
+        # Convert MCF units to points (1 point = 1/72 inch, 1mm = 2.83465 points)
+        mcf_to_points = MCF_TO_MM * 2.83465
+        page_w_pt = page_w * mcf_to_points
+        page_h_pt = page_h * mcf_to_points
+        
+        # Create PDF
+        pdf_canvas = canvas.Canvas(filepath, pagesize=(page_w_pt, page_h_pt))
+        
+        # ReportLab uses bottom-left origin, so we need to flip Y coordinates
+        def transform_y(y_mcf, h_mcf):
+            """Convert top-left Y coordinate to bottom-left."""
+            return page_h_pt - (y_mcf + h_mcf) * mcf_to_points
+        
+        # Draw white rectangles for text boxes (no stroke)
+        pdf_canvas.setFillColorRGB(1, 1, 1)  # White
+        for t in texts:
+            left = (t.get('area_left', 0) - origin_left) * mcf_to_points
+            top_mcf = t.get('area_top', 0)
+            w = t.get('area_width', 0) * mcf_to_points
+            h = t.get('area_height', 0) * mcf_to_points
+            bottom = transform_y(top_mcf, t.get('area_height', 0))
+            pdf_canvas.rect(left, bottom, w, h, fill=1, stroke=0)
+        
+        # Draw photos
+        for p in photos:
+            left_mcf = p.get('area_left', 0)
+            top_mcf = p.get('area_top', 0)
+            w_mcf = p.get('area_width', 0)
+            h_mcf = p.get('area_height', 0)
+            
+            left = (left_mcf - origin_left) * mcf_to_points
+            w = w_mcf * mcf_to_points
+            h = h_mcf * mcf_to_points
+            bottom = transform_y(top_mcf, h_mcf)
+            
+            # Get photo file
+            fn = p.get('filename', '')
+            if not fn:
+                continue
+            
+            # Resolve photo path
+            img_path = None
+            if '_source_path' in p:
+                img_path = p['_source_path']
+            else:
+                safefn = fn.replace('safecontainer:/', '').lstrip('/')
+                if self.image_folder_attr:
+                    candidate = os.path.join(self.mcf_base_folder, self.image_folder_attr, safefn)
+                    if os.path.exists(candidate):
+                        img_path = candidate
+                if img_path is None:
+                    candidate = os.path.join(self.mcf_base_folder, safefn)
+                    if os.path.exists(candidate):
+                        img_path = candidate
+            
+            if img_path and os.path.exists(img_path):
+                try:
+                    # Load image and draw it
+                    img_reader = ImageReader(img_path)
+                    pdf_canvas.drawImage(img_reader, left, bottom, width=w, height=h, 
+                                        preserveAspectRatio=True, anchor='c')
+                except Exception as e:
+                    logger.warning(f'Failed to add photo {fn} to PDF: {e}')
+        
+        # Save PDF
+        pdf_canvas.save()
+        self.status_var.set(f'PDF saved: {filepath}')
+        logger.info(f'Exported page {pageno} to PDF: {filepath}')
 
     def save_layout(self):
         """Write all modified layouts to disk and manage photo files.
