@@ -347,6 +347,66 @@ def test_mixed_photos_and_texts():
     print("✓ Mixed photos and texts handled correctly")
 
 
+def test_bottom_alignment_with_left_neighbor():
+    """Test that bottom edges align when within 5mm of left neighbor."""
+    page_width = 2000.0
+    page_height = 2000.0
+    
+    # Left photo with bottom at 1000, right photo with bottom at 1003 (3mm difference)
+    rectangles = [
+        LayoutRectangle("0", x=1.0, y=1.0, width=998.0, height=999.0, preferred_size=1.0),  # Left, bottom at 1000
+        LayoutRectangle("1", x=1001.0, y=1.0, width=998.0, height=1002.0, preferred_size=1.0),  # Right, bottom at 1003
+    ]
+    
+    algorithm = GapPerfecterAlgorithm()
+    success, result, error = algorithm.generate_layout(page_width, page_height, rectangles)
+    
+    assert success, f"Algorithm failed: {error}"
+    assert len(result) == 2
+    
+    rects_by_id = {r.item_id: r for r in result}
+    left = rects_by_id["0"]
+    right = rects_by_id["1"]
+    
+    # After processing, right photo's bottom should align with left photo's bottom
+    left_bottom = left.y + left.height
+    right_bottom = right.y + right.height
+    
+    assert abs(left_bottom - right_bottom) < 0.1, f"Bottoms should align: left={left_bottom:.1f}, right={right_bottom:.1f}"
+    
+    print("✓ Bottom edges align with left neighbor when within 5mm")
+
+
+def test_right_alignment_with_top_neighbor():
+    """Test that right edges align when within 5mm of top neighbor."""
+    page_width = 2000.0
+    page_height = 2000.0
+    
+    # Top photo with right at 1000, bottom photo with right at 997 (3mm difference)
+    rectangles = [
+        LayoutRectangle("0", x=1.0, y=1.0, width=999.0, height=998.0, preferred_size=1.0),  # Top, right at 1000
+        LayoutRectangle("1", x=1.0, y=1001.0, width=996.0, height=998.0, preferred_size=1.0),  # Bottom, right at 997
+    ]
+    
+    algorithm = GapPerfecterAlgorithm()
+    success, result, error = algorithm.generate_layout(page_width, page_height, rectangles)
+    
+    assert success, f"Algorithm failed: {error}"
+    assert len(result) == 2
+    
+    rects_by_id = {r.item_id: r for r in result}
+    top = rects_by_id["0"]
+    bottom = rects_by_id["1"]
+    
+    # After processing, bottom photo's right should align with top photo's right
+    top_right = top.x + top.width
+    bottom_right = bottom.x + bottom.width
+    
+    assert abs(top_right - bottom_right) < 0.1, f"Rights should align: top={top_right:.1f}, bottom={bottom_right:.1f}"
+    
+    print("✓ Right edges align with top neighbor when within 5mm")
+
+
 if __name__ == '__main__':
     test_simple_2x2_grid_with_small_gaps()
     test_single_photo_with_margins()
@@ -357,4 +417,6 @@ if __name__ == '__main__':
     test_no_positions_set_fails()
     test_small_overlap_fixing()
     test_mixed_photos_and_texts()
+    test_bottom_alignment_with_left_neighbor()
+    test_right_alignment_with_top_neighbor()
     print("\n✓ All Gap Perfecter tests passed!")

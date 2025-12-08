@@ -28,9 +28,11 @@ For each rectangle (in diagonal order):
   - Shift this rect right/down to eliminate the overlap
   - Shrink width/height accordingly
 
-**b) Expand Top-Left**
+**b) Expand Top-Left & Align Edges**
 - Move top edge up to meet rects above (or page top)
 - Move left edge left to meet rects to the left (or page left edge)
+- **Align bottom with left neighbor**: If the left neighbor's bottom is within 5mm, adjust this rect's bottom to match exactly
+- **Align right with top neighbor**: If the top neighbor's right is within 5mm, adjust this rect's right to match exactly
 
 **c) Expand to Right Edge (if close)**
 - If within 15mm of the right page edge, expand to align perfectly
@@ -113,6 +115,7 @@ success, perfected_rects, error = algorithm.generate_layout(
 - **Tolerances**: 
   - Overlap fix threshold: 5mm (50 MCF units)
   - Edge proximity: 15mm (150 MCF units)
+  - Edge alignment: 5mm (50 MCF units) - for aligning bottoms/rights with neighbors
 
 ## Test Coverage
 
@@ -124,6 +127,8 @@ success, perfected_rects, error = algorithm.generate_layout(
   - Diagonal sorting verification
   - Small overlap fixing
   - Mixed photos and texts
+  - Bottom edge alignment with left neighbor
+  - Right edge alignment with top neighbor
   
 - Integration tests: [tests/test_gap_perfecter_integration.py](../tests/test_gap_perfecter_integration.py)
   - Full pipeline through collage_wrapper

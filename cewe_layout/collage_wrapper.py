@@ -143,19 +143,20 @@ def generate_layout_for_page(photos, page_width_mcf, page_height_mcf, photo_dime
                 warnings.append(f"{page_context}INFO: Item {rect.item_id} aspect ratio changed by {aspect_diff*100:.1f}% (may be intentional)")
     
     # 3. Check for overlaps (informative - some layouts may intentionally overlap)
-    overlap_count = 0
+    overlapping_pairs = []
     for i, rect1 in enumerate(positioned_rects):
-        for rect2 in positioned_rects[i+1:]:
+        for j, rect2 in enumerate(positioned_rects[i+1:], start=i+1):
             # Check for rectangle overlap (allowing small tolerance for floating point)
             if (rect1.x < rect2.x + rect2.width - 1.0 and
                 rect1.x + rect1.width > rect2.x + 1.0 and
                 rect1.y < rect2.y + rect2.height - 1.0 and
                 rect1.y + rect1.height > rect2.y + 1.0):
-                overlap_count += 1
+                overlapping_pairs.append((rect1.item_id, rect2.item_id))
     
-    if overlap_count > 0:
+    if overlapping_pairs:
         page_context = f"Page {pageno}: " if pageno else ""
-        warnings.append(f"{page_context}INFO: {overlap_count} overlapping item pair(s) detected (may be intentional)")
+        pair_strs = [f"({id1}, {id2})" for id1, id2 in overlapping_pairs]
+        warnings.append(f"{page_context}INFO: {len(overlapping_pairs)} overlapping item pair(s) detected: {', '.join(pair_strs)} (may be intentional)")
     
     # Log warnings if any
     if warnings:

@@ -199,26 +199,100 @@ def analyze_gap_details(photos: List[Dict[str, Any]], page_width: float, page_he
         if closest_below_gap is not None and closest_below_gap > 10:
             internal_gaps.append(closest_below_gap)
     
-    # Calculate average edge gap
-    edge_gap = sum(edge_gaps) / len(edge_gaps) if edge_gaps else 0.0
+    # Helper to find modal value (most common value)
+    def find_modal_value(gaps, tolerance=2.0):
+        """Find the most common gap value, grouping within tolerance."""
+        if not gaps:
+            return 0.0
+        
+        # Round to tolerance to group similar values
+        rounded = [round(g / tolerance) * tolerance for g in gaps]
+        
+        # Find modal value (most common)
+        from collections import Counter
+        counts = Counter(rounded)
+        modal_value = counts.most_common(1)[0][0]
+        return modal_value
     
-    # Calculate average internal gap, removing outliers
-    if len(internal_gaps) > 3:
-        # Remove outliers beyond 1 standard deviation
-        import statistics
-        mean = statistics.mean(internal_gaps)
-        stdev = statistics.stdev(internal_gaps)
-        # Filter out values more than 1 stdev away
-        filtered_gaps = [g for g in internal_gaps if abs(g - mean) <= stdev]
-        inter_gap = sum(filtered_gaps) / len(filtered_gaps) if filtered_gaps else 0.0
-    else:
-        # Too few samples for outlier detection
-        inter_gap = sum(internal_gaps) / len(internal_gaps) if internal_gaps else 0.0
+    # Calculate MODAL edge gap (most common value, not average)
+    edge_gap = find_modal_value(edge_gaps, tolerance=2.0) if edge_gaps else 0.0
+    
+    # Calculate MODAL internal gap (most common value, not average)
+    inter_gap = find_modal_value(internal_gaps, tolerance=2.0) if internal_gaps else 0.0
     
     # Maximum bleed (largest negative margin)
     bleed = max(bleed_margins) if bleed_margins else 0.0
     
     return GapAnalysis(edge_gap, inter_gap, bleed, edge_gaps, internal_gaps, bleed_margins)
+
+
+def report_gap_variations(analysis: GapAnalysis, pageno: int = None) -> None:
+    """
+    Report variations in edge gaps and internal gaps if they exist.
+    
+    Only outputs messages if there are variations greater than 0.2mm (2 MCF units).
+    Reports the modal value (most common) and lists exceptions.
+    If all gaps are equal, reports that fact.
+    
+    Args:
+        analysis: GapAnalysis result from analyze_gap_details.
+        pageno: Optional page number for context in message.
+    """
+    TOLERANCE = 2.0  # 0.2mm in MCF units - ignore smaller differences
+    
+    page_context = f"Page {pageno}: " if pageno is not None else ""
+    
+    # Helper to find modal value and exceptions
+    def find_modal_and_exceptions(gaps, tolerance):
+        if not gaps:
+            return None, []
+        
+        # Round to tolerance to group similar values
+        rounded = [round(g / tolerance) * tolerance for g in gaps]
+        
+        # Find modal value (most common)
+        from collections import Counter
+        counts = Counter(rounded)
+        modal_value = counts.most_common(1)[0][0]
+        modal_count = counts[modal_value]
+        
+        # Find exceptions (values that differ from modal by more than tolerance)
+        exceptions = []
+        for g in rounded:
+            if abs(g - modal_value) > tolerance and g not in exceptions:
+                exceptions.append(g)
+        
+        return modal_value, sorted(exceptions)
+    
+    # Check internal gap variations
+    has_internal_variations = False
+    if analysis.internal_gaps:
+        modal_internal, exceptions = find_modal_and_exceptions(analysis.internal_gaps, TOLERANCE)
+        if exceptions:
+            has_internal_variations = True
+            # Convert to mm for display
+            modal_mm = modal_internal / 10.0
+            exceptions_mm = [e / 10.0 for e in exceptions]
+            exception_str = ", ".join(f"{e:.1f}" for e in exceptions_mm)
+            count_modal = sum(1 for g in analysis.internal_gaps if abs(g - modal_internal) <= TOLERANCE)
+            print(f"{page_context}Internal gaps: {count_modal} gaps are {modal_mm:.1f}mm, other gaps are {exception_str}mm")
+    
+    # Check edge gap variations
+    has_edge_variations = False
+    if analysis.edge_gaps:
+        modal_edge, exceptions = find_modal_and_exceptions(analysis.edge_gaps, TOLERANCE)
+        if exceptions:
+            has_edge_variations = True
+            # Convert to mm for display
+            modal_mm = modal_edge / 10.0
+            exceptions_mm = [e / 10.0 for e in exceptions]
+            exception_str = ", ".join(f"{e:.1f}" for e in exceptions_mm)
+            count_modal = sum(1 for g in analysis.edge_gaps if abs(g - modal_edge) <= TOLERANCE)
+            print(f"{page_context}Edge gaps: {count_modal} gaps are {modal_mm:.1f}mm, other gaps are {exception_str}mm")
+    
+    # If no variations detected, report that all gaps are equal
+    if not has_internal_variations and not has_edge_variations and (analysis.internal_gaps or analysis.edge_gaps):
+        print(f"{page_context}Equal edge gaps and equal internal gaps")
 
 
 def transform_page_to_gapfree(page_width: float, page_height: float,

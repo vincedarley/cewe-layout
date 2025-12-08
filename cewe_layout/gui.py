@@ -26,6 +26,7 @@ from .page_utils import determine_page_owner
 from .gap_utils import (
     analyze_gaps,
     analyze_gap_details,
+    report_gap_variations,
     transform_page_to_gapfree,
     transform_item_to_gapfree,
     transform_item_from_gapfree,
@@ -1873,6 +1874,12 @@ class LayoutViewer:
         # Position "Add text box" button below all items (skip row 0 and 1 for headers)
         next_row = 2 + len(rectangles)
         self.add_text_btn.grid(row=next_row, column=0, columnspan=2, padx=2, pady=4, sticky='w')
+        
+        # Report gap variations for current layout
+        if photos or texts:
+            all_items = photos + texts
+            analysis = analyze_gap_details(all_items, page_w, page_h, origin_left, self.spread_mode.get())
+            report_gap_variations(analysis, pageno)
     
     def add_text_box(self):
         """Add a new text box to the current page."""
@@ -2011,6 +2018,16 @@ class LayoutViewer:
             # Mark page(s) as modified
             self._mark_current_pages_modified()
             
+            # Report gap variations after edge gap change
+            current_layout = self.layout_mgr.get_current(pageno)
+            if current_layout and (current_layout.photos or current_layout.texts):
+                all_items = current_layout.photos + current_layout.texts
+                page_w = info.get('page_width')
+                page_h = info.get('page_height')
+                origin_left = info.get('origin_left', 0.0)
+                analysis = analyze_gap_details(all_items, page_w, page_h, origin_left, self.spread_mode.get())
+                report_gap_variations(analysis, pageno)
+            
             # Re-render with adjusted layout
             self.render_page()
         except ValueError as e:
@@ -2052,6 +2069,16 @@ class LayoutViewer:
             
             # Mark page(s) as modified
             self._mark_current_pages_modified()
+            
+            # Report gap variations after internal gap change
+            current_layout = self.layout_mgr.get_current(pageno)
+            if current_layout and (current_layout.photos or current_layout.texts):
+                all_items = current_layout.photos + current_layout.texts
+                page_w = info.get('page_width')
+                page_h = info.get('page_height')
+                origin_left = info.get('origin_left', 0.0)
+                analysis = analyze_gap_details(all_items, page_w, page_h, origin_left, self.spread_mode.get())
+                report_gap_variations(analysis, pageno)
             
             # Re-render with adjusted layout
             self.render_page()
@@ -2810,6 +2837,19 @@ class LayoutViewer:
                     self.modified_pages.add(page_numbers[1])
                     self._update_modified_pages_display()
                     
+                    # Analyze and report gap variations for both pages
+                    for pn, photos_list, texts_list in [(page_numbers[0], photos_page0, texts_page0), 
+                                                         (page_numbers[1], photos_page1, texts_page1)]:
+                        if photos_list or texts_list:
+                            page_info = next((p[1] for p in self.pages if p[0] == pn), None)
+                            if page_info:
+                                page_w = page_info.get('page_width')
+                                page_h = page_info.get('page_height')
+                                origin_left = page_info.get('origin_left', 0.0)
+                                all_items = photos_list + texts_list
+                                analysis = analyze_gap_details(all_items, page_w, page_h, origin_left, self.spread_mode.get())
+                                report_gap_variations(analysis, pn)
+                    
                     self.render_page()
                     
                     total_ui_time = time() - ui_update_start
@@ -2934,6 +2974,12 @@ class LayoutViewer:
 
                     # Push new layout (both photos and texts) to manager and refresh view
                     self.layout_mgr.push_layout(pageno, updated_photos, updated_texts)
+                    
+                    # Analyze and report gap variations for this page
+                    if updated_photos or updated_texts:
+                        all_items = updated_photos + updated_texts
+                        analysis = analyze_gap_details(all_items, page_w, page_h, info.get('origin_left', 0.0), self.spread_mode.get())
+                        report_gap_variations(analysis, pageno)
                     
                     # Mark page(s) as modified
                     self._mark_current_pages_modified()
