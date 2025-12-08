@@ -110,7 +110,7 @@ def test_fan_algorithm_page3():
     try:
         success, updated_photos, updated_texts, error_msg = generate_layout_for_page(
             photos, page_width, page_height, mcf_base_folder,
-            algorithm=algo, edge_gap=0.0, internal_gap=0.0, texts=[]
+            algorithm=algo, edge_gap=0.0, internal_gap=0.0, texts=[], is_spread=False
         )
         
         if not success:

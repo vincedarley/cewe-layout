@@ -1,0 +1,205 @@
+Debug Dump for Page 75
+================================================================================
+
+PAGE PROPERTIES:
+  page_width: 3820.0
+  page_height: 2900.0
+  origin_left: 3820.0
+  is_left_page: False
+  spread_mode: False
+
+GAP PARAMETERS:
+  edge_gap: -30.0 (-3.0mm)
+  internal_gap: 0 (0.0mm)
+
+ALGORITHM:
+  name: Gap Perfecter
+
+PHOTOS (20 total):
+  Photo 0:
+    filename: safecontainer:/exp1-2022-10-18-p022-sz1-pg75.jpeg
+    area_left: 7261.47
+    area_top: -30.0
+    area_width: 408.53
+    area_height: 317.07
+    preferred_size: 1
+    use_slot_aspect: False
+
+  Photo 1:
+    filename: safecontainer:/exp1-2022-10-18-p023-4star-sz5-pg75.jpeg
+    area_left: 3820.0
+    area_top: 1294.65
+    area_width: 1168.64
+    area_height: 1558.19
+    preferred_size: 5
+    use_slot_aspect: False
+
+  Photo 2:
+    filename: safecontainer:/exp1-2022-10-18-p035-sz1-pg75.jpeg
+    area_left: 5509.55
+    area_top: -30.0
+    area_width: 859.77
+    area_height: 667.29
+    preferred_size: 1
+    use_slot_aspect: False
+
+  Photo 3:
+    filename: safecontainer:/exp1-2022-10-19-p004-sz1-pg75.jpeg
+    area_left: 6852.94
+    area_top: -30.0
+    area_width: 408.53
+    area_height: 317.07
+    preferred_size: 1
+    use_slot_aspect: False
+
+  Photo 4:
+    filename: safecontainer:/exp1-2022-10-18-p025-sz1-pg75.jpeg
+    area_left: 6369.32
+    area_top: -30.0
+    area_width: 483.62
+    area_height: 667.29
+    preferred_size: 1
+    use_slot_aspect: False
+
+  Photo 5:
+    filename: safecontainer:/exp1-2022-10-18-p026-sz1-pg75.jpeg
+    area_left: 7261.47
+    area_top: 831.77
+    area_width: 408.53
+    area_height: 544.71
+    preferred_size: 1
+    use_slot_aspect: False
+
+  Photo 6:
+    filename: safecontainer:/exp1-2022-10-19-p007-sz3-pg75.jpeg
+    area_left: 3820.0
+    area_top: 637.29
+    area_width: 1168.64
+    area_height: 657.36
+    preferred_size: 3
+    use_slot_aspect: False
+
+  Photo 7:
+    filename: safecontainer:/exp1-2022-10-18-p034-sz1-pg75.jpeg
+    area_left: 4958.64
+    area_top: 1745.06
+    area_width: 830.83
+    area_height: 1107.78
+    preferred_size: 1
+    use_slot_aspect: False
+
+  Photo 8:
+    filename: safecontainer:/exp1-2022-10-18-p032-sz1-pg75.jpeg
+    area_left: 4649.77
+    area_top: -30.0
+    area_width: 859.77
+    area_height: 667.29
+    preferred_size: 1
+    use_slot_aspect: False
+
+  Photo 9:
+    filename: safecontainer:/exp1-2022-10-19-p003-sz2-pg75.jpeg
+    area_left: 4958.64
+    area_top: 637.29
+    area_width: 830.83
+    area_height: 1107.78
+    preferred_size: 2
+    use_slot_aspect: False
+
+  Photo 10:
+    filename: safecontainer:/exp1-2022-10-18-p029-sz1-pg75.jpeg
+    area_left: 5789.48
+    area_top: 2055.24
+    area_width: 1063.47
+    area_height: 797.6
+    preferred_size: 1
+    use_slot_aspect: False
+
+  Photo 11:
+    filename: safecontainer:/exp1-2022-10-18-p024-sz1-pg75.jpeg
+    area_left: 6852.94
+    area_top: 831.77
+    area_width: 408.53
+    area_height: 544.71
+    preferred_size: 1
+    use_slot_aspect: False
+
+  Photo 12:
+    filename: safecontainer:/exp1-2022-10-19-p001-sz1-pg75.jpeg
+    area_left: 6852.94
+    area_top: 2433.06
+    area_width: 817.06
+    area_height: 459.6
+    preferred_size: 1
+    use_slot_aspect: False
+
+  Photo 13:
+    filename: safecontainer:/exp1-2022-10-18-p033-sz1-pg75.jpeg
+    area_left: 7147.08
+    area_top: 2027.21
+    area_width: 522.92
+    area_height: 405.85
+    preferred_size: 1
+    use_slot_aspect: False
+
+  Photo 14:
+    filename: safecontainer:/exp1-2022-10-18-p031-sz1-pg75.jpeg
+    area_left: 6852.94
+    area_top: 1376.48
+    area_width: 817.06
+    area_height: 650.73
+    preferred_size: 1
+    use_slot_aspect: False
+
+  Photo 15:
+    filename: safecontainer:/exp1-2022-10-18-p028-sz1-pg75.jpeg
+    area_left: 6852.94
+    area_top: 2027.21
+    area_width: 294.14
+    area_height: 405.85
+    preferred_size: 1
+    use_slot_aspect: False
+
+  Photo 16:
+    filename: safecontainer:/exp1-2022-10-19-p006-5star-sz5-pg75.jpeg
+    area_left: 5789.48
+    area_top: 637.29
+    area_width: 1063.47
+    area_height: 1417.95
+    preferred_size: 5
+    use_slot_aspect: False
+
+  Photo 17:
+    filename: safecontainer:/exp1-2022-10-19-p005-sz1-pg75.jpeg
+    area_left: 7261.47
+    area_top: 287.07
+    area_width: 408.53
+    area_height: 544.71
+    preferred_size: 1
+    use_slot_aspect: False
+
+  Photo 18:
+    filename: safecontainer:/exp1-2022-10-18-p027-sz1-pg75.jpeg
+    area_left: 6852.94
+    area_top: 287.07
+    area_width: 408.53
+    area_height: 544.71
+    preferred_size: 1
+    use_slot_aspect: False
+
+  Photo 19:
+    filename: safecontainer:/exp1-2022-10-18-p030-sz1-pg75.jpeg
+    area_left: 3820.0
+    area_top: -30.0
+    area_width: 859.77
+    area_height: 667.29
+    preferred_size: 1
+    use_slot_aspect: False
+
+TEXTS (0 total):
+
+To reproduce in test:
+1. Transform items to gap-free coordinates using transform_item_to_gapfree()
+2. Transform page dimensions using transform_page_to_gapfree()
+3. Run algorithm
+4. Transform results back using transform_item_from_gapfree()

@@ -22,7 +22,7 @@ def generate_layout_for_page(photos, page_width_mcf, page_height_mcf, photo_dime
                            algorithm, preferred_sizes=None,
                            edge_gap=0.0, internal_gap=0.0,
                            texts=None, use_slot_aspect=None, slot_aspect_ratios=None,
-                           origin_left=0.0, pageno=None, **kwargs):
+                           origin_left=0.0, pageno=None, is_spread=False, **kwargs):
     """
     High-level function to generate a new layout for a page.
     
@@ -43,6 +43,7 @@ def generate_layout_for_page(photos, page_width_mcf, page_height_mcf, photo_dime
         slot_aspect_ratios: Optional dict mapping item_idx -> aspect_ratio. Custom aspect ratios for slots.
         origin_left: Origin offset for right-side pages in MCF units. Default 0.0.
         pageno: Optional page number for error messages. Default None.
+        is_spread: True if viewing/editing in spread mode (two pages side-by-side). Default False.
         **kwargs: Additional algorithm-specific parameters.
     
     Returns:
@@ -75,8 +76,6 @@ def generate_layout_for_page(photos, page_width_mcf, page_height_mcf, photo_dime
         # Force all photos to use slot dimensions from CURRENT layout
         use_slot_aspect = {i: True for i in range(len(photos))}
     
-    # Determine spread mode
-    is_spread = page_width_mcf > page_height_mcf * 1.5 or (origin_left if origin_left else 0.0) > 0.0
     # Determine if this is a left page (origin_left == 0) or right page (origin_left > 0)
     is_left_page = (origin_left if origin_left else 0.0) == 0.0
     # Transform page to gap-free space (algorithm operates in gap-free coordinates)

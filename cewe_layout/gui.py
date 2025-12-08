@@ -1471,7 +1471,9 @@ class LayoutViewer:
             all_texts = []
             # Use first (left/even) page for dimensions and gaps
             pageno = self.current_spread_pages[0]
-            is_left_page = False
+            # In spread mode, is_left_page is determined per-item based on position
+            # (We'll set this to None here and determine it per-item below)
+            is_left_page = None
 
             # Find the page info for both pages
             page_info_left = None
@@ -1514,7 +1516,7 @@ class LayoutViewer:
             
             page_w = info.get('page_width')
             page_h = info.get('page_height')
-            origin_left = info.get('origin_left')
+            origin_left = info.get('origin_left', 0.0)  # Default to 0.0 for left pages
             is_left_page = origin_left == 0.0
         
         # Initialize gaps from ORIGINAL layout on first visit to this page
@@ -1583,10 +1585,13 @@ class LayoutViewer:
         
         # Add photos
         for i, p in enumerate(photos):
-            left = p.get('area_left', 0)
+            # Get absolute MCF coordinates
+            left_abs = p.get('area_left', 0)
             top = p.get('area_top', 0)
             w = p.get('area_width', 0)
             h = p.get('area_height', 0)
+            # Convert to page-relative coordinates (subtract origin_left for right pages)
+            left = left_abs - origin_left
             fn = p.get('filename', '')
             base_fn, _, _ = extract_metadata_from_filename(fn)
             preferred_size = self.layout_mgr.get_size(pageno, base_fn)
@@ -1609,10 +1614,13 @@ class LayoutViewer:
         
         # Add texts
         for i, t in enumerate(texts):
-            left = t.get('area_left', 0)
+            # Get absolute MCF coordinates
+            left_abs = t.get('area_left', 0)
             top = t.get('area_top', 0)
             w = t.get('area_width', 0)
             h = t.get('area_height', 0)
+            # Convert to page-relative coordinates (subtract origin_left for right pages)
+            left = left_abs - origin_left
             text_id = f'TEXT_{i}'
             preferred_size = self.layout_mgr.get_size(pageno, text_id)
             gf_left, gf_top, gf_width, gf_height = transform_item_to_gapfree(
@@ -1881,6 +1889,89 @@ class LayoutViewer:
             analysis = analyze_gap_details(all_items, page_w, page_h, origin_left, self.spread_mode.get())
             report_gap_variations(analysis, pageno)
     
+    def _write_debug_dump(self, pageno, page_w, page_h, origin_left, is_left_page, edge_gap, internal_gap,
+                         photos, texts, preferred_sizes, algorithm_name, use_slot_aspect_for_photos, slot_aspect_ratios):
+        """Write debug dump file with all data needed to reproduce layout generation.
+        
+        Args:
+            pageno: Page number
+            page_w, page_h: Page dimensions in MCF units
+            origin_left: Origin left offset for right pages
+            is_left_page: True if left/even page
+            edge_gap, internal_gap: Gap values in MCF units
+            photos: List of photo dicts with MCF coordinates
+            texts: List of text dicts with MCF coordinates
+            preferred_sizes: Dict mapping photo filename or text_id to preferred size
+            algorithm_name: Name of algorithm being run
+            use_slot_aspect_for_photos: Dict mapping photo index to bool (use slot AR)
+            slot_aspect_ratios: Dict mapping item index to float aspect ratio
+        """
+        import json
+        from pathlib import Path
+        
+        debug_file = Path(f"Debug-Page-{pageno}.txt")
+        
+        with open(debug_file, 'w') as f:
+            f.write(f"Debug Dump for Page {pageno}\n")
+            f.write("=" * 80 + "\n\n")
+            
+            f.write("PAGE PROPERTIES:\n")
+            f.write(f"  page_width: {page_w}\n")
+            f.write(f"  page_height: {page_h}\n")
+            f.write(f"  origin_left: {origin_left}\n")
+            f.write(f"  is_left_page: {is_left_page}\n")
+            f.write(f"  spread_mode: {self.spread_mode.get()}\n")
+            f.write("\n")
+            
+            f.write("GAP PARAMETERS:\n")
+            f.write(f"  edge_gap: {edge_gap} ({edge_gap/10:.1f}mm)\n")
+            f.write(f"  internal_gap: {internal_gap} ({internal_gap/10:.1f}mm)\n")
+            f.write("\n")
+            
+            f.write("ALGORITHM:\n")
+            f.write(f"  name: {algorithm_name}\n")
+            f.write("\n")
+            
+            f.write(f"PHOTOS ({len(photos)} total):\n")
+            for i, p in enumerate(photos):
+                f.write(f"  Photo {i}:\n")
+                f.write(f"    filename: {p.get('filename', 'N/A')}\n")
+                f.write(f"    area_left: {p.get('area_left', 0)}\n")
+                f.write(f"    area_top: {p.get('area_top', 0)}\n")
+                f.write(f"    area_width: {p.get('area_width', 0)}\n")
+                f.write(f"    area_height: {p.get('area_height', 0)}\n")
+                fn = p.get('filename', '')
+                if fn:
+                    base_fn, _, _ = extract_metadata_from_filename(fn)
+                    pref_size = preferred_sizes.get(fn, 1.0)
+                    f.write(f"    preferred_size: {pref_size}\n")
+                    use_slot = use_slot_aspect_for_photos.get(i, False)
+                    f.write(f"    use_slot_aspect: {use_slot}\n")
+                    if use_slot:
+                        slot_ar = slot_aspect_ratios.get(i, None)
+                        f.write(f"    slot_aspect_ratio: {slot_ar}\n")
+                f.write("\n")
+            
+            f.write(f"TEXTS ({len(texts)} total):\n")
+            for i, t in enumerate(texts):
+                f.write(f"  Text {i}:\n")
+                f.write(f"    area_left: {t.get('area_left', 0)}\n")
+                f.write(f"    area_top: {t.get('area_top', 0)}\n")
+                f.write(f"    area_width: {t.get('area_width', 0)}\n")
+                f.write(f"    area_height: {t.get('area_height', 0)}\n")
+                text_id = f'TEXT_{i}'
+                pref_size = preferred_sizes.get(text_id, 1.0)
+                f.write(f"    preferred_size: {pref_size}\n")
+                f.write("\n")
+            
+            f.write("\nTo reproduce in test:\n")
+            f.write("1. Transform items to gap-free coordinates using transform_item_to_gapfree()\n")
+            f.write("2. Transform page dimensions using transform_page_to_gapfree()\n")
+            f.write("3. Run algorithm\n")
+            f.write("4. Transform results back using transform_item_from_gapfree()\n")
+        
+        logger.info(f"Debug dump written to {debug_file}")
+
     def add_text_box(self):
         """Add a new text box to the current page."""
         if not self.pages:
@@ -2480,6 +2571,89 @@ class LayoutViewer:
         self.status_entry.config(foreground=color)
         # Message persists until page change or new message
 
+    def _write_debug_dump(self, pageno, page_w, page_h, origin_left, is_left_page, edge_gap, internal_gap,
+                         photos, texts, preferred_sizes, algorithm_name, use_slot_aspect_for_photos, slot_aspect_ratios):
+        """Write debug dump file with all data needed to reproduce layout generation.
+        
+        Args:
+            pageno: Page number
+            page_w, page_h: Page dimensions in MCF units
+            origin_left: Origin left offset for right pages
+            is_left_page: True if left/even page
+            edge_gap, internal_gap: Gap values in MCF units
+            photos: List of photo dicts with MCF coordinates
+            texts: List of text dicts with MCF coordinates
+            preferred_sizes: Dict mapping photo filename or text_id to preferred size
+            algorithm_name: Name of algorithm being run
+            use_slot_aspect_for_photos: Dict mapping photo index to bool (use slot AR)
+            slot_aspect_ratios: Dict mapping (pageno, photo_idx) to float aspect ratio
+        """
+        import json
+        from pathlib import Path
+        
+        debug_file = Path(f"Debug-Page-{pageno}.txt")
+        
+        with open(debug_file, 'w') as f:
+            f.write(f"Debug Dump for Page {pageno}\n")
+            f.write("=" * 80 + "\n\n")
+            
+            f.write("PAGE PROPERTIES:\n")
+            f.write(f"  page_width: {page_w}\n")
+            f.write(f"  page_height: {page_h}\n")
+            f.write(f"  origin_left: {origin_left}\n")
+            f.write(f"  is_left_page: {is_left_page}\n")
+            f.write(f"  spread_mode: {self.spread_mode.get()}\n")
+            f.write("\n")
+            
+            f.write("GAP PARAMETERS:\n")
+            f.write(f"  edge_gap: {edge_gap} ({edge_gap/10:.1f}mm)\n")
+            f.write(f"  internal_gap: {internal_gap} ({internal_gap/10:.1f}mm)\n")
+            f.write("\n")
+            
+            f.write("ALGORITHM:\n")
+            f.write(f"  name: {algorithm_name}\n")
+            f.write("\n")
+            
+            f.write(f"PHOTOS ({len(photos)} total):\n")
+            for i, p in enumerate(photos):
+                f.write(f"  Photo {i}:\n")
+                f.write(f"    filename: {p.get('filename', 'N/A')}\n")
+                f.write(f"    area_left: {p.get('area_left', 0)}\n")
+                f.write(f"    area_top: {p.get('area_top', 0)}\n")
+                f.write(f"    area_width: {p.get('area_width', 0)}\n")
+                f.write(f"    area_height: {p.get('area_height', 0)}\n")
+                fn = p.get('filename', '')
+                if fn:
+                    base_fn, _, _ = extract_metadata_from_filename(fn)
+                    pref_size = preferred_sizes.get(fn, 1.0)
+                    f.write(f"    preferred_size: {pref_size}\n")
+                    use_slot = use_slot_aspect_for_photos.get(i, False)
+                    f.write(f"    use_slot_aspect: {use_slot}\n")
+                    if use_slot:
+                        slot_ar = slot_aspect_ratios.get((pageno, i), None)
+                        f.write(f"    slot_aspect_ratio: {slot_ar}\n")
+                f.write("\n")
+            
+            f.write(f"TEXTS ({len(texts)} total):\n")
+            for i, t in enumerate(texts):
+                f.write(f"  Text {i}:\n")
+                f.write(f"    area_left: {t.get('area_left', 0)}\n")
+                f.write(f"    area_top: {t.get('area_top', 0)}\n")
+                f.write(f"    area_width: {t.get('area_width', 0)}\n")
+                f.write(f"    area_height: {t.get('area_height', 0)}\n")
+                text_id = f'TEXT_{i}'
+                pref_size = preferred_sizes.get(text_id, 1.0)
+                f.write(f"    preferred_size: {pref_size}\n")
+                f.write("\n")
+            
+            f.write("\nTo reproduce in test:\n")
+            f.write("1. Transform items to gap-free coordinates using transform_item_to_gapfree()\n")
+            f.write("2. Transform page dimensions using transform_page_to_gapfree()\n")
+            f.write("3. Run algorithm\n")
+            f.write("4. Transform results back using transform_item_from_gapfree()\n")
+        
+        logger.info(f"Debug dump written to {debug_file}")
+
     def generate_layout(self):
         """Run layout algorithm on current page(s) in a background thread.
 
@@ -2653,7 +2827,8 @@ class LayoutViewer:
                     use_slot_aspect=use_slot_aspect_for_photos,
                     slot_aspect_ratios=slot_aspect_ratios_combined,
                     origin_left=0.0,  # Spread starts at 0
-                    pageno=pageno0  # For logging
+                    pageno=pageno0,  # For logging
+                    is_spread=True  # Spread mode: two pages side-by-side
                 )
                 algo_time = time() - algo_start
                 print(f"Algorithm: {algo_time:.3f}s")
@@ -2925,6 +3100,31 @@ class LayoutViewer:
                     text_id = f'TEXT_{i}'
                     preferred_sizes[text_id] = self.layout_mgr.get_size(pageno, text_id)
                 
+                # Determine if this is a left or right page
+                origin_left = info.get('origin_left', 0.0)
+                is_left_page = origin_left == 0.0
+                
+                # Log origin_left for diagnostics
+                logger.info(f"Single-page mode: pageno={pageno}, origin_left={origin_left}, is_left_page={is_left_page}")
+                
+                # Write debug dump if debug mode is enabled
+                if self.debug_var.get():
+                    self._write_debug_dump(
+                        pageno=pageno,
+                        page_w=page_w,
+                        page_h=page_h,
+                        origin_left=origin_left,
+                        is_left_page=is_left_page,
+                        edge_gap=edge_gap,
+                        internal_gap=internal_gap,
+                        photos=photos,
+                        texts=texts,
+                        preferred_sizes=preferred_sizes,
+                        algorithm_name=algo_name,
+                        use_slot_aspect_for_photos=use_slot_aspect_for_photos,
+                        slot_aspect_ratios=slot_aspect_ratios_for_page
+                    )
+                
                 algo_start = time()
                 success, updated_photos, updated_texts, error_msg = generate_layout_for_page(
                     photos, page_w, page_h, self.photo_dimensions,
@@ -2932,7 +3132,8 @@ class LayoutViewer:
                     preferred_sizes=preferred_sizes,
                     use_slot_aspect=use_slot_aspect_for_photos, 
                     slot_aspect_ratios=slot_aspect_ratios_for_page,
-                    origin_left=info.get('origin_left', 0.0), pageno=pageno
+                    origin_left=info.get('origin_left', 0.0), pageno=pageno,
+                    is_spread=self.spread_mode.get()  # Use GUI checkbox state
                 )
                 algo_time = time() - algo_start
                 print(f"Algorithm: {algo_time:.3f}s")

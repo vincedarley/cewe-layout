@@ -68,7 +68,8 @@ def test_gap_perfecter_integration():
         edge_gap=edge_gap,
         internal_gap=internal_gap,
         origin_left=0.0,
-        pageno=1
+        pageno=1,
+        is_spread=False
     )
     
     assert success, f"Layout generation failed: {error}"
@@ -143,7 +144,8 @@ def test_gap_perfecter_with_2x2_grid():
         edge_gap=edge_gap,
         internal_gap=internal_gap,
         origin_left=0.0,
-        pageno=1
+        pageno=1,
+        is_spread=False
     )
     
     assert success, f"Layout generation failed: {error}"
