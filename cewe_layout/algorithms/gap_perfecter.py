@@ -173,6 +173,7 @@ class GapPerfecterAlgorithm(LayoutAlgorithm):
         
         If there's a gap between this rect and previous rects above or to the left,
         expand this rect to fill the gap (move top-left corner, increase width/height).
+        Only expands to page edges (0,0) if within 15mm.
         
         Also aligns bottom edge with left neighbor and right edge with top neighbor if within 5mm.
         
@@ -190,11 +191,13 @@ class GapPerfecterAlgorithm(LayoutAlgorithm):
                     target_left = prev.x + prev.width
                     left_neighbor = prev
         
-        # Expand left if there's a gap (but don't go below 0)
+        # Expand left if there's a gap AND within 15mm of target
         if target_left < rect.x:
             gap = rect.x - target_left
-            rect.width += gap  # Increase width
-            rect.x = max(0.0, target_left)  # Move left, but not below 0
+            if gap < self.EDGE_PROXIMITY:
+                # Within 15mm - expand to fill the gap
+                rect.width += gap  # Increase width
+                rect.x = max(0.0, target_left)  # Move left, but not below 0
         
         # Align bottom with left neighbor if within 5mm
         if left_neighbor is not None:
@@ -216,11 +219,13 @@ class GapPerfecterAlgorithm(LayoutAlgorithm):
                     target_top = prev.y + prev.height
                     top_neighbor = prev
         
-        # Expand top if there's a gap (but don't go below 0)
+        # Expand top if there's a gap AND within 15mm of target
         if target_top < rect.y:
             gap = rect.y - target_top
-            rect.height += gap  # Increase height
-            rect.y = max(0.0, target_top)  # Move up, but not below 0
+            if gap < self.EDGE_PROXIMITY:
+                # Within 15mm - expand to fill the gap
+                rect.height += gap  # Increase height
+                rect.y = max(0.0, target_top)  # Move up, but not below 0
         
         # Align right edge with top neighbor if within 5mm
         if top_neighbor is not None:
