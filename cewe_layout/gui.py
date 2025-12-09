@@ -4,6 +4,8 @@ from tkinter import ttk, filedialog
 from PIL import Image, ImageDraw, ImageTk
 import math
 import os
+import sys
+import platform
 from pathlib import Path
 import threading
 import shutil
@@ -178,6 +180,29 @@ def encode_metadata_in_filename(filename: str, preferred_size: float = None, pag
     new_name += suffix
     
     return prefix + new_name
+
+
+def is_macos():
+    """Check if running on macOS."""
+    return platform.system() == 'Darwin'
+
+
+def get_modifier_key():
+    """Get the primary modifier key for the current platform.
+    
+    Returns:
+        'Command' for macOS, 'Control' for others
+    """
+    return 'Command' if is_macos() else 'Control'
+
+
+def get_modifier_symbol():
+    """Get the symbol for the primary modifier key.
+    
+    Returns:
+        '⌘' for macOS, 'Ctrl+' for others
+    """
+    return '⌘' if is_macos() else 'Ctrl+'
 
 
 class LayoutViewer:
@@ -388,7 +413,8 @@ class LayoutViewer:
         algo_menu.pack(side='left', padx=(0,4))
         
         # Generate button (uses selected algorithm)
-        self.gen_btn = ttk.Button(algo_frame, text='Generate Layout', command=self.generate_layout)
+        mod_sym = get_modifier_symbol()
+        self.gen_btn = ttk.Button(algo_frame, text=f'Generate Layout ({mod_sym}R)', command=self.generate_layout)
         self.gen_btn.pack(side='left', padx=(0,4))
         
         # Debug checkbox next to Generate button
@@ -408,13 +434,14 @@ class LayoutViewer:
         actions_frame = ttk.Frame(self.ctrl)
         actions_frame.grid(row=3, column=0, columnspan=3, sticky='w', padx=4, pady=4)
         ttk.Label(actions_frame, text='  ').pack(side='left')  # Indentation spacer
-        undo_btn = ttk.Button(actions_frame, text='Undo', command=self.undo_layout)
+        mod_sym = get_modifier_symbol()
+        undo_btn = ttk.Button(actions_frame, text=f'Undo ({mod_sym}Z)', command=self.undo_layout)
         undo_btn.pack(side='left', padx=(0,4))
         orig_btn = ttk.Button(actions_frame, text='Use Original Page', command=self.use_original)
         orig_btn.pack(side='left', padx=(0,4))
-        save_btn = ttk.Button(actions_frame, text='Save Modified', command=self.save_layout)
+        save_btn = ttk.Button(actions_frame, text=f'Save Modified ({mod_sym}S)', command=self.save_layout)
         save_btn.pack(side='left', padx=(0,4))
-        pdf_btn = ttk.Button(actions_frame, text='Export PDF', command=self.export_to_pdf)
+        pdf_btn = ttk.Button(actions_frame, text=f'Export PDF ({mod_sym}P)', command=self.export_to_pdf)
         pdf_btn.pack(side='left', padx=(0,4))
 
         # Row 4: Status message with label
@@ -478,7 +505,8 @@ class LayoutViewer:
         self.photo_frame = photo_frame
         
         # Add text box button (will be positioned below weight rows)
-        self.add_text_btn = ttk.Button(photo_frame, text='Add text box', command=self.add_text_box)
+        mod_sym = get_modifier_symbol()
+        self.add_text_btn = ttk.Button(photo_frame, text=f'New Text Box ({mod_sym}Shift+N)', command=self.add_text_box)
         # Position will be updated dynamically in update_weights_display()
         
         # RIGHT COLUMN: Cost info (top) and Parameters (bottom)
@@ -615,8 +643,121 @@ class LayoutViewer:
         else:
             self.index = max(1, last_page_with_photos)
         
+        # Setup keyboard shortcuts
+        self._setup_keyboard_shortcuts()
+        
+        # Setup macOS menu bar if on macOS
+        if is_macos():
+            self._setup_macos_menu()
+        
         self.render_page()
 
+    def _setup_keyboard_shortcuts(self):
+        """Setup keyboard shortcuts for common actions."""
+        modifier = get_modifier_key()
+        
+        # Cmd/Ctrl+S: Save Modified
+        self.root.bind(f'<{modifier}-s>', lambda e: self.save_layout())
+        self.root.bind(f'<{modifier}-S>', lambda e: self.save_layout())
+        
+        # Cmd/Ctrl+P: Export PDF
+        self.root.bind(f'<{modifier}-p>', lambda e: self.export_to_pdf())
+        self.root.bind(f'<{modifier}-P>', lambda e: self.export_to_pdf())
+        
+        # Cmd/Ctrl+Z: Undo
+        self.root.bind(f'<{modifier}-z>', lambda e: self.undo_layout())
+        self.root.bind(f'<{modifier}-Z>', lambda e: self.undo_layout())
+        
+        # Cmd/Ctrl+R: Generate Layout
+        self.root.bind(f'<{modifier}-r>', lambda e: self.generate_layout())
+        self.root.bind(f'<{modifier}-R>', lambda e: self.generate_layout())
+        
+        # Cmd/Ctrl+Shift+N: New Text Box
+        self.root.bind(f'<{modifier}-Shift-n>', lambda e: self.add_text_box())
+        self.root.bind(f'<{modifier}-Shift-N>', lambda e: self.add_text_box())
+        
+        # Cmd/Ctrl+W: Close/Quit (macOS convention)
+        if is_macos():
+            self.root.bind(f'<{modifier}-w>', lambda e: self.quit())
+            self.root.bind(f'<{modifier}-W>', lambda e: self.quit())
+        
+        # Left/Right arrows: Prev/Next page
+        self.root.bind('<Left>', lambda e: self.prev_page())
+        self.root.bind('<Right>', lambda e: self.next_page())
+    
+    def _setup_macos_menu(self):
+        """Setup macOS-specific menu bar."""
+        try:
+            # Create menu bar
+            menubar = tk.Menu(self.root)
+            
+            # File menu
+            file_menu = tk.Menu(menubar, tearoff=0)
+            menubar.add_cascade(label='File', menu=file_menu)
+            file_menu.add_command(label='Open Photos...', accelerator='Cmd+O', command=self._prompt_add_photos)
+            file_menu.add_separator()
+            file_menu.add_command(label='Save Modified', accelerator='Cmd+S', command=self.save_layout)
+            file_menu.add_command(label='Export PDF...', accelerator='Cmd+P', command=self.export_to_pdf)
+            file_menu.add_separator()
+            file_menu.add_command(label='Close Window', accelerator='Cmd+W', command=self.quit)
+            
+            # Edit menu
+            edit_menu = tk.Menu(menubar, tearoff=0)
+            menubar.add_cascade(label='Edit', menu=edit_menu)
+            edit_menu.add_command(label='Undo Layout', accelerator='Cmd+Z', command=self.undo_layout)
+            edit_menu.add_separator()
+            edit_menu.add_command(label='Previous Page', accelerator='←', command=self.prev_page)
+            edit_menu.add_command(label='Next Page', accelerator='→', command=self.next_page)
+            edit_menu.add_separator()
+            edit_menu.add_command(label='Use Original Page', command=self.use_original)
+            
+            # Layout menu
+            layout_menu = tk.Menu(menubar, tearoff=0)
+            menubar.add_cascade(label='Layout', menu=layout_menu)
+            layout_menu.add_command(label='Generate Layout', accelerator='Cmd+R', command=self.generate_layout)
+            layout_menu.add_command(label='New Text Box', accelerator='Cmd+Shift+N', command=self.add_text_box)
+            
+            # Window menu (standard macOS menu)
+            window_menu = tk.Menu(menubar, name='window', tearoff=0)
+            menubar.add_cascade(label='Window', menu=window_menu)
+            # The window menu is automatically populated by Tk on macOS
+            
+            # Set app name in menu bar (attempts to override "Python")
+            # This works if we're running as a bundled .app, but not from command line
+            try:
+                self.root.createcommand('tk::mac::ShowPreferences', self._show_preferences)
+                self.root.createcommand('::tk::mac::Quit', self.quit)
+                
+                # Try to set app name (may not work from terminal)
+                app_menu = tk.Menu(menubar, name='apple', tearoff=0)
+                menubar.add_cascade(menu=app_menu)
+                app_menu.add_command(label='About QLayout', command=self._show_about)
+                app_menu.add_separator()
+            except tk.TclError:
+                # Not on macOS or commands not available
+                pass
+            
+            # Apply menu to both windows
+            self.root.config(menu=menubar)
+            self.ctrl.config(menu=menubar)
+                
+        except Exception as e:
+            # If menu setup fails, just log it and continue
+            logger.warning(f'Failed to setup macOS menu: {e}')
+    
+    def _show_about(self):
+        """Show about dialog."""
+        from tkinter import messagebox
+        messagebox.showinfo(
+            'About QLayout',
+            'cewe-layout — QLayout\n\nA layout tool for CEWE photobooks and canvases.\n\nVersion: Development'
+        )
+    
+    def _show_preferences(self):
+        """Show preferences dialog (placeholder)."""
+        from tkinter import messagebox
+        messagebox.showinfo('Preferences', 'Preferences dialog not yet implemented.')
+    
     def render_page(self):
         # Clear status message when changing pages
         self.status_var.set('')
