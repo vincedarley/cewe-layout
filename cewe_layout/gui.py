@@ -1358,7 +1358,7 @@ class LayoutViewer:
 
                 # For now, use negative edge_gap for bleed, positive for margin
                 if analysis.bleed > 0:
-                    self.layout_mgr.set_edge_gap(pageno, -analysis.bleed)
+                    self.layout_mgr.set_edge_gap(pageno, make_uniform_edge_gap(-analysis.bleed))
                 else:
                     self.layout_mgr.set_edge_gap(pageno, analysis.edge_gap)
 

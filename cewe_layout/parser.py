@@ -119,10 +119,24 @@ def extract_pages_info(fotobook_root):
     single_page_mode = canvas_mode or calendar_mode
     pages_map = defaultdict(list)
 
-    for page in fotobook_root.findall('.//page'):
-        if not _is_normal_page(page):
+    logger.debug(f"extract_pages_info: canvas_mode={canvas_mode}, calendar_mode={calendar_mode}, single_page_mode={single_page_mode}")
+    
+    all_pages = fotobook_root.findall('.//page')
+    logger.debug(f"extract_pages_info: Found {len(all_pages)} total page elements in XML")
+
+    for page in all_pages:
+        pagenr_str = page.get('pagenr')
+        page_type = page.get('type')
+        is_normal = _is_normal_page(page)
+        logger.debug(f"extract_pages_info: Processing page pagenr='{pagenr_str}' type='{page_type}' is_normal={is_normal}")
+        
+        # Process ALL pages (including page 0) to extract areas, but remember which pages are "normal"
+        # Areas from page 0 may belong to page 1 based on their position
+        try:
+            pagenr = int(pagenr_str)
+        except (TypeError, ValueError):
+            logger.warning(f"Skipping page with invalid pagenr: '{pagenr_str}'")
             continue
-        pagenr = int(page.get('pagenr'))
 
         # determine spread width/height from bundlesize (required in MCF)
         bundlesize = page.find('./bundlesize')
@@ -207,6 +221,7 @@ def extract_pages_info(fotobook_root):
                 owner = pagenr
                 origin_left = 0.0
                 page_width = logical_spread_w  # Full page width (logical, post-rotation)
+                logger.debug(f"  Page {pagenr}: single_page_mode, area at ({area_left}, {area_top}) assigned to owner={owner}")
             else:
                 # A photo that starts on the left page should be on the left page
                 # If the page element represents the left side (even pagenr) then left->pagenr, right->pagenr+1
@@ -217,8 +232,11 @@ def extract_pages_info(fotobook_root):
                 else:
                     left_owner = max(1, pagenr - 1)
                     right_owner = pagenr
+                
+                logger.debug(f"  Page {pagenr}: pagenr%2={pagenr%2}, left_owner={left_owner}, right_owner={right_owner}, half={half}")
 
                 owner = determine_page_owner(area_left, half, left_owner, right_owner)
+                logger.debug(f"  Page {pagenr}: area at left={area_left} assigned to owner={owner}")
 
                 # origin_left is 0 for left pages, half for right pages
                 origin_left = 0.0 if owner == left_owner else half
@@ -287,8 +305,19 @@ def extract_pages_info(fotobook_root):
 
                     pages_map[owner]['photos'].append(info)
 
+    # Build final pages list, excluding page 0 (covers/special pages)
+    # We process page 0 to extract its areas, but don't include it in results
     pages = []
     for k in sorted(pages_map.keys()):
+        if k < 1:  # Skip page 0 and any negative page numbers
+            logger.debug(f"extract_pages_info: Skipping page {k} from final results (not a normal page)")
+            continue
         entry = pages_map[k]
         pages.append((k, entry))
+    
+    logger.debug(f"extract_pages_info: Final pages_map keys: {sorted(pages_map.keys())}")
+    logger.debug(f"extract_pages_info: Returning {len(pages)} pages")
+    for page_num, page_data in pages:
+        logger.debug(f"  Page {page_num}: {len(page_data['photos'])} photos, {len(page_data['texts'])} texts")
+    
     return pages

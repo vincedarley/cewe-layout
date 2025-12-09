@@ -44,7 +44,7 @@ Here's my current workflow:
 
 Once you're done: open the book in CEWE Creator and do any fine-tuning you wish. You can also use the "Gap Perfecter" or "Gridify" algorithms in QLayout to fine-tune some pages.
 
-Note: there is also limited support for editing layouts of a single-page Canvas from CEWE Creator. Not very well tested.
+Note: there is also limited support for editing layouts of a single-page Canvas from CEWE Creator, and a 12-page Calendar. Not very well tested.
 
 **Safety features**
 

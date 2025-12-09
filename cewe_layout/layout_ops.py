@@ -134,15 +134,17 @@ class LayoutManager:
         self.page_edge_gaps[pageno] = edge_gap
 
     def get_edge_gap(self, pageno):
-        """Get edge gap (margin) for a page (default 0.0).
+        """Get edge gap (margin) for a page (default uniform 0.0).
         
         For calendar pages, returns the fixed calendar edge gaps.
+        Always returns a dict with keys 'top', 'bottom', 'left', 'right'.
         """
+        from .gap_utils import make_uniform_edge_gap
         # If calendar mode is active, return the fixed calendar gaps
         if self.calendar_edge_gaps is not None:
             return self.calendar_edge_gaps
-        # Otherwise return the stored value or default to 0.0
-        return self.page_edge_gaps.get(pageno, 0.0)
+        # Otherwise return the stored value or default to uniform 0.0
+        return self.page_edge_gaps.get(pageno, make_uniform_edge_gap(0.0))
     
     def has_edge_gap(self, pageno):
         """Check if edge gap has been set for a page."""
