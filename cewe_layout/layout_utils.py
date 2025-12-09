@@ -1,6 +1,6 @@
 """Utility functions for layout operations.
 
-Helpers for building photo dimensions, evaluating layouts, etc.
+Reusable helpers for building photo dimensions, evaluating layouts, etc.
 """
 import os
 from pathlib import Path
@@ -57,9 +57,13 @@ def build_photo_dimensions(photos, mcf_base_folder, image_folder_attr=''):
 
 def evaluate_layout_from_photos_texts(photos, texts, page_w, page_h, origin_left,
                                       preferred_sizes, edge_gap, internal_gap,
+                                      is_spread=False,
                                       size_importance=100.0, acceptable_empty_fraction=0.05,
                                       undersized_threshold=0.5, undersized_penalty=5.0):
     """Evaluate a layout from photos and texts dicts.
+    
+    This is a reusable helper that both GUI and tests can use. The GUI should pass
+    preferred_sizes from self.layout_mgr.get_size(), while tests can pass a simple dict.
     
     Args:
         photos: List of photo dicts with area_left, area_top, area_width, area_height, filename
@@ -67,9 +71,10 @@ def evaluate_layout_from_photos_texts(photos, texts, page_w, page_h, origin_left
         page_w: Page width in MCF units
         page_h: Page height in MCF units
         origin_left: Origin offset for right pages
-        preferred_sizes: Dict mapping filename/TEXT_n -> preferred size
+        preferred_sizes: Dict mapping filename/TEXT_n -> preferred size (float)
         edge_gap: Edge gap in MCF units
         internal_gap: Internal gap in MCF units
+        is_spread: Whether this is a spread (affects gap-free transform)
         size_importance: Size importance factor
         acceptable_empty_fraction: Acceptable empty space fraction
         undersized_threshold: Undersized threshold ratio
@@ -79,7 +84,7 @@ def evaluate_layout_from_photos_texts(photos, texts, page_w, page_h, origin_left
         LayoutCost object with evaluation results
     """
     # Transform to gap-free for evaluation
-    gapfree_w, gapfree_h = transform_page_to_gapfree(page_w, page_h, edge_gap, internal_gap, False)
+    gapfree_w, gapfree_h = transform_page_to_gapfree(page_w, page_h, edge_gap, internal_gap, is_spread)
     
     # Build rectangles for evaluation
     eval_rects = []
@@ -88,28 +93,40 @@ def evaluate_layout_from_photos_texts(photos, texts, page_w, page_h, origin_left
         fn = p.get('filename', '')
         if not fn:
             continue
-        gapfree_rect = transform_item_to_gapfree(
-            p['area_left'] - origin_left, p['area_top'],
-            p['area_width'], p['area_height'],
-            edge_gap, internal_gap, False, True
+        
+        # Get coordinates (relative to origin)
+        left = p['area_left'] - origin_left
+        top = p['area_top']
+        w = p['area_width']
+        h = p['area_height']
+        
+        # Transform to gap-free
+        gf_left, gf_top, gf_width, gf_height = transform_item_to_gapfree(
+            left, top, w, h, edge_gap, internal_gap, is_spread, True  # is_left_page=True for single pages
         )
-        x, y, w, h = gapfree_rect
-        rect = LayoutRectangle(fn, w, h, preferred_sizes.get(fn, 1.0))
-        rect.x = x
-        rect.y = y
+        
+        rect = LayoutRectangle(fn, gf_width, gf_height, preferred_sizes.get(fn, 1.0))
+        rect.x = gf_left
+        rect.y = gf_top
         eval_rects.append(rect)
     
     for i, t in enumerate(texts):
         text_id = f'TEXT_{i}'
-        gapfree_rect = transform_item_to_gapfree(
-            t['area_left'] - origin_left, t['area_top'],
-            t['area_width'], t['area_height'],
-            edge_gap, internal_gap, False, True
+        
+        # Get coordinates (relative to origin)
+        left = t['area_left'] - origin_left
+        top = t['area_top']
+        w = t['area_width']
+        h = t['area_height']
+        
+        # Transform to gap-free
+        gf_left, gf_top, gf_width, gf_height = transform_item_to_gapfree(
+            left, top, w, h, edge_gap, internal_gap, is_spread, True
         )
-        x, y, w, h = gapfree_rect
-        rect = LayoutRectangle(text_id, w, h, preferred_sizes.get(text_id, 1.0), preserve_aspect_ratio=False)
-        rect.x = x
-        rect.y = y
+        
+        rect = LayoutRectangle(text_id, gf_width, gf_height, preferred_sizes.get(text_id, 1.0), preserve_aspect_ratio=False)
+        rect.x = gf_left
+        rect.y = gf_top
         eval_rects.append(rect)
     
     return evaluate_layout(
