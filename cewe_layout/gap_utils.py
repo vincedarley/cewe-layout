@@ -20,9 +20,19 @@ Changing gaps transforms positions WITHOUT affecting gap-free coordinates or cos
 from typing import List, Dict, Any, Tuple, NamedTuple
 
 
+def make_uniform_edge_gap(gap: float) -> Dict[str, float]:
+    """Create edge gap dict with same value for all 4 edges."""
+    return {'top': gap, 'bottom': gap, 'left': gap, 'right': gap}
+
+
+def make_edge_gap(top: float, bottom: float, left: float, right: float) -> Dict[str, float]:
+    """Create edge gap dict with specific values for each edge."""
+    return {'top': top, 'bottom': bottom, 'left': left, 'right': right}
+
+
 class GapAnalysis(NamedTuple):
     """Result of gap analysis."""
-    edge_gap: float  # Average positive edge gap (margin) in MCF units
+    edge_gap: Dict[str, float]  # Edge gaps by side: {'top': ..., 'bottom': ..., 'left': ..., 'right': ...} in MCF units
     internal_gap: float  # Average internal gap in MCF units
     bleed: float  # Maximum negative edge margin (bleed beyond page) in MCF units, always >= 0
     edge_gaps: List[float]  # All detected positive edge gaps
@@ -31,7 +41,7 @@ class GapAnalysis(NamedTuple):
 
 
 def analyze_gaps(photos: List[Dict[str, Any]], page_width: float, page_height: float, 
-                  origin_left: float, is_spread: bool) -> Tuple[float, float]:
+                  origin_left: float, is_spread: bool) -> Tuple[Dict[str, float], float]:
     """
     Estimate edge gap and internal gap separately.
     
@@ -42,8 +52,8 @@ def analyze_gaps(photos: List[Dict[str, Any]], page_width: float, page_height: f
         origin_left: For right-hand pages, the absolute X offset of this page (default 0.0).
     
     Returns:
-        Tuple (edge_gap, internal_gap) in MCF units (0.1mm).
-        Returns (0.0, 0.0) if gaps cannot be reliably estimated.
+        Tuple (edge_gap_dict, internal_gap) where edge_gap_dict has keys 'top', 'bottom', 'left', 'right'.
+        Returns (make_uniform_edge_gap(0.0), 0.0) if gaps cannot be reliably estimated.
     """
     analysis = analyze_gap_details(photos, page_width, page_height, origin_left, is_spread)
     return analysis.edge_gap, analysis.internal_gap
@@ -61,10 +71,10 @@ def analyze_gap_details(photos: List[Dict[str, Any]], page_width: float, page_he
         origin_left: For right-hand pages, the absolute X offset of this page (default 0.0).
     
     Returns:
-        GapAnalysis with edge_gap, internal_gap, bleed, and all detected gaps.
+        GapAnalysis with edge_gap (dict), internal_gap, bleed, and all detected gaps.
     """
     if not photos:
-        return GapAnalysis(0.0, 0.0, 0.0, [], [], [])
+        return GapAnalysis(make_uniform_edge_gap(0.0), 0.0, 0.0, [], [], [])
     
     # Calculate page bounds in absolute coordinates
     page_left = origin_left
@@ -72,7 +82,11 @@ def analyze_gap_details(photos: List[Dict[str, Any]], page_width: float, page_he
     page_top = 0.0
     page_bottom = page_height
     
-    edge_gaps = []
+    # Separate edge gaps by side
+    top_gaps = []
+    bottom_gaps = []
+    left_gaps = []
+    right_gaps = []
     bleed_margins = []
     internal_gaps = []
     
@@ -92,14 +106,14 @@ def analyze_gap_details(photos: List[Dict[str, Any]], page_width: float, page_he
         if top_margin < 0:
             bleed_margins.append(abs(top_margin))
         elif 10 < top_margin < page_height * 0.05:
-            edge_gaps.append(top_margin)
+            top_gaps.append(top_margin)
 
         # Bottom edge (distance from page bottom)
         bottom_margin = page_bottom - bottom
         if bottom_margin < 0:
             bleed_margins.append(abs(bottom_margin))
         elif 10 < bottom_margin < page_height * 0.05:
-            edge_gaps.append(bottom_margin)
+            bottom_gaps.append(bottom_margin)
 
         left_margin = left - page_left
         right_margin = page_right - right
@@ -109,11 +123,11 @@ def analyze_gap_details(photos: List[Dict[str, Any]], page_width: float, page_he
             if left_margin < 0:
                 bleed_margins.append(abs(left_margin))
             elif 10 < left_margin < page_width * 0.05:
-                edge_gaps.append(left_margin)
+                left_gaps.append(left_margin)
             if right_margin < 0:
                 bleed_margins.append(abs(right_margin))
             elif 10 < right_margin < page_width * 0.05:
-                edge_gaps.append(right_margin)
+                right_gaps.append(right_margin)
         else:
             # Single page: apply bleed to left, right, top, bottom except center fold
             # Assume center fold is right edge for left page, left edge for right page (handled by caller)
@@ -123,11 +137,11 @@ def analyze_gap_details(photos: List[Dict[str, Any]], page_width: float, page_he
             if left_margin < 0:
                 bleed_margins.append(abs(left_margin))
             elif 10 < left_margin < page_width * 0.05:
-                edge_gaps.append(left_margin)
+                left_gaps.append(left_margin)
             if right_margin < 0:
                 bleed_margins.append(abs(right_margin))
             elif 10 < right_margin < page_width * 0.05:
-                edge_gaps.append(right_margin)
+                right_gaps.append(right_margin)
     
     # Collect internal gaps (spacing between adjacent photos)
     # For each photo, find the closest photo to the right and below
@@ -214,8 +228,14 @@ def analyze_gap_details(photos: List[Dict[str, Any]], page_width: float, page_he
         modal_value = counts.most_common(1)[0][0]
         return modal_value
     
-    # Calculate MODAL edge gap (most common value, not average)
-    edge_gap = find_modal_value(edge_gaps, tolerance=2.0) if edge_gaps else 0.0
+    # Calculate MODAL gap for each edge separately
+    top_gap = find_modal_value(top_gaps, tolerance=2.0) if top_gaps else 0.0
+    bottom_gap = find_modal_value(bottom_gaps, tolerance=2.0) if bottom_gaps else 0.0
+    left_gap = find_modal_value(left_gaps, tolerance=2.0) if left_gaps else 0.0
+    right_gap = find_modal_value(right_gaps, tolerance=2.0) if right_gaps else 0.0
+    
+    # Create edge_gap dict
+    edge_gap_dict = make_edge_gap(top_gap, bottom_gap, left_gap, right_gap)
     
     # Calculate MODAL internal gap (most common value, not average)
     inter_gap = find_modal_value(internal_gaps, tolerance=2.0) if internal_gaps else 0.0
@@ -223,7 +243,10 @@ def analyze_gap_details(photos: List[Dict[str, Any]], page_width: float, page_he
     # Maximum bleed (largest negative margin)
     bleed = max(bleed_margins) if bleed_margins else 0.0
     
-    return GapAnalysis(edge_gap, inter_gap, bleed, edge_gaps, internal_gaps, bleed_margins)
+    # Combine all edge gaps for legacy edge_gaps list
+    all_edge_gaps = top_gaps + bottom_gaps + left_gaps + right_gaps
+    
+    return GapAnalysis(edge_gap_dict, inter_gap, bleed, all_edge_gaps, internal_gaps, bleed_margins)
 
 
 def report_gap_variations(analysis: GapAnalysis, pageno: int = None) -> None:
@@ -296,7 +319,7 @@ def report_gap_variations(analysis: GapAnalysis, pageno: int = None) -> None:
 
 
 def transform_page_to_gapfree(page_width: float, page_height: float,
-                               edge_gap: float, internal_gap: float, is_spread: bool) -> Tuple[float, float]:
+                               edge_gap: Dict[str, float], internal_gap: float, is_spread: bool) -> Tuple[float, float]:
     """
     Transform page dimensions from MCF space to gap-free space for algorithms.
     
@@ -305,39 +328,41 @@ def transform_page_to_gapfree(page_width: float, page_height: float,
     - internal_gap is added back once (items expand by internal_gap to touch)
     
     For single page mode with negative edge_gap (bleed):
-    - Width: page_width - edge_gap + internal_gap (bleed on one side only, not centerfold)
-    - Height: page_height - 2*edge_gap + internal_gap (bleed on top and bottom)
+    - Width: page_width - left_gap - right_gap + internal_gap (but skip centerfold for bleed)
+    - Height: page_height - top_gap - bottom_gap + internal_gap
     
     For spread mode or positive edge_gap:
-    - Formula: page - 2*edge_gap + internal_gap
-    
-    Rationale:
-    - Remove edge_gap from top/left (margins)
-    - Remove (edge_gap - internal_gap) from bottom/right (margin minus touching expansion)
-    - Simplifies to: page - 2*edge_gap + internal_gap
-    - EXCEPT for single page with bleed: no bleed at centerfold
+    - Formula: page - left_gap - right_gap + internal_gap
     
     Args:
         page_width: Page width in MCF units.
         page_height: Page height in MCF units.
-        edge_gap: Edge gap (margin) in MCF units. Negative values = bleed.
+        edge_gap: Edge gap dict with 'top', 'bottom', 'left', 'right' keys.
         internal_gap: Internal gap (spacing between items) in MCF units.
         is_spread: True if spread mode (double page), False if single page mode.
     
     Returns:
         Tuple (gapfree_width, gapfree_height) in MCF units.
     """
-    avoid_centerfold = edge_gap < 0 and not is_spread
+    left_gap = edge_gap['left']
+    right_gap = edge_gap['right']
+    top_gap = edge_gap['top']
+    bottom_gap = edge_gap['bottom']
+    
+    # Check if we should avoid centerfold bleed (negative gap on one edge in single-page mode)
+    avoid_centerfold = (left_gap < 0 or right_gap < 0) and not is_spread
     if avoid_centerfold:
-        gapfree_width = page_width - edge_gap + internal_gap
+        # In single page mode with bleed, don't apply left gap (it's the centerfold)
+        gapfree_width = page_width - right_gap + internal_gap
     else:
-        gapfree_width = page_width - 2 * edge_gap + internal_gap
-    gapfree_height = page_height - 2 * edge_gap + internal_gap
+        gapfree_width = page_width - left_gap - right_gap + internal_gap
+    
+    gapfree_height = page_height - top_gap - bottom_gap + internal_gap
     return gapfree_width, gapfree_height
 
 
 def transform_item_to_gapfree(left: float, top: float, width: float, height: float,
-                               edge_gap: float, internal_gap: float, 
+                               edge_gap: Dict[str, float], internal_gap: float, 
                                is_spread: bool, is_left_page: bool) -> Tuple[float, float, float, float]:
     """
     Transform an item (photo or text) from MCF space to gap-free space for algorithms.
@@ -348,7 +373,7 @@ def transform_item_to_gapfree(left: float, top: float, width: float, height: flo
     
     For single page mode with negative edge_gap (bleed):
     - Right page: left position stays at 0 (no bleed at centerfold on left edge)
-    - Left page: left position subtracts edge_gap normally (bleed on left edge)
+    - Left page: left position subtracts left_gap normally (bleed on left edge)
     
     This ensures items in gap-free space perfectly fill the gap-free page with no gaps.
     
@@ -357,7 +382,7 @@ def transform_item_to_gapfree(left: float, top: float, width: float, height: flo
         top: Item top position in MCF units.
         width: Item width in MCF units.
         height: Item height in MCF units.
-        edge_gap: Edge gap (margin) in MCF units. Negative values = bleed.
+        edge_gap: Edge gap dict with 'top', 'bottom', 'left', 'right' keys.
         internal_gap: Internal gap (spacing between items) in MCF units.
         is_spread: True if spread mode (double page), False if single page mode.
         is_left_page: True if this is the left/even page, False if right/odd page.
@@ -366,12 +391,15 @@ def transform_item_to_gapfree(left: float, top: float, width: float, height: flo
     Returns:
         Tuple (gapfree_left, gapfree_top, gapfree_width, gapfree_height) in MCF units.
     """
-    has_no_left_edge = edge_gap < 0 and not is_spread and not is_left_page
+    left_gap = edge_gap['left']
+    top_gap = edge_gap['top']
+    
+    has_no_left_edge = left_gap < 0 and not is_spread and not is_left_page
     if has_no_left_edge:
-        gapfree_left = left  # Do not subtract edge_gap at center fold
+        gapfree_left = left  # Do not subtract left_gap at center fold
     else:
-        gapfree_left = left - edge_gap
-    gapfree_top = top - edge_gap
+        gapfree_left = left - left_gap
+    gapfree_top = top - top_gap
     gapfree_width = width + internal_gap
     gapfree_height = height + internal_gap
     return gapfree_left, gapfree_top, gapfree_width, gapfree_height
@@ -379,7 +407,7 @@ def transform_item_to_gapfree(left: float, top: float, width: float, height: flo
 
 def transform_item_from_gapfree(gapfree_left: float, gapfree_top: float,
                                  gapfree_width: float, gapfree_height: float,
-                                 edge_gap: float, internal_gap: float, 
+                                 edge_gap: Dict[str, float], internal_gap: float, 
                                  is_spread: bool, is_left_page: bool) -> Tuple[float, float, float, float]:
     """
     Transform an item from gap-free space back to MCF space.
@@ -390,14 +418,14 @@ def transform_item_from_gapfree(gapfree_left: float, gapfree_top: float,
     
     For single page mode with negative edge_gap (bleed):
     - Right page: left position stays at 0 (no bleed at centerfold on left edge)
-    - Left page: left position adds edge_gap normally (bleed on left edge)
+    - Left page: left position adds left_gap normally (bleed on left edge)
     
     Args:
         gapfree_left: Item left position in gap-free space.
         gapfree_top: Item top position in gap-free space.
         gapfree_width: Item width in gap-free space.
         gapfree_height: Item height in gap-free space.
-        edge_gap: Edge gap (margin) in MCF units. Negative values = bleed.
+        edge_gap: Edge gap dict with 'top', 'bottom', 'left', 'right' keys.
         internal_gap: Internal gap (spacing between items) in MCF units.
         is_spread: True if spread mode (double page), False if single page mode.
         is_left_page: True if this is the left/even page, False if right/odd page.
@@ -405,12 +433,15 @@ def transform_item_from_gapfree(gapfree_left: float, gapfree_top: float,
     Returns:
         Tuple (left, top, width, height) in MCF units.
     """
-    has_no_left_edge = edge_gap < 0 and not is_spread and not is_left_page
+    left_gap = edge_gap['left']
+    top_gap = edge_gap['top']
+    
+    has_no_left_edge = left_gap < 0 and not is_spread and not is_left_page
     if has_no_left_edge:
-        left = gapfree_left  # Do not add edge_gap at center fold
+        left = gapfree_left  # Do not add left_gap at center fold
     else:
-        left = gapfree_left + edge_gap
-    top = gapfree_top + edge_gap
+        left = gapfree_left + left_gap
+    top = gapfree_top + top_gap
     width = max(0, gapfree_width - internal_gap)
     height = max(0, gapfree_height - internal_gap)
     return left, top, width, height
@@ -419,15 +450,16 @@ def transform_item_from_gapfree(gapfree_left: float, gapfree_top: float,
 def transform_item_for_gap_change(
     mcf_left: float, mcf_top: float, mcf_width: float, mcf_height: float,
     page_width: float, page_height: float,
-    old_edge_gap: float, old_internal_gap: float,
-    new_edge_gap: float, new_internal_gap: float,
+    old_edge_gap: Dict[str, float], old_internal_gap: float,
+    new_edge_gap: Dict[str, float], new_internal_gap: float,
     is_spread: bool, is_left_page: bool
 ) -> Tuple[float, float, float, float]:
     """
     Transform an item when gap parameters change.
     
     When gaps change, the gap-free page size changes:
-    - Gap-free page = page - 2*edge_gap + internal_gap
+    - Gap-free page = page - left_gap - right_gap + internal_gap (width)
+    - Gap-free page = page - top_gap - bottom_gap + internal_gap (height)
     - Changing edge_gap or internal_gap changes this size
     
     To maintain the same relative layout in gap-free space, items must scale
@@ -447,11 +479,12 @@ def transform_item_for_gap_change(
         mcf_height: Item height in MCF space (with old gaps)
         page_width: Page width in MCF units
         page_height: Page height in MCF units
-        old_edge_gap: Previous edge gap in MCF units
+        old_edge_gap: Previous edge gap dict
         old_internal_gap: Previous internal gap in MCF units
-        new_edge_gap: New edge gap in MCF units
+        new_edge_gap: New edge gap dict
         new_internal_gap: New internal gap in MCF units
         is_spread: True if spread mode, False if single page mode.
+        is_left_page: True if left page, False if right page.
     
     Returns:
         Tuple (new_left, new_top, new_width, new_height) in MCF units with new gaps

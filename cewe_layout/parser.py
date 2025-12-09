@@ -7,6 +7,15 @@ from .page_utils import determine_page_owner
 
 logger = logging.getLogger(__name__)
 
+# Fixed edge gaps for A5 Calendar format (calculated from Month 1 image area)
+# These gaps define the usable image layout area within each calendar page
+CALENDAR_EDGE_GAPS = {
+    'left': 70.0,
+    'top': 120.0,
+    'right': 70.0,
+    'bottom': 250.0
+}
+
 
 def is_canvas_format(fotobook_root):
     """Detect if this is a Canvas format (single large page) vs photobook.
@@ -27,6 +36,26 @@ def is_canvas_format(fotobook_root):
                 return True
         except (ValueError, TypeError):
             pass
+    return False
+
+
+def is_calendar_format(fotobook_root):
+    """Detect if this is a Calendar format.
+    
+    Calendars have:
+    - Page 0 with type="calendarcoverfront" (title page)
+    - Pages 1-N with type="normalpage" (monthly pages)
+    - Each page is standalone (not split into left/right like photobooks)
+    - normalpages typically equals 12 (for 12 months)
+    - totalpages = normalpages + 1 (including title page)
+    
+    Returns:
+        True if Calendar format, False otherwise
+    """
+    # Check for special calendar cover page at pagenr="0"
+    for page in fotobook_root.findall('.//page'):
+        if page.get('pagenr') == '0' and page.get('type') == 'calendarcoverfront':
+            return True
     return False
 
 
@@ -81,10 +110,13 @@ def extract_pages_info(fotobook_root):
     # Collect photos per logical page number. Many .mcf files store a two-page spread
     # in a single <page> element (the "bundle"). To handle that we split areas
     # by the bundle width into left/right halves and assign them to adjacent pages.
-    # EXCEPT for Canvas format which has a single large page with no splitting.
+    # EXCEPT for Canvas and Calendar formats which have standalone pages with no splitting.
     from collections import defaultdict
 
     canvas_mode = is_canvas_format(fotobook_root)
+    calendar_mode = is_calendar_format(fotobook_root)
+    # Single-page mode: treat each page as standalone (no left/right split)
+    single_page_mode = canvas_mode or calendar_mode
     pages_map = defaultdict(list)
 
     for page in fotobook_root.findall('.//page'):
@@ -169,12 +201,12 @@ def extract_pages_info(fotobook_root):
                 area_rot = (area_rot + 270.0) % 360.0
 
             # Decide which logical page the area belongs to by its left edge
-            # Canvas mode: all areas belong to the single page
+            # Single-page mode (Canvas/Calendar): all areas belong to the single page
             # Photobook mode: split areas between left/right pages by position
-            if canvas_mode:
+            if single_page_mode:
                 owner = pagenr
                 origin_left = 0.0
-                page_width = logical_spread_w  # Full canvas width (logical, post-rotation)
+                page_width = logical_spread_w  # Full page width (logical, post-rotation)
             else:
                 # A photo that starts on the left page should be on the left page
                 # If the page element represents the left side (even pagenr) then left->pagenr, right->pagenr+1
@@ -209,9 +241,11 @@ def extract_pages_info(fotobook_root):
                     'origin_left': origin_left, 
                     'background_id': background_id, 
                     'is_canvas': canvas_mode,
+                    'is_calendar': calendar_mode,
                     'rotation': rotation_degrees,
                     'physical_width': spread_w,  # Original dimensions before rotation
-                    'physical_height': spread_h
+                    'physical_height': spread_h,
+                    'calendar_edge_gaps': CALENDAR_EDGE_GAPS.copy() if calendar_mode else None
                 }
 
             # Check area type

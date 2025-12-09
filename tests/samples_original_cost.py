@@ -20,8 +20,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from samples_helpers import read_page_file, write_result_section, page_data_to_rectangles
 from cewe_layout.algorithms.evaluator import evaluate_layout
-from cewe_layout.gap_utils import analyze_gaps
-from cewe_layout.gap_utils import transform_page_to_gapfree, transform_item_to_gapfree
+from cewe_layout.gap_utils import analyze_gaps, make_uniform_edge_gap, transform_page_to_gapfree, transform_item_to_gapfree
 from cewe_layout.algorithms.base import LayoutRectangle
 
 
@@ -59,14 +58,15 @@ def test_page_cost(page_file: Path):
             'area_height': text['height']
         })
     
-    gap_analysis = analyze_gaps(items, page_data.page_width, page_data.page_height, page_data.origin_left)
+    gap_analysis = analyze_gaps(items, page_data.page_width, page_data.page_height, page_data.origin_left, is_spread=False)
     
     # Transform page to gap-free space
     eval_page_w, eval_page_h = transform_page_to_gapfree(
         page_data.page_width,
         page_data.page_height,
         gap_analysis.edge_gap,
-        gap_analysis.internal_gap
+        gap_analysis.internal_gap,
+        is_spread=False
     )
     
     # Transform rectangles to gap-free space
@@ -81,7 +81,9 @@ def test_page_cost(page_file: Path):
         gf_left, gf_top, gf_width, gf_height = transform_item_to_gapfree(
             pos_x, pos_y, slot_w, slot_h,
             gap_analysis.edge_gap,
-            gap_analysis.internal_gap
+            gap_analysis.internal_gap,
+            is_spread=False,
+            is_left_page=True
         )
         
         # Use gap-free slot area as preferred size (what was allocated in original layout)
@@ -108,7 +110,9 @@ def test_page_cost(page_file: Path):
         gf_left, gf_top, gf_width, gf_height = transform_item_to_gapfree(
             pos_x, pos_y, text_w, text_h,
             gap_analysis.edge_gap,
-            gap_analysis.internal_gap
+            gap_analysis.internal_gap,
+            is_spread=False,
+            is_left_page=True
         )
         
         # Use gap-free area as preferred size

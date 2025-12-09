@@ -11,7 +11,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from cewe_layout.gap_utils import transform_item_for_gap_change, analyze_gaps
+from cewe_layout.gap_utils import transform_item_for_gap_change, analyze_gaps, make_uniform_edge_gap
 
 
 def test_gap_change_preserves_centering():
@@ -21,8 +21,8 @@ def test_gap_change_preserves_centering():
     page_width = 2500.0
     page_height = 2500.0
     
-    # Gaps from diagram
-    edge_gap = 200.0  # 20mm
+    # Gaps from diagram (uniform edge gap on all sides)
+    edge_gap = make_uniform_edge_gap(200.0)  # 20mm on all 4 edges
     old_internal_gap = 100.0  # 10mm
     
     # Assume spread mode for this test
@@ -126,14 +126,14 @@ def test_gap_change_preserves_centering():
         bottom_edge_gap = page_height - max_bottom
         
         print(f"\nManual gap measurements:")
-        print(f"  Left edge gap: {left_edge_gap:.1f} (expected {edge_gap:.1f})")
-        print(f"  Right edge gap: {right_edge_gap:.1f} (expected {edge_gap:.1f})")
-        print(f"  Top edge gap: {top_edge_gap:.1f} (expected {edge_gap:.1f})")
-        print(f"  Bottom edge gap: {bottom_edge_gap:.1f} (expected {edge_gap:.1f})")
+        print(f"  Left edge gap: {left_edge_gap:.1f} (expected {edge_gap['left']:.1f})")
+        print(f"  Right edge gap: {right_edge_gap:.1f} (expected {edge_gap['right']:.1f})")
+        print(f"  Top edge gap: {top_edge_gap:.1f} (expected {edge_gap['top']:.1f})")
+        print(f"  Bottom edge gap: {bottom_edge_gap:.1f} (expected {edge_gap['bottom']:.1f})")
         
         # Edge gaps should be unchanged
-        assert abs(left_edge_gap - edge_gap) < 0.5, f"Left edge gap wrong: {left_edge_gap:.1f}"
-        assert abs(right_edge_gap - edge_gap) < 0.5, f"Right edge gap wrong: {right_edge_gap:.1f}"
+        assert abs(left_edge_gap - edge_gap['left']) < 0.5, f"Left edge gap wrong: {left_edge_gap:.1f}"
+        assert abs(right_edge_gap - edge_gap['right']) < 0.5, f"Right edge gap wrong: {right_edge_gap:.1f}"
         print(f"  ✓ Edge gaps preserved")
         
         # Check internal gaps (horizontal gaps between adjacent items in same row)

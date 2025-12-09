@@ -33,7 +33,9 @@ from .gap_utils import (
     transform_page_to_gapfree,
     transform_item_to_gapfree,
     transform_item_from_gapfree,
-    transform_item_for_gap_change
+    transform_item_for_gap_change,
+    make_uniform_edge_gap,
+    make_edge_gap
 )
 from .file_utils import (
     split_safecontainer_prefix,
@@ -45,7 +47,7 @@ from .file_utils import (
 # Constants for MCF unit conversion and defaults
 MM_TO_MCF = 10.0  # 1mm = 10 MCF units
 MCF_TO_MM = 0.1   # 1 MCF unit = 0.1mm
-DEFAULT_EDGE_GAP = 140.0  # 14mm in MCF units
+DEFAULT_EDGE_GAP = make_uniform_edge_gap(140.0)  # 14mm in MCF units, uniform on all 4 edges
 DEFAULT_INTERNAL_GAP = 90.0  # 9mm in MCF units
 
 
@@ -85,11 +87,26 @@ class LayoutViewer:
         self.index = 0
         self.layout_mgr = LayoutManager()
         
-        # Detect Canvas mode from first page
+        # Detect Canvas/Calendar mode from first page
         self.is_canvas = False
+        self.is_calendar = False
+        self.calendar_edge_gaps = None
         if self.pages:
             _, first_info = self.pages[0]
             self.is_canvas = first_info.get('is_canvas', False)
+            self.is_calendar = first_info.get('is_calendar', False)
+            if self.is_calendar:
+                self.calendar_edge_gaps = first_info.get('calendar_edge_gaps')
+                if self.calendar_edge_gaps:
+                    # Set the calendar edge gaps in the layout manager
+                    self.layout_mgr.calendar_edge_gaps = self.calendar_edge_gaps
+                    print(f"\n=== Calendar Mode Detected ===")
+                    print(f"Fixed edge gaps enforced for calendar layout:")
+                    print(f"  Left:   {self.calendar_edge_gaps['left']}")
+                    print(f"  Top:    {self.calendar_edge_gaps['top']}")
+                    print(f"  Right:  {self.calendar_edge_gaps['right']}")
+                    print(f"  Bottom: {self.calendar_edge_gaps['bottom']}")
+                    print(f"==============================\n")
         
         # Algorithm selection
         self.algorithm_var = tk.StringVar(value='Collage-Gen')
@@ -98,7 +115,8 @@ class LayoutViewer:
         self.debug_var = tk.BooleanVar(value=False)
         
         # Spread mode flag - when True, show two pages (even+odd) as a spread
-        # For Canvas, this is forced to True and locked (entire canvas is one "spread")
+        # For Canvas only (single page), this is forced to True and locked
+        # For Calendar (multiple standalone pages), spread mode is disabled (single pages only)
         self.spread_mode = tk.BooleanVar(value=self.is_canvas)
         
         # Track current spread pages (list of 1 or 2 page numbers)
@@ -127,8 +145,9 @@ class LayoutViewer:
             
             # Estimate gap to compute gap-free areas (matching evaluation coordinate space)
             # Use internal gap preferentially
-            edge_gap, inter_gap = analyze_gaps(all_items, page_w, page_h, origin_left, self.spread_mode.get()) if all_items else (0.0, 0.0)
-            gap = inter_gap if inter_gap > 0 else edge_gap
+            edge_gap, inter_gap = analyze_gaps(all_items, page_w, page_h, origin_left, self.spread_mode.get()) if all_items else (make_uniform_edge_gap(0.0), 0.0)
+            # For auto-gap display, use internal_gap if available, else use average of edge_gaps
+            gap = inter_gap if inter_gap > 0 else (edge_gap['top'] + edge_gap['bottom'] + edge_gap['left'] + edge_gap['right']) / 4.0
             
             # Compute total area in gap-free space (add gap to each photo dimension)
             total_area = sum(((p.get('area_width', 0) or 0) + gap) * ((p.get('area_height', 0) or 0) + gap) for p in all_items)
@@ -238,10 +257,17 @@ class LayoutViewer:
 
         # Row 0: Navigation - organize in two frames for tight grouping
         # For Canvas mode, hide all page navigation controls
+        # For Calendar mode, show navigation but with 'Month:' label
         nav_frame = ttk.Frame(self.ctrl)
         if not self.is_canvas:
             nav_frame.grid(row=0, column=0, sticky='w', padx=4, pady=4)
-        self.page_num_var = tk.StringVar(value='Canvas:' if self.is_canvas else 'Page:')
+        if self.is_canvas:
+            page_label = 'Canvas:'
+        elif self.is_calendar:
+            page_label = 'Month:'
+        else:
+            page_label = 'Page:'
+        self.page_num_var = tk.StringVar(value=page_label)
         self.page_num_label = ttk.Label(nav_frame, textvariable=self.page_num_var, font=('TkDefaultFont', 9))
         self.page_num_label.pack(side='left', padx=(0,4))
         prev_btn = ttk.Button(nav_frame, text='Prev (←)', command=self.prev_page)
@@ -264,10 +290,11 @@ class LayoutViewer:
         self.page_range_label = ttk.Label(goto_frame, textvariable=self.page_range_var, foreground='gray')
         self.page_range_label.pack(side='left', padx=(8,0))
         
-        # Spread mode checkbox (disabled for Canvas - it's always a single spread)
+        # Spread mode checkbox (disabled for Canvas and Calendar - always single pages)
+        is_spread_disabled = self.is_canvas or self.is_calendar
         spread_check = ttk.Checkbutton(goto_frame, text='Spread', variable=self.spread_mode, 
                                        command=self._on_spread_mode_change,
-                                       state='disabled' if self.is_canvas else 'normal')
+                                       state='disabled' if is_spread_disabled else 'normal')
         spread_check.pack(side='left', padx=(8,0))
         
         # Row 1: Algorithm selection and Generate button - pack in single frame
@@ -452,13 +479,19 @@ class LayoutViewer:
         margins_frame = ttk.LabelFrame(right_col, text='Margins', padding=6)
         margins_frame.grid(row=2, column=0, sticky='ew')
         
-        # Edge gap parameter (now editable)
+        # Edge gap parameter (now editable, except for calendars which have fixed gaps)
         ttk.Label(margins_frame, text='Edge gap (mm):').grid(row=0, column=0, sticky='w', pady=2)
         self.edge_gap_var = tk.StringVar(value='0.0')
-        self.edge_gap_entry = ttk.Entry(margins_frame, textvariable=self.edge_gap_var, width=8)
+        if self.is_calendar:
+            # Calendar: show fixed edge gaps (disabled entry)
+            self.edge_gap_var.set('Fixed')
+            self.edge_gap_entry = ttk.Entry(margins_frame, textvariable=self.edge_gap_var, width=18, state='disabled')
+        else:
+            # Photobook/Canvas: editable edge gap
+            self.edge_gap_entry = ttk.Entry(margins_frame, textvariable=self.edge_gap_var, width=8)
+            self.edge_gap_entry.bind('<Return>', lambda e: self.on_edge_gap_changed())
+            self.edge_gap_entry.bind('<FocusOut>', lambda e: self.on_edge_gap_changed())
         self.edge_gap_entry.grid(row=0, column=1, sticky='w', padx=4, pady=2)
-        self.edge_gap_entry.bind('<Return>', lambda e: self.on_edge_gap_changed())
-        self.edge_gap_entry.bind('<FocusOut>', lambda e: self.on_edge_gap_changed())
         
         # Internal gap parameter (editable)
         ttk.Label(margins_frame, text='Internal gap (mm):').grid(row=1, column=0, sticky='w', pady=2)
@@ -498,7 +531,7 @@ class LayoutViewer:
         
         # Start at the last page with photos
         # For Canvas mode, there's only 1 page at index 0
-        # For photobooks, skip page 0 (cover) and start at page 1 or later
+        # For photobooks and calendars, skip page 0 (cover/title) and start at page 1 or later
         if self.is_canvas or len(self.pages) == 1:
             self.index = last_page_with_photos
         else:
@@ -716,7 +749,12 @@ class LayoutViewer:
         
         if not self.pages:
             # Update page number display
-            self.page_num_var.set('Canvas:' if self.is_canvas else 'Page:')
+            if self.is_canvas:
+                self.page_num_var.set('Canvas:')
+            elif self.is_calendar:
+                self.page_num_var.set('Month:')
+            else:
+                self.page_num_var.set('Page:')
             
             # Render empty page
             canvas_w, canvas_h = self._get_canvas_dimensions()
@@ -727,9 +765,14 @@ class LayoutViewer:
         
         # Determine which page indices to render
         # Canvas mode: always treat as single page (no spread navigation)
+        # Calendar mode: treat as single pages (no spreads), but allow navigation
         # Photobook mode: determine which pages to render based on spread mode
         if self.is_canvas:
             # Canvas: single page, always shown in full
+            page_indices = [self.index]
+            self.current_spread_pages = [self.pages[self.index][0]]
+        elif self.is_calendar:
+            # Calendar: single page view only (no spreads)
             page_indices = [self.index]
             self.current_spread_pages = [self.pages[self.index][0]]
         elif in_spread_mode:
@@ -767,6 +810,8 @@ class LayoutViewer:
         # Update page number display
         if self.is_canvas:
             self.page_num_var.set('Canvas:')
+        elif self.is_calendar:
+            self.page_num_var.set(f'Month {self.current_spread_pages[0]}:')
         elif len(self.current_spread_pages) == 2:
             self.page_num_var.set(f'Pages {self.current_spread_pages[0]}-{self.current_spread_pages[1]}:')
         else:
@@ -784,7 +829,7 @@ class LayoutViewer:
             all_photos.extend(photos_i)
             all_texts.extend(texts_i)
         
-        # Update window title with photobook/canvas name and page info
+        # Update window title with photobook/canvas/calendar name and page info
         text_label = 'text' if len(all_texts) == 1 else 'texts'
         if self.is_canvas:
             # Canvas mode: show as "Canvas" not "Page"
@@ -792,6 +837,12 @@ class LayoutViewer:
                 title = f'{self.photobook_name} - Canvas : {len(all_photos)} photos, {len(all_texts)} {text_label}'
             else:
                 title = f'{self.photobook_name} - Canvas : {len(all_photos)} photos'
+        elif self.is_calendar:
+            # Calendar mode: show as "Month" not "Page"
+            if all_texts:
+                title = f'{self.photobook_name} - Month {self.current_spread_pages[0]} : {len(all_photos)} photos, {len(all_texts)} {text_label}'
+            else:
+                title = f'{self.photobook_name} - Month {self.current_spread_pages[0]} : {len(all_photos)} photos'
         elif len(self.current_spread_pages) == 2:
             if all_texts:
                 title = f'{self.photobook_name} - Pages {self.current_spread_pages[0]}-{self.current_spread_pages[1]} : {len(all_photos)} photos, {len(all_texts)} {text_label}'
@@ -1172,7 +1223,7 @@ class LayoutViewer:
             return []
         
         # Edge gap: 5mm = 50 MCF units
-        edge_gap = 50.0
+        edge_gap = make_uniform_edge_gap(50.0)
         
         # Base size for small photo (1.0): approximately page_width/10 x page_height/10
         # but with correct aspect ratio from photo
@@ -1183,8 +1234,8 @@ class LayoutViewer:
         spacing = 100.0
         
         # Starting position
-        current_x = origin_left + edge_gap
-        current_y = edge_gap
+        current_x = origin_left + edge_gap['left']
+        current_y = edge_gap['top']
         
         layout_photos = []
         for photo in photos:
@@ -1318,7 +1369,7 @@ class LayoutViewer:
                     self.layout_mgr.set_internal_gap(pageno, 0)
             else:
                 # No items to analyze, set defaults (14mm edge, 9mm internal)
-                self.layout_mgr.set_edge_gap(pageno, 140.0)
+                self.layout_mgr.set_edge_gap(pageno, make_uniform_edge_gap(140.0))
                 self.layout_mgr.set_internal_gap(pageno, 90.0)
         
         # Get current gap values (now guaranteed to be set)
@@ -1326,8 +1377,15 @@ class LayoutViewer:
         current_internal_gap = self.layout_mgr.get_internal_gap(pageno)
         
         # Update gap displays (convert MCF units to mm: 1 MCF unit = 0.1mm)
-        edge_gap_mm = current_edge_gap / 10.0
-        self.edge_gap_var.set(f'{edge_gap_mm:.1f}')
+        # For calendars with non-uniform edge gaps, show 'Fixed' in UI
+        # For others, show average of all 4 edge gaps
+        if self.is_calendar:
+            self.edge_gap_var.set('Fixed')
+        else:
+            # Average of all 4 edges for display
+            avg_edge_gap_mm = (current_edge_gap['top'] + current_edge_gap['bottom'] + 
+                              current_edge_gap['left'] + current_edge_gap['right']) / 40.0  # /4 edges, /10 for mm
+            self.edge_gap_var.set(f'{avg_edge_gap_mm:.1f}')
         
         gap_mm = current_internal_gap / 10.0
         self.gap_var.set(f'{gap_mm:.1f}')
@@ -1347,6 +1405,7 @@ class LayoutViewer:
             return
         
         # Get current gaps from layout manager for evaluation
+        # For calendars, edge_gap is a dict; algorithms expect it as-is
         edge_gap = self.layout_mgr.get_edge_gap(pageno)
         internal_gap = self.layout_mgr.get_internal_gap(pageno)
         
@@ -1425,7 +1484,8 @@ class LayoutViewer:
             print(f"\n=== GUI Evaluation Debug ===")
             print(f"  Page: {pageno}")
             print(f"  Eval page: {eval_page_w} x {eval_page_h}")
-            print(f"  Edge gap: {edge_gap}, Internal gap: {internal_gap}")
+            print(f"  Edge gaps: top={edge_gap['top']}, bottom={edge_gap['bottom']}, left={edge_gap['left']}, right={edge_gap['right']}")
+            print(f"  Internal gap: {internal_gap}")
             print(f"  Rectangles passed to evaluator ({len(rectangles)} total):")
             for i, (rect, item_info) in enumerate(zip(rectangles, item_identifiers)):
                 item_type, item_idx, item_id = item_info
@@ -1860,18 +1920,27 @@ class LayoutViewer:
         try:
             pageno, info = self.pages[self.index]
             
+            # For calendars, edge gap cannot be changed - return early
+            if self.is_calendar:
+                self.show_status("Edge gap is fixed for calendars and cannot be changed", error=False)
+                return
+            
             # Get OLD gaps before changing
             old_edge_gap = self.layout_mgr.get_edge_gap(pageno)
             old_internal_gap = self.layout_mgr.get_internal_gap(pageno)
             
-            # Parse and validate NEW edge gap
+            # Parse and validate NEW edge gap (uniform on all 4 edges for photobooks)
             edge_gap_mm = float(self.edge_gap_var.get())
-            new_edge_gap = edge_gap_mm * 10.0  # Convert mm to MCF units
-            if not (-200.0 <= new_edge_gap <= 200.0):  # Reasonable bounds (-20mm to +20mm)
+            new_edge_gap_value = edge_gap_mm * 10.0  # Convert mm to MCF units
+            if not (-200.0 <= new_edge_gap_value <= 200.0):  # Reasonable bounds (-20mm to +20mm)
                 self.show_status(f"Invalid edge gap: {edge_gap_mm:.1f}mm (must be -20 to +20mm)", error=True)
-                # Restore previous valid value
-                self.edge_gap_var.set(f"{old_edge_gap / 10.0:.1f}")
+                # Restore previous valid value (average of all edges)
+                avg_old = (old_edge_gap['top'] + old_edge_gap['bottom'] + old_edge_gap['left'] + old_edge_gap['right']) / 40.0
+                self.edge_gap_var.set(f"{avg_old:.1f}")
                 return
+            
+            # Create uniform edge gap dict for photobooks
+            new_edge_gap = make_uniform_edge_gap(new_edge_gap_value)
             
             # Transform current layout using gap change
             self._transform_layout_for_gap_change(
@@ -3043,12 +3112,21 @@ class LayoutViewer:
                     if old_filename in new_photos and '_source_path' in photo:
                         continue
                     
-                    # Populate rename_map to handle multiple possible XML filename formats
-                    # XML might have: base name, name with -sz, or name with -sz-pgN (from different page)
-                    rename_map[base_filename] = new_filename  # base -> new
-                    if old_filename != base_filename:
-                        # Also map current filename -> new filename (e.g., -sz or -sz-pgOLD -> -sz-pgNEW)
+                    # Populate rename_map to handle XML filename matching
+                    # Map old_filename (which may or may not have -sz-pg) to new_filename
+                    # This handles the case where XML has the full safecontainer:/ path
+                    if old_filename != new_filename:
                         rename_map[old_filename] = new_filename
+                    
+                    # Also map base filename (for backward compatibility and XML that might have base names)
+                    # Reconstruct base filename WITH safecontainer prefix if present
+                    if old_filename.startswith('safecontainer:/'):
+                        base_with_prefix = f'safecontainer:/{base_filename}'
+                        if base_with_prefix != new_filename:
+                            rename_map[base_with_prefix] = new_filename
+                    else:
+                        if base_filename != new_filename:
+                            rename_map[base_filename] = new_filename
                     
                     # Only rename file if filename changed
                     if new_filename != old_filename:

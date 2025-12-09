@@ -20,7 +20,7 @@ from samples_helpers import read_page_file
 from cewe_layout.algorithms.fan_layout import FanLayoutAlgorithm
 from cewe_layout.algorithms.base import TreeNode, LayoutRectangle
 from cewe_layout.algorithms.evaluator import evaluate_layout
-from cewe_layout.gap_utils import analyze_gaps, transform_page_to_gapfree
+from cewe_layout.gap_utils import analyze_gaps, transform_page_to_gapfree, make_uniform_edge_gap
 
 
 def patch_fan_to_use_deepcopy():
@@ -72,7 +72,7 @@ def run_fanga_on_page(page_file: Path, use_deepcopy: bool, seed: int = 42):
             'area_height': photo['slot_height']
         })
     
-    gap_analysis = analyze_gaps(items, page_data.page_width, page_data.page_height, page_data.origin_left)
+    gap_analysis = analyze_gaps(items, page_data.page_width, page_data.page_height, page_data.origin_left, is_spread=False)
     edge_gap, internal_gap = gap_analysis
     
     # Transform to gap-free space
@@ -80,7 +80,8 @@ def run_fanga_on_page(page_file: Path, use_deepcopy: bool, seed: int = 42):
         page_data.page_width,
         page_data.page_height,
         edge_gap,
-        internal_gap
+        internal_gap,
+        is_spread=False
     )
     
     # Build input rectangles

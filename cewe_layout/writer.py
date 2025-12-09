@@ -10,7 +10,7 @@ from typing import List, Dict, Any
 import re
 import logging
 from .page_utils import determine_page_owner
-from .parser import is_canvas_format
+from .parser import is_canvas_format, is_calendar_format
 
 logger = logging.getLogger(__name__)
 
@@ -168,6 +168,11 @@ def _validate_saved_page(path: str, pageno: int, expected_photos: List[Dict[str,
     except Exception as e:
         return [f"Failed to re-parse saved file: {e}"]
     
+    # Detect Canvas or Calendar mode
+    canvas_mode = is_canvas_format(root)
+    calendar_mode = is_calendar_format(root)
+    single_page_mode = canvas_mode or calendar_mode
+    
     # Find the page element and count photos/texts using same logic as save
     page_elem = None
     photo_count = 0
@@ -177,7 +182,13 @@ def _validate_saved_page(path: str, pageno: int, expected_photos: List[Dict[str,
     for page in root.findall('.//page'):
         page_nr = int(page.get('pagenr', '0'))
         
-        if page_nr % 2 == 0:
+        if single_page_mode:
+            # Canvas/Calendar: direct page number match
+            if page_nr != pageno:
+                continue
+            left_owner = page_nr
+            right_owner = page_nr
+        elif page_nr % 2 == 0:
             left_owner = page_nr
             right_owner = page_nr + 1
         else:
@@ -185,10 +196,13 @@ def _validate_saved_page(path: str, pageno: int, expected_photos: List[Dict[str,
             right_owner = page_nr
         
         # Check if this is the page we're validating
-        if pageno not in (left_owner, right_owner):
+        if single_page_mode:
+            # For single page mode, we already matched above
+            page_elem = page
+        elif pageno not in (left_owner, right_owner):
             continue
-            
-        page_elem = page
+        else:
+            page_elem = page
         
         # Count photos and texts on this page using same logic as save
         for area in page_elem.findall('.//area'):
@@ -300,8 +314,10 @@ def update_page_layout(path: str, pageno: int, photos: List[Dict[str, Any]],
     tree = etree.parse(path)
     root = tree.getroot()
     
-    # Detect Canvas mode
+    # Detect Canvas or Calendar mode (both use single pages, not 2-page spreads)
     canvas_mode = is_canvas_format(root)
+    calendar_mode = is_calendar_format(root)
+    single_page_mode = canvas_mode or calendar_mode
     
     # Find the <page> element that contains this logical page
     # Canvas mode: single page, no left/right splitting
@@ -317,8 +333,8 @@ def update_page_layout(path: str, pageno: int, photos: List[Dict[str, Any]],
         except ValueError:
             continue
         
-        if canvas_mode:
-            # Canvas: direct page number match, no splitting
+        if single_page_mode:
+            # Canvas/Calendar: direct page number match, no splitting
             if page_nr == pageno:
                 page_elem = page
                 is_right_page = False
@@ -399,18 +415,18 @@ def update_page_layout(path: str, pageno: int, photos: List[Dict[str, Any]],
             # No rotation - coordinates are already physical
             return left, top, width, height, rot
     
-    # Canvas mode: no splitting (half_width = full width)
+    # Canvas/Calendar mode: no splitting (half_width = full width)
     # Photobook mode: split spread in half
-    if canvas_mode:
-        half_width = spread_width  # No splitting for Canvas
+    if single_page_mode:
+        half_width = spread_width  # No splitting for Canvas/Calendar
     else:
         half_width = spread_width / 2.0
     
     # Determine left and right page owners for this spread
     # (Already computed in the loop above, but extract for clarity)
     page_nr = int(page_elem.get('pagenr', '0'))
-    if canvas_mode:
-        # Canvas: single page owns all areas
+    if single_page_mode:
+        # Canvas/Calendar: single page owns all areas
         left_owner = page_nr
         right_owner = page_nr
     elif page_nr % 2 == 0:
@@ -632,7 +648,9 @@ def update_page_layout(path: str, pageno: int, photos: List[Dict[str, Any]],
         position.set('rotation', f"{physical_rot:.2f}")
         position.set('top', f"{physical_top:.2f}")
         position.set('width', f"{physical_width:.2f}")
-        position.set('zposition', '100')  # Default z-position
+        # Z-position: calendars/canvases need higher values to appear above template elements
+        zpos = '7500' if single_page_mode else '100'
+        position.set('zposition', zpos)
         position.tail = '\n            '  # Newline after <position>
         
         # Create <decoration/> child (required in MCF format)

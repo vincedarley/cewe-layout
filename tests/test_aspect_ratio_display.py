@@ -6,7 +6,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from cewe_layout.parser import parse_mcf_from_path, extract_pages_info
-from cewe_layout.gap_utils import analyze_gaps
+from cewe_layout.gap_utils import analyze_gaps, make_uniform_edge_gap
 
 # Path to the album
 album_path = Path(__file__).parent.parent.parent / "Album-2022.xmcf" / "data.mcf"
@@ -46,10 +46,10 @@ print(f"Number of texts: {len(texts)}")
 all_items = photos + texts
 # Determine if this is a spread page
 is_spread = page_w > page_h * 1.5 or origin_left > 0.0
-edge_gap, internal_gap = analyze_gaps(all_items, page_w, page_h, origin_left, is_spread) if all_items else (0.0, 0.0)
+edge_gap, internal_gap = analyze_gaps(all_items, page_w, page_h, origin_left, is_spread) if all_items else (make_uniform_edge_gap(0.0), 0.0)
 
 print(f"\nGaps:")
-print(f"  Edge gap: {edge_gap}")
+print(f"  Edge gaps: top={edge_gap['top']}, bottom={edge_gap['bottom']}, left={edge_gap['left']}, right={edge_gap['right']}")
 print(f"  Internal gap: {internal_gap}")
 
 # Display each photo's dimensions and calculated aspect ratio

@@ -29,6 +29,7 @@ class LayoutManager:
         self.page_internal_gaps = {}  # pageno -> internal_gap (MCF units, 0.1mm)
         self.page_edge_gaps = {}  # pageno -> edge_gap (MCF units, 0.1mm)
         self.page_original = {}  # pageno -> PageLayout (read from file)
+        self.calendar_edge_gaps = None  # Fixed gaps for calendar pages (dict with left/top/right/bottom)
         self.new_photos = defaultdict(set)  # pageno -> set of filenames added after original
         self.deleted_photos = defaultdict(set)  # pageno -> set of filenames deleted from original
 
@@ -98,8 +99,9 @@ class LayoutManager:
         gap = self.get_internal_gap(pageno)
         if gap == 0.0 and orig.photos and page_width and page_height:
             # Estimate gap from original layout using origin_left for spread pages
-            edge_gap, inter_gap = analyze_gaps(orig.photos, page_width, page_height, origin_left)
-            gap = inter_gap if inter_gap > 0 else edge_gap
+            edge_gap, inter_gap = analyze_gaps(orig.photos, page_width, page_height, origin_left, is_spread=False)
+            # Use internal gap if available, else average of edge gaps
+            gap = inter_gap if inter_gap > 0 else (edge_gap['top'] + edge_gap['bottom'] + edge_gap['left'] + edge_gap['right']) / 4.0
         
         # Compute total area in gap-free space (add gap to each photo dimension)
         total_area = sum(((p.get('area_width', 0) or 0) + gap) * ((p.get('area_height', 0) or 0) + gap) for p in orig.photos)
@@ -132,7 +134,14 @@ class LayoutManager:
         self.page_edge_gaps[pageno] = edge_gap
 
     def get_edge_gap(self, pageno):
-        """Get edge gap (margin) for a page (default 0.0)."""
+        """Get edge gap (margin) for a page (default 0.0).
+        
+        For calendar pages, returns the fixed calendar edge gaps.
+        """
+        # If calendar mode is active, return the fixed calendar gaps
+        if self.calendar_edge_gaps is not None:
+            return self.calendar_edge_gaps
+        # Otherwise return the stored value or default to 0.0
         return self.page_edge_gaps.get(pageno, 0.0)
     
     def has_edge_gap(self, pageno):

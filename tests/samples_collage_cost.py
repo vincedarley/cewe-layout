@@ -21,7 +21,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from samples_helpers import read_page_file, write_result_section
 from cewe_layout.algorithms.evaluator import evaluate_layout
 from cewe_layout.algorithms.collage_generator import CollageGeneratorAlgorithm
-from cewe_layout.gap_utils import analyze_gaps, transform_page_to_gapfree
+from cewe_layout.gap_utils import analyze_gaps, transform_page_to_gapfree, make_uniform_edge_gap
 from cewe_layout.algorithms.base import LayoutRectangle
 
 
@@ -61,14 +61,15 @@ def test_page_collage_cost(page_file: Path):
             'area_height': text['height']
         })
     
-    gap_analysis = analyze_gaps(items, page_data.page_width, page_data.page_height, page_data.origin_left)
+    gap_analysis = analyze_gaps(items, page_data.page_width, page_data.page_height, page_data.origin_left, is_spread=False)
     
     # Transform page to gap-free space
     eval_page_w, eval_page_h = transform_page_to_gapfree(
         page_data.page_width,
         page_data.page_height,
         gap_analysis.edge_gap,
-        gap_analysis.internal_gap
+        gap_analysis.internal_gap,
+        is_spread=False
     )
     
     # Build input rectangles for Collage-Generator
