@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 
 from .parser import extract_pages_info, parse_mcf_from_path
 from .layout_ops import LayoutManager
+from .page_gui import PageRenderer, PageRenderData
 from .collage_wrapper import generate_layout_for_page
 from .algorithms.evaluator import evaluate_layout
 from .algorithms.collage_generator import CollageGeneratorAlgorithm
@@ -22,7 +23,7 @@ from .algorithms.fan_layout import FanLayoutAlgorithm
 from .algorithms.tree_builder import TreeBuilderAlgorithm
 from .algorithms.gridify import GridifyAlgorithm
 from .algorithms.gap_perfecter import GapPerfecterAlgorithm
-from .photos import get_image_dimensions, load_thumbnail, get_photo_preferred_size
+from .photos import get_image_dimensions, get_photo_preferred_size
 from .writer import update_page_layout
 from .page_utils import determine_page_owner
 from .gap_utils import (
@@ -34,6 +35,11 @@ from .gap_utils import (
     transform_item_from_gapfree,
     transform_item_for_gap_change
 )
+from .file_utils import (
+    split_safecontainer_prefix,
+    extract_metadata_from_filename,
+    encode_metadata_in_filename
+)
 
 
 # Constants for MCF unit conversion and defaults
@@ -44,143 +50,6 @@ DEFAULT_INTERNAL_GAP = 90.0  # 9mm in MCF units
 
 
 # Helper functions for common patterns
-
-def _split_safecontainer_prefix(filename):
-    """Split filename into (prefix, clean_name) tuple.
-    
-    Args:
-        filename: Filename that may have safecontainer:/ prefix
-        
-    Returns:
-        Tuple of (prefix, clean_name) where prefix is 'safecontainer:/' or ''
-    """
-    if not filename or not filename.startswith('safecontainer:/'):
-        return '', filename
-    return 'safecontainer:/', filename[len('safecontainer:/'):].lstrip('/')
-
-
-def _safe_parse_number(value_str, field_name, filename):
-    """Parse number with consistent error handling.
-    
-    Args:
-        value_str: String to parse as number
-        field_name: Name of field being parsed (for error messages)
-        filename: Filename being processed (for error messages)
-        
-    Returns:
-        Parsed float/int or None if parsing fails
-    """
-    try:
-        # Parse as float if it has decimal point, otherwise int
-        return float(value_str) if '.' in value_str else int(value_str)
-    except (ValueError, TypeError) as e:
-        logger.warning(f"Failed to parse {field_name} from '{filename}': {e}")
-        return None
-
-
-def extract_metadata_from_filename(filename: str) -> tuple:
-    """
-    Extract both size and page number from filename.
-    
-    Args:
-        filename: Filename like 'photo-sz2.5-pg10.jpg' or 'safecontainer:/photo-sz1.0-pg5.png'
-    
-    Returns:
-        Tuple of (base_filename, preferred_size_or_None, page_number_or_None)
-        For 'photo-sz2.5-pg10.jpg' returns ('photo.jpg', 2.5, 10)
-        For 'photo-sz2.5.png' returns ('photo.png', 2.5, None)
-        For 'photo-pg10.jpg' returns ('photo.jpg', None, 10)
-        For 'photo.jpg' returns ('photo.jpg', None, None)
-    """
-    # Handle None or empty filename
-    if not filename:
-        return filename, None, None
-    
-    # Handle safecontainer prefix using helper
-    prefix, clean_name = _split_safecontainer_prefix(filename)
-    
-    import re
-    
-    # Split into name and extension first
-    p = Path(clean_name)
-    extension = p.suffix
-    name_part = p.stem
-    
-    # Extract size and page in any order
-    size = None
-    page_num = None
-    
-    # Look for -szN.NN pattern
-    size_match = re.search(r'-sz([0-9]+(?:[.][0-9]{1,2})?)', name_part)
-    if size_match:
-        size = _safe_parse_number(size_match.group(1), 'size', filename)
-    
-    # Look for -pgN pattern
-    page_match = re.search(r'-pg([0-9]+)', name_part)
-    if page_match:
-        page_num = _safe_parse_number(page_match.group(1), 'page number', filename)
-    
-    # Remove both patterns to get base name
-    base_name = name_part
-    if size_match:
-        base_name = base_name.replace(size_match.group(0), '')
-    if page_match:
-        base_name = base_name.replace(page_match.group(0), '')
-    
-    base_filename = base_name + extension
-    return prefix + base_filename, size, page_num
-
-
-def encode_metadata_in_filename(filename: str, preferred_size: float = None, page_number: int = None) -> str:
-    """
-    Encode both preferred size and page number into filename.
-    
-    Args:
-        filename: Original filename (may already have -sz or -pg suffixes)
-        preferred_size: Size value to encode (e.g., 3.45), or None to preserve existing
-        page_number: Page number to encode (e.g., 10), or None to preserve existing
-    
-    Returns:
-        Filename with metadata encoded like 'photo-sz3.45-pg10.jpg' or 'photo-sz2.0.png'
-        Order is always: basename + -sz + -pg + extension
-    """
-    # Handle None or empty filename
-    if not filename:
-        return filename
-    
-    # Handle safecontainer prefix using helper
-    prefix, clean_name = _split_safecontainer_prefix(filename)
-    
-    # Extract existing metadata
-    base_name, existing_size, existing_page = extract_metadata_from_filename(clean_name)
-    
-    # Remove prefix from base_name if it got added
-    if base_name.startswith('safecontainer:/'):
-        base_name = base_name[len('safecontainer:/'):]
-    
-    # Use provided values or fall back to existing
-    final_size = preferred_size if preferred_size is not None else existing_size
-    final_page = page_number if page_number is not None else existing_page
-    
-    # Split into name and extension
-    p = Path(base_name)
-    stem = p.stem
-    suffix = p.suffix
-    
-    # Build new filename: always use order -sz then -pg
-    new_name = stem
-    
-    if final_size is not None:
-        size_str = f"{final_size:.2f}".rstrip('0').rstrip('.')
-        new_name += f"-sz{size_str}"
-    
-    if final_page is not None:
-        new_name += f"-pg{final_page}"
-    
-    new_name += suffix
-    
-    return prefix + new_name
-
 
 def is_macos():
     """Check if running on macOS."""
@@ -602,24 +471,16 @@ class LayoutViewer:
         # Photo weight rows (will be populated dynamically)
         self.weight_widgets = []  # List of (item_label, desired_entry, actual_label) for photos and texts
 
-        # keyboard bindings
-        self.root.bind('<Left>', lambda e: self.prev_page())
-        self.root.bind('<Right>', lambda e: self.next_page())
-        self.root.bind('<q>', lambda e: self.quit())
+        # Enter key on page number entry goes to that page
         self.ctrl.bind('<Return>', lambda e: self.goto_page())
 
-        self.photo_image = None
-        
-        # Image cache configuration
-        # If True, cache full images and render directly (uses more RAM, faster rendering)
-        # If False, cache size-specific thumbnails (uses less RAM, slower when sizes change)
-        self.cache_full_images = True
-        
-        # Image caches
-        self.thumb_cache = {}  # For thumbnail mode: (base_filename, file_size, w, h) -> thumbnail
-        self.full_image_cache = {}  # For full image mode: (base_filename, file_size) -> full PIL Image
-        
-        self.delete_buttons = []  # List of delete button widgets
+        # Create page renderer (handles all visual rendering, no business logic)
+        self.page_renderer = PageRenderer(
+            img_label=self.img_label,
+            mcf_base_folder=self.mcf_base_folder,
+            image_folder_attr=self.image_folder_attr,
+            photo_dimensions_cache=self.photo_dimensions
+        )
         self.size_importance = 100.0  # Default size importance factor
         self.undersized_threshold = 0.5  # Default undersized threshold (50%)
         self.undersized_penalty = 5.0  # Default undersized penalty factor
@@ -659,31 +520,51 @@ class LayoutViewer:
         # Cmd/Ctrl+S: Save Modified
         self.root.bind(f'<{modifier}-s>', lambda e: self.save_layout())
         self.root.bind(f'<{modifier}-S>', lambda e: self.save_layout())
+        self.ctrl.bind(f'<{modifier}-s>', lambda e: self.save_layout())
+        self.ctrl.bind(f'<{modifier}-S>', lambda e: self.save_layout())
         
         # Cmd/Ctrl+P: Export PDF
         self.root.bind(f'<{modifier}-p>', lambda e: self.export_to_pdf())
         self.root.bind(f'<{modifier}-P>', lambda e: self.export_to_pdf())
+        self.ctrl.bind(f'<{modifier}-p>', lambda e: self.export_to_pdf())
+        self.ctrl.bind(f'<{modifier}-P>', lambda e: self.export_to_pdf())
         
         # Cmd/Ctrl+Z: Undo
         self.root.bind(f'<{modifier}-z>', lambda e: self.undo_layout())
         self.root.bind(f'<{modifier}-Z>', lambda e: self.undo_layout())
+        self.ctrl.bind(f'<{modifier}-z>', lambda e: self.undo_layout())
+        self.ctrl.bind(f'<{modifier}-Z>', lambda e: self.undo_layout())
         
         # Cmd/Ctrl+R: Generate Layout
         self.root.bind(f'<{modifier}-r>', lambda e: self.generate_layout())
         self.root.bind(f'<{modifier}-R>', lambda e: self.generate_layout())
+        self.ctrl.bind(f'<{modifier}-r>', lambda e: self.generate_layout())
+        self.ctrl.bind(f'<{modifier}-R>', lambda e: self.generate_layout())
         
         # Cmd/Ctrl+Shift+N: New Text Box
         self.root.bind(f'<{modifier}-Shift-n>', lambda e: self.add_text_box())
         self.root.bind(f'<{modifier}-Shift-N>', lambda e: self.add_text_box())
+        self.ctrl.bind(f'<{modifier}-Shift-n>', lambda e: self.add_text_box())
+        self.ctrl.bind(f'<{modifier}-Shift-N>', lambda e: self.add_text_box())
+        
+        # Cmd/Ctrl+O: Open Photos
+        self.root.bind(f'<{modifier}-o>', lambda e: self._prompt_add_photos())
+        self.root.bind(f'<{modifier}-O>', lambda e: self._prompt_add_photos())
+        self.ctrl.bind(f'<{modifier}-o>', lambda e: self._prompt_add_photos())
+        self.ctrl.bind(f'<{modifier}-O>', lambda e: self._prompt_add_photos())
         
         # Cmd/Ctrl+W: Close/Quit (macOS convention)
         if is_macos():
             self.root.bind(f'<{modifier}-w>', lambda e: self.quit())
             self.root.bind(f'<{modifier}-W>', lambda e: self.quit())
+            self.ctrl.bind(f'<{modifier}-w>', lambda e: self.quit())
+            self.ctrl.bind(f'<{modifier}-W>', lambda e: self.quit())
         
-        # Left/Right arrows: Prev/Next page
+        # Left/Right arrows: Prev/Next page (bind to both windows)
         self.root.bind('<Left>', lambda e: self.prev_page())
         self.root.bind('<Right>', lambda e: self.next_page())
+        self.ctrl.bind('<Left>', lambda e: self.prev_page())
+        self.ctrl.bind('<Right>', lambda e: self.next_page())
     
     def _setup_macos_menu(self):
         """Setup macOS-specific menu bar."""
@@ -758,7 +639,75 @@ class LayoutViewer:
         from tkinter import messagebox
         messagebox.showinfo('Preferences', 'Preferences dialog not yet implemented.')
     
+    def _get_canvas_dimensions(self):
+        """Get current canvas dimensions in pixels.
+        
+        Returns:
+            Tuple of (width, height) in pixels
+        """
+        self.root.update_idletasks()  # Ensure geometry is current
+        canvas_w = self.img_label.winfo_width()
+        canvas_h = self.img_label.winfo_height()
+        
+        # On initial render, dimensions may not be available yet
+        if canvas_w <= 1 or canvas_h <= 1:
+            canvas_w = self.root.winfo_width()
+            canvas_h = self.root.winfo_height()
+        
+        # Ensure minimum size
+        if canvas_w < 100:
+            canvas_w = 800
+        if canvas_h < 100:
+            canvas_h = int(800 / self.canvas_aspect_ratio)
+        
+        return canvas_w, canvas_h
+    
+    def _build_page_render_data(self, page_indices):
+        """Build PageRenderData objects for the given page indices.
+        
+        Args:
+            page_indices: List of page indices to render
+        
+        Returns:
+            List of PageRenderData objects
+        """
+        page_data_list = []
+        
+        for page_idx in page_indices:
+            pageno, info = self.pages[page_idx]
+            current_layout = self.layout_mgr.get_current(pageno)
+            photos = current_layout.photos if current_layout else info.get('photos', [])
+            texts = current_layout.texts if current_layout else info.get('texts', [])
+            
+            page_data = PageRenderData(
+                pageno=pageno,
+                photos=photos,
+                texts=texts,
+                page_width=info.get('page_width'),
+                page_height=info.get('page_height'),
+                origin_left=info.get('origin_left', 0.0),
+                background_id=info.get('background_id')
+            )
+            page_data_list.append(page_data)
+        
+        return page_data_list
+    
+    def _handle_delete_button_click(self, item_type, page_index, pageno, identifier):
+        """Handle delete button click from PageRenderer.
+        
+        Args:
+            item_type: 'photo' or 'text'
+            page_index: 0-based index within page's photos or texts
+            pageno: Page number
+            identifier: filename for photos, None for texts
+        """
+        if item_type == 'photo':
+            self._delete_photo(page_index, pageno, identifier)
+        else:  # 'text'
+            self._delete_text(page_index, pageno)
+    
     def render_page(self):
+        """Orchestrate page rendering - control logic here, rendering delegated to PageRenderer."""
         # Clear status message when changing pages
         self.status_var.set('')
         
@@ -769,26 +718,14 @@ class LayoutViewer:
             # Update page number display
             self.page_num_var.set('Canvas:' if self.is_canvas else 'Page:')
             
-            # Get current canvas dimensions
-            self.root.update_idletasks()
-            canvas_w = self.img_label.winfo_width()
-            canvas_h = self.img_label.winfo_height()
-            if canvas_w <= 1 or canvas_h <= 1:
-                canvas_w = self.root.winfo_width()
-                canvas_h = self.root.winfo_height()
-            if canvas_w < 100:
-                canvas_w = 800
-            if canvas_h < 100:
-                canvas_h = int(800 / self.canvas_aspect_ratio)
-            
-            img = Image.new('RGB', (canvas_w, canvas_h), 'white')
-            draw = ImageDraw.Draw(img)
-            draw.text((10,10), 'No pages found', fill='black')
-            self._show_image(img)
+            # Render empty page
+            canvas_w, canvas_h = self._get_canvas_dimensions()
+            self.page_renderer.render_empty_page(canvas_w, canvas_h, 'No pages found')
             self._update_page_range_display()
             self.current_spread_pages = []
             return
         
+        # Determine which page indices to render
         # Canvas mode: always treat as single page (no spread navigation)
         # Photobook mode: determine which pages to render based on spread mode
         if self.is_canvas:
@@ -835,26 +772,9 @@ class LayoutViewer:
         else:
             self.page_num_var.set(f'Page {self.current_spread_pages[0]}:')
         
-        # Get current canvas dimensions from the window
-        self.root.update_idletasks()  # Ensure geometry is current
-        canvas_w = self.img_label.winfo_width()
-        canvas_h = self.img_label.winfo_height()
-        
-        # On initial render, dimensions may not be available yet
-        if canvas_w <= 1 or canvas_h <= 1:
-            canvas_w = self.root.winfo_width()
-            canvas_h = self.root.winfo_height()
-        
-        # Ensure minimum size
-        if canvas_w < 100:
-            canvas_w = 800
-        if canvas_h < 100:
-            canvas_h = int(800 / self.canvas_aspect_ratio)
-        
-        # Collect all photos/texts for title and determine background color
+        # Collect all photos/texts for window title
         all_photos = []
         all_texts = []
-        background_id = None
         
         for page_idx in page_indices:
             pageno_i, info_i = self.pages[page_idx]
@@ -863,12 +783,6 @@ class LayoutViewer:
             texts_i = current_layout_i.texts if current_layout_i else info_i.get('texts', [])
             all_photos.extend(photos_i)
             all_texts.extend(texts_i)
-            
-            # Use first page's dimensions and background
-            if page_idx == page_indices[0]:
-                page_w = info_i.get('page_width')
-                page_h = info_i.get('page_height')
-                background_id = info_i.get('background_id')
         
         # Update window title with photobook/canvas name and page info
         text_label = 'text' if len(all_texts) == 1 else 'texts'
@@ -890,346 +804,23 @@ class LayoutViewer:
                 title = f'{self.photobook_name} - Page {self.current_spread_pages[0]} : {len(all_photos)} photos'
         self.root.title(title)
         
-        # Determine page background color from designElementId
-        if background_id == '212':
-            page_bg_color = 'black'
-            frame_color = 'white'  # White frame for black background
-        else:  # '201' or None or any other value defaults to white
-            page_bg_color = 'white'
-            frame_color = 'black'  # Black frame for white background
+        # Get canvas dimensions and build render data
+        canvas_w, canvas_h = self._get_canvas_dimensions()
+        page_data_list = self._build_page_render_data(page_indices)
         
-        img = Image.new('RGB', (canvas_w, canvas_h), page_bg_color)
-        draw = ImageDraw.Draw(img)
+        # Delegate rendering to PageRenderer
+        self.page_renderer.render_pages(
+            page_data_list=page_data_list,
+            canvas_w=canvas_w,
+            canvas_h=canvas_h,
+            margin_mcf=self.margin_mcf,
+            is_canvas=self.is_canvas,
+            delete_callback=self._handle_delete_button_click
+        )
         
-        # 5mm margin on all sides (50 MCF units)
-        margin_mcf = self.margin_mcf
-        
-        # Calculate scale to fit page(s) + margins in canvas
-        if len(page_indices) == 2:
-            # Spread mode: double width
-            total_w_mcf = (2 * page_w) + 2 * margin_mcf
-        else:
-            # Single page mode
-            total_w_mcf = page_w + 2 * margin_mcf
-        total_h_mcf = page_h + 2 * margin_mcf
-        scale = min(canvas_w / total_w_mcf, canvas_h / total_h_mcf)
-        
-        # Store delete button info for later widget creation
-        delete_button_info = []
-        photo_counter = 1
-        text_counter = 1
-        
-        # Render each page
-        for page_offset, page_idx in enumerate(page_indices):
-            pageno, info = self.pages[page_idx]
-            current_layout = self.layout_mgr.get_current(pageno)
-            photos = current_layout.photos if current_layout else info.get('photos', [])
-            texts = current_layout.texts if current_layout else info.get('texts', [])
-            origin_left = info.get('origin_left', 0.0)
-            
-            # Calculate frame position for this page
-            # In spread mode, second page is offset by page_w
-            page_x_offset = page_offset * page_w if len(page_indices) == 2 else 0
-            frame_x = margin_mcf * scale + page_x_offset * scale
-            frame_y = margin_mcf * scale
-            frame_w = page_w * scale
-            frame_h = page_h * scale
-            
-            # Render photos for this page
-            self._render_photos(img, draw, photos, frame_x, frame_y, scale, origin_left, 
-                               photo_counter, pageno, delete_button_info, page_bg_color)
-            photo_counter += len(photos)
-            
-            # Render texts for this page
-            self._render_texts(draw, texts, frame_x, frame_y, scale, origin_left,
-                              text_counter, pageno, delete_button_info)
-            text_counter += len(texts)
-            
-            # Draw page frame for this page
-            self._draw_page_frame(draw, frame_x, frame_y, frame_w, frame_h, frame_color)
-        
-        # In spread mode, draw dotted line down the crease (center)
-        # But not for Canvas mode (single large page, no crease)
-        if len(page_indices) == 2 and not self.is_canvas:
-            crease_x = margin_mcf * scale + page_w * scale
-            self._draw_crease_line(draw, crease_x, frame_y, frame_h, frame_color)
-        
-        self._show_image(img)
+        # Update control widgets
         self._update_page_range_display()
-        
-        # Create delete buttons AFTER image is shown so they overlay on top
-        self._create_delete_buttons(delete_button_info)
         self.update_weights_display()
-    
-    def _render_photos(self, img, draw, photos, frame_x, frame_y, scale, origin_left, 
-                      start_number, pageno, delete_button_info, page_bg_color):
-        """Render photos for a single page.
-        
-        Args:
-            img: PIL Image object
-            draw: PIL ImageDraw object
-            photos: List of photo dicts
-            frame_x, frame_y: Frame position in pixels
-            scale: MCF to pixel scale factor
-            origin_left: Origin left for right-page adjustment
-            start_number: Starting number for photo labels
-            pageno: Page number for logging
-            delete_button_info: List to append delete button info to
-            page_bg_color: Background color for placeholders
-        """
-        try:
-            from PIL import ImageFont
-            label_font = ImageFont.truetype('Arial', 16)
-        except:
-            label_font = None
-        
-        for i, p in enumerate(photos, start=start_number):
-            left = p.get('area_left') or 0
-            top = p.get('area_top') or 0
-            w = p.get('area_width') or 0
-            h = p.get('area_height') or 0
-
-            # subtract origin_left so right-page areas are positioned relative to their page
-            local_left = left - origin_left
-
-            x0 = frame_x + local_left * scale
-            y0 = frame_y + top * scale
-            x1 = frame_x + (local_left + w) * scale
-            y1 = frame_y + (top + h) * scale
-
-            # draw image thumbnail if available
-            fn = p.get('filename') or ''
-            if fn:
-                # Check if this is a staged photo (has _source_path)
-                if '_source_path' in p:
-                    # Staged photo - use source path for thumbnail
-                    img_path = p['_source_path']
-                else:
-                    # Existing photo in album - resolve from album directory
-                    img_path = None
-                    safefn = fn.replace('safecontainer:/', '').lstrip('/')
-                    if self.image_folder_attr:
-                        candidate = os.path.join(self.mcf_base_folder, self.image_folder_attr, safefn)
-                        if os.path.exists(candidate):
-                            img_path = candidate
-                    # fallback: check relative to mcf base
-                    if img_path is None:
-                        candidate = os.path.join(self.mcf_base_folder, safefn)
-                        if os.path.exists(candidate):
-                            img_path = candidate
-                    
-                    # Log if photo file was not found
-                    if img_path is None:
-                        logger.warning(f"Page {pageno}: Photo file not found: {safefn}")
-
-                if img_path is not None and os.path.exists(img_path):
-                    thumb = self._get_thumbnail(img_path, int(x1-x0), int(y1-y0))
-                    if thumb is not None:
-                        img.paste(thumb, (int(x0), int(y0)))
-                    else:
-                        # draw a light placeholder for missing thumbnail
-                        draw.rectangle([x0, y0, x1, y1], fill='#eeeeee')
-                else:
-                    # draw a light placeholder for missing file
-                    draw.rectangle([x0, y0, x1, y1], fill='#eeeeee')
-
-            # wireframe overlay
-            draw.rectangle([x0, y0, x1, y1], outline='blue', width=2)
-            
-            # Photo number label with light grey background
-            label_text = f'{i}'
-            if label_font:
-                bbox = draw.textbbox((x0+4, y0+4), label_text, font=label_font)
-            else:
-                # Fallback bounding box estimation
-                bbox = (x0+4, y0+4, x0+30, y0+24)
-            
-            # Add padding around text
-            padding = 3
-            bg_bbox = (bbox[0]-padding, bbox[1]-padding, bbox[2]+padding, bbox[3]+padding)
-            draw.rectangle(bg_bbox, fill='#cccccc')  # Light grey background
-            draw.text((x0+4, y0+4), label_text, fill='black', font=label_font)
-            
-            # Store delete button position info
-            if fn:  # Only add delete button if photo has a filename
-                delete_button_info.append({
-                    'photo_index': i - 1,  # Convert to 0-based (within combined list)
-                    'page_index': i - start_number,  # 0-based index within this page's photos
-                    'pageno': pageno,  # Which page this photo belongs to
-                    'filename': fn,
-                    'x': int(x1) - 20,  # 20px from right edge
-                    'y': int(y0) + 2,   # 2px from top edge
-                })
-    
-    def _render_texts(self, draw, texts, frame_x, frame_y, scale, origin_left,
-                     start_number, pageno, delete_button_info):
-        """Render text blocks for a single page.
-        
-        Args:
-            draw: PIL ImageDraw object
-            texts: List of text dicts
-            frame_x, frame_y: Frame position in pixels
-            scale: MCF to pixel scale factor
-            origin_left: Origin left for right-page adjustment
-            start_number: Starting number for text labels
-            pageno: Page number for this text
-            delete_button_info: List to append delete button info to
-        """
-        try:
-            from PIL import ImageFont
-            label_font = ImageFont.truetype('Arial', 16)
-        except:
-            label_font = None
-        
-        for i, t in enumerate(texts, start=start_number):
-            left = t.get('area_left') or 0
-            top = t.get('area_top') or 0
-            w = t.get('area_width') or 0
-            h = t.get('area_height') or 0
-
-            # subtract origin_left so right-page areas are positioned relative to their page
-            local_left = left - origin_left
-
-            x0 = frame_x + local_left * scale
-            y0 = frame_y + top * scale
-            x1 = frame_x + (local_left + w) * scale
-            y1 = frame_y + (top + h) * scale
-
-            # draw text block background
-            draw.rectangle([x0, y0, x1, y1], fill='#ffffcc')  # Light yellow background
-            # wireframe overlay in green
-            draw.rectangle([x0, y0, x1, y1], outline='green', width=2)
-            draw.text((x0+4, y0+4), f'T{i}', fill='green', font=label_font)
-            
-            # Store delete button position info for text boxes
-            delete_button_info.append({
-                'text_index': i - 1,  # Convert to 0-based (within combined list)
-                'page_index': i - start_number,  # 0-based index within this page's texts
-                'pageno': pageno,  # Which page this text belongs to
-                'x': int(x1) - 20,  # 20px from right edge
-                'y': int(y0) + 2,   # 2px from top edge
-            })
-    
-    def _draw_page_frame(self, draw, frame_x, frame_y, frame_w, frame_h, frame_color):
-        """Draw dashed frame around a page.
-        
-        Args:
-            draw: PIL ImageDraw object
-            frame_x, frame_y: Frame top-left position
-            frame_w, frame_h: Frame dimensions
-            frame_color: Color for the frame
-        """
-        dash_length = 10
-        gap_length = 5
-        line_width = 2
-        
-        # Helper function to draw dashed line
-        def draw_dashed_line(x1, y1, x2, y2):
-            # Calculate line length and direction
-            dx = x2 - x1
-            dy = y2 - y1
-            length = (dx**2 + dy**2)**0.5
-            if length == 0:
-                return
-            
-            # Unit vector
-            ux = dx / length
-            uy = dy / length
-            
-            # Draw dashes
-            pos = 0
-            while pos < length:
-                # Start of dash
-                start_x = x1 + ux * pos
-                start_y = y1 + uy * pos
-                # End of dash
-                end_pos = min(pos + dash_length, length)
-                end_x = x1 + ux * end_pos
-                end_y = y1 + uy * end_pos
-                
-                draw.line([(start_x, start_y), (end_x, end_y)], fill=frame_color, width=line_width)
-                pos += dash_length + gap_length
-        
-        # Draw four sides as dashed lines
-        draw_dashed_line(frame_x, frame_y, frame_x + frame_w, frame_y)  # Top
-        draw_dashed_line(frame_x + frame_w, frame_y, frame_x + frame_w, frame_y + frame_h)  # Right
-        draw_dashed_line(frame_x + frame_w, frame_y + frame_h, frame_x, frame_y + frame_h)  # Bottom
-        draw_dashed_line(frame_x, frame_y + frame_h, frame_x, frame_y)  # Left
-    
-    def _draw_crease_line(self, draw, crease_x, crease_y, crease_h, color):
-        """Draw dotted line down the center crease in spread mode.
-        
-        Args:
-            draw: PIL ImageDraw object
-            crease_x: X position of crease
-            crease_y: Y start position
-            crease_h: Height of crease line
-            color: Color for the crease line
-        """
-        dot_length = 5
-        gap_length = 5
-        
-        y_pos = crease_y
-        while y_pos < crease_y + crease_h:
-            end_y = min(y_pos + dot_length, crease_y + crease_h)
-            draw.line([(crease_x, y_pos), (crease_x, end_y)], fill=color, width=1)
-            y_pos += dot_length + gap_length
-
-    def _show_image(self, pil_img):
-        self.photo_image = ImageTk.PhotoImage(pil_img)
-        self.img_label.configure(image=self.photo_image)
-    
-    def _create_delete_buttons(self, button_info):
-        """Create delete button widgets overlaid on photo/text thumbnails.
-        
-        Args:
-            button_info: List of dicts with either:
-                - 'photo_index', 'filename', 'x', 'y' for photos
-                - 'text_index', 'x', 'y' for text boxes
-        """
-        # Destroy any existing delete buttons from previous render
-        for btn in self.delete_buttons:
-            btn.destroy()
-        self.delete_buttons.clear()
-        
-        # Create new delete buttons
-        for info in button_info:
-            x = info['x']
-            y = info['y']
-            
-            # Determine if this is a photo or text box
-            if 'photo_index' in info:
-                page_idx = info['page_index']
-                pn = info['pageno']
-                filename = info['filename']
-                cmd = lambda idx=page_idx, pageno=pn, fn=filename: self._delete_photo(idx, pageno, fn)
-            else:  # text_index
-                page_idx = info['page_index']
-                pn = info['pageno']
-                cmd = lambda idx=page_idx, pageno=pn: self._delete_text(idx, pageno)
-            
-            # Create small white X button with red text and precise pixel sizing
-            btn = tk.Button(
-                self.img_label,
-                text='×',
-                font=('Arial', 12, 'bold'),
-                fg='red',
-                bg='white',
-                activeforeground='#cc0000',
-                activebackground='#f0f0f0',
-                width=18,
-                height=18,
-                image=self.delete_button_pixel,
-                compound='center',
-                bd=0,
-                relief='flat',
-                highlightthickness=0,
-                padx=0,
-                pady=0,
-                command=cmd
-            )
-            btn.place(x=x, y=y)
-            self.delete_buttons.append(btn)
     
     def _delete_photo(self, photo_index, pageno, filename):
         """Delete a photo from a page layout.
@@ -2483,94 +2074,6 @@ class LayoutViewer:
                 self.update_weights_display()  # Refresh cost display
         except ValueError:
             pass  # Ignore invalid input
-
-    def _get_thumbnail(self, path, w, h):
-        """Get thumbnail for an image, using cache if available.
-        
-        Two modes:
-        1. cache_full_images=True: Cache full image, render on-the-fly (faster, more RAM)
-        2. cache_full_images=False: Cache size-specific thumbnails (slower, less RAM)
-        
-        Args:
-            path: Path to the image file
-            w: Thumbnail width in pixels
-            h: Thumbnail height in pixels
-        
-        Returns:
-            PIL Image of size (w, h), or None if load fails
-        """
-        from pathlib import Path as PathlibPath
-        from PIL import Image, ImageOps
-        import os
-        
-        # Avoid creating huge thumbnails
-        if w <= 0 or h <= 0:
-            return None
-        
-        # Get cache key components
-        path_obj = PathlibPath(path)
-        filename = path_obj.name
-        base_filename, _, _ = extract_metadata_from_filename(filename)
-        
-        try:
-            file_size = os.path.getsize(path) if os.path.exists(path) else 0
-        except:
-            file_size = 0
-        
-        if self.cache_full_images:
-            # MODE 1: Cache full image, render on-the-fly
-            cache_key = (base_filename, file_size)
-            
-            if cache_key not in self.full_image_cache:
-                # Cache miss - load full image
-                if not path or not path_obj.exists():
-                    return None
-                
-                try:
-                    im = Image.open(path)
-                    # Auto-rotate based on EXIF
-                    exif_transpose = getattr(Image, 'exif_transpose', None) or getattr(ImageOps, 'exif_transpose', None)
-                    if exif_transpose:
-                        try:
-                            im = exif_transpose(im)
-                        except:
-                            pass
-                    im = im.convert('RGB')
-                    
-                    # Cache the full image
-                    self.full_image_cache[cache_key] = im
-                except Exception as e:
-                    return None
-            
-            # Render from cached full image
-            full_img = self.full_image_cache.get(cache_key)
-            if full_img is None:
-                return None
-            
-            # Use thumbnail() on a copy (faster than resize() for large downscaling)
-            # thumbnail() has internal optimizations for large size reductions
-            thumb = full_img.copy()
-            thumb.thumbnail((w, h), Image.LANCZOS)
-            
-            # Create background and paste centered
-            bg = Image.new('RGB', (w, h), '#cccccc')
-            x = max(0, (w - thumb.width) // 2)
-            y = max(0, (h - thumb.height) // 2)
-            bg.paste(thumb, (x, y))
-            
-            return bg
-        
-        else:
-            # MODE 2: Cache size-specific thumbnails (original behavior)
-            key = (base_filename, file_size, w, h)
-            
-            if key in self.thumb_cache:
-                return self.thumb_cache[key]
-            
-            thumb = load_thumbnail(Path(path), w, h, verbose=False)
-            if thumb is not None:
-                self.thumb_cache[key] = thumb
-            return thumb
 
     def prev_page(self):
         if self.spread_mode.get():
