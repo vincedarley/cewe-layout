@@ -33,7 +33,7 @@ You have to work indepedently in QLayout vs in Cewe Creator.  In general you sho
 Here's my current workflow:
 1) Select all my favourite photos in MacOS photos and _export_ copies of them to a directory. If it is easy for you to do so, before exporting tag the very best photos with either "4 star" or "5 star" as keywords. CEWE Creator and QLayout can handle jpeg and png, but not heif/heic (sadly).
 2) Run QLayout with "-renamephotos" to name all of the photos according to date (and according to 4/5 star keywords).
-3) Use CEWE Creator to build a book (of the size/style you want) with loads of empty pages. Save it in the xmcf or mcf format. Quit.
+3) Use CEWE Creator to create a new book (of the size/style you want) with loads of empty pages. Save it in the xmcf or mcf format. Quit.
 4) If your photobook is called "MyBook.xmcf" then put the directory with all your photos next to it, and rename the directory to be called "MyBook-photos".
 5) Run QLayout with the "--gui" flag.  The first page of your book will open.  Ensure it is empty (or if your book is partially created already, move to the first empty page)
 6) Examine your photos, in approximate date order, and drag and drop as many photos as you want onto that empty page.
@@ -42,7 +42,9 @@ Here's my current workflow:
 9) Hit "Save" when you are done with the page.  The photos used disappear from your directory - they've been moved into the photo album. This is very helpful, since you can then focus only on the photos you've not yet added. If there are photos I've decided I no longer want, I simply delete them from the directory (they are exported copies, so...).
 10) Move to the next empty page and go back to step 6.
 
-Once you're done: open the book in CEWE Creator and do any fine-tuning you wish.
+Once you're done: open the book in CEWE Creator and do any fine-tuning you wish. You can also use the "Gap Perfecter" or "Gridify" algorithms in QLayout to fine-tune some pages.
+
+Note: there is also limited support for editing layouts of a single-page Canvas from CEWE Creator. Not very well tested.
 
 **Safety features**
 
@@ -72,13 +74,16 @@ Details for the technically minded:
 - Note that while QLayout is designed only to modify the location and size of photos and text blocks on pages in the data.mcf xml file, it does also rewrite the entire xml file. Its approach is to generically load the large xml file (most of which it does not understand!), and only manipulate the location/size portions of the file, and then generically save the entire xml file (while also making a backup of the original)
 - There does not seem to be any risk of file corruption, except perhaps if you choose to hit "Save" in both applications simultaneously. And we do make backups of original xml files, but of course use at your own risk.
 
-**TO DO and Decisions**
+**TO DO ideas**
 
-- More layout clean-up algorithms? (beyond Gridify)
+- Support editing layout of Page 1 of a PhotoBook.
+- More/better layout clean-up/fine-tuning algorithms?
 
 **Layout Algorithms**
 
 - **[Fan Layout](cewe_layout/algorithms/fan_layout.py)** — Genetic algorithm-based layout using binary slicing trees with O(N) fast evaluation, based on [Fan, Jian (2012)](https://ieeexplore.ieee.org/document/6267282). Uses crossover and mutation operators to explore the layout space, balancing canvas coverage and photo size distribution. Best for generating completely new layouts from scratch.
+
+- **[Gap Perfecter]** - Tries to ensure all gaps (internal gaps and edge gaps) are identical across the layout, and fixes small overlaps. It will only work effectively on a layout that is "nearly perfect" and will try to make it completely perfect.  If it doesn't work on your layout, just hit Undo.
 
 - **[Collage Generator](cewe_layout/algorithms/collage_generator.py)** — Content-preserved photo collage algorithm based on [Wu & Aizawa (2016)](https://www.researchgate.net/publication/269455490_Very_fast_generation_of_content_preserved_photo_collage_under_canvas_size_constraint). Uses greedy tree construction to preserve aspect ratios while maximizing canvas coverage. Adapted from [n-gao's implementation](https://github.com/n-gao/collage-generator).
 
