@@ -410,12 +410,12 @@ class LayoutViewer:
         ttk.Label(actions_frame, text='  ').pack(side='left')  # Indentation spacer
         undo_btn = ttk.Button(actions_frame, text='Undo', command=self.undo_layout)
         undo_btn.pack(side='left', padx=(0,4))
+        orig_btn = ttk.Button(actions_frame, text='Use Original Page', command=self.use_original)
+        orig_btn.pack(side='left', padx=(0,4))
         save_btn = ttk.Button(actions_frame, text='Save Modified', command=self.save_layout)
         save_btn.pack(side='left', padx=(0,4))
         pdf_btn = ttk.Button(actions_frame, text='Export PDF', command=self.export_to_pdf)
         pdf_btn.pack(side='left', padx=(0,4))
-        orig_btn = ttk.Button(actions_frame, text='Use Original Page', command=self.use_original)
-        orig_btn.pack(side='left')
 
         # Row 4: Status message with label
         status_frame = ttk.Frame(self.ctrl)
@@ -3260,8 +3260,7 @@ class LayoutViewer:
     def export_to_pdf(self):
         """Export current page to PDF with photos and white text boxes only."""
         try:
-            from reportlab.pdfgen import canvas
-            from reportlab.lib.utils import ImageReader
+            from .pdf_export import export_layout_to_pdf
         except ImportError:
             self.status_var.set('Error: reportlab not installed. Run: pip install reportlab')
             return
@@ -3287,77 +3286,15 @@ class LayoutViewer:
         photos = current_layout.photos if current_layout else info.get('photos', [])
         texts = current_layout.texts if current_layout else info.get('texts', [])
         
-        # Get page dimensions (in MCF units, 0.1mm)
+        # Get page dimensions
         page_w = info.get('page_width', 0)
         page_h = info.get('page_height', 0)
         origin_left = info.get('origin_left', 0.0)
         
-        # Convert MCF units to points (1 point = 1/72 inch, 1mm = 2.83465 points)
-        mcf_to_points = MCF_TO_MM * 2.83465
-        page_w_pt = page_w * mcf_to_points
-        page_h_pt = page_h * mcf_to_points
+        # Export using shared function
+        export_layout_to_pdf(photos, texts, page_w, page_h, origin_left,
+                            self.mcf_base_folder, self.image_folder_attr, filepath)
         
-        # Create PDF
-        pdf_canvas = canvas.Canvas(filepath, pagesize=(page_w_pt, page_h_pt))
-        
-        # ReportLab uses bottom-left origin, so we need to flip Y coordinates
-        def transform_y(y_mcf, h_mcf):
-            """Convert top-left Y coordinate to bottom-left."""
-            return page_h_pt - (y_mcf + h_mcf) * mcf_to_points
-        
-        # Draw white rectangles for text boxes (no stroke)
-        pdf_canvas.setFillColorRGB(1, 1, 1)  # White
-        for t in texts:
-            left = (t.get('area_left', 0) - origin_left) * mcf_to_points
-            top_mcf = t.get('area_top', 0)
-            w = t.get('area_width', 0) * mcf_to_points
-            h = t.get('area_height', 0) * mcf_to_points
-            bottom = transform_y(top_mcf, t.get('area_height', 0))
-            pdf_canvas.rect(left, bottom, w, h, fill=1, stroke=0)
-        
-        # Draw photos
-        for p in photos:
-            left_mcf = p.get('area_left', 0)
-            top_mcf = p.get('area_top', 0)
-            w_mcf = p.get('area_width', 0)
-            h_mcf = p.get('area_height', 0)
-            
-            left = (left_mcf - origin_left) * mcf_to_points
-            w = w_mcf * mcf_to_points
-            h = h_mcf * mcf_to_points
-            bottom = transform_y(top_mcf, h_mcf)
-            
-            # Get photo file
-            fn = p.get('filename', '')
-            if not fn:
-                continue
-            
-            # Resolve photo path
-            img_path = None
-            if '_source_path' in p:
-                img_path = p['_source_path']
-            else:
-                safefn = fn.replace('safecontainer:/', '').lstrip('/')
-                if self.image_folder_attr:
-                    candidate = os.path.join(self.mcf_base_folder, self.image_folder_attr, safefn)
-                    if os.path.exists(candidate):
-                        img_path = candidate
-                if img_path is None:
-                    candidate = os.path.join(self.mcf_base_folder, safefn)
-                    if os.path.exists(candidate):
-                        img_path = candidate
-            
-            if img_path and os.path.exists(img_path):
-                try:
-                    # Load image and draw it
-                    img_reader = ImageReader(img_path)
-                    pdf_canvas.drawImage(img_reader, left, bottom, width=w, height=h, 
-                                        preserveAspectRatio=True, anchor='c')
-                except Exception as e:
-                    logger.warning(f'Failed to add photo {fn} to PDF: {e}')
-        
-        # Save PDF
-        pdf_canvas.save()
         self.status_var.set(f'PDF saved: {filepath}')
         logger.info(f'Exported page {pageno} to PDF: {filepath}')
 
