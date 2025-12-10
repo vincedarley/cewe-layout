@@ -44,7 +44,14 @@ Here's my current workflow:
 
 Once you're done: open the book in CEWE Creator and do any fine-tuning you wish. You can also use the "Gap Perfecter" or "Gridify" algorithms in QLayout to fine-tune some pages.
 
-Note: there is also limited support for editing layouts of a single-page Canvas from CEWE Creator, and a 12-page Calendar. Not very well tested.
+**Other capabilities**
+
+Canvas: there is also limited support for editing layouts of a single-page Canvas from CEWE Creator
+
+Calendar: again limited support for editing the 12 monthly pages of a Calendar.
+
+PDF Export: for testing purposes, you can export a PDF file render of a single page, containing just the photos. 
+This export does not contain any of the cleverness of the cewe2pdf project, and supports no other visual features than the photos themselves. It is meant just for generating a single page collage-style multi-photo PDF.
 
 **Safety features**
 
@@ -76,7 +83,6 @@ Details for the technically minded:
 
 **TO DO ideas**
 
-- Support editing layout of Page 1 of a PhotoBook.
 - More/better layout clean-up/fine-tuning algorithms?
 
 **Layout Algorithms**

@@ -593,6 +593,17 @@ class LayoutViewer:
             self.ctrl.bind(f'<{modifier}-w>', lambda e: self.quit())
             self.ctrl.bind(f'<{modifier}-W>', lambda e: self.quit())
         
+        # Cmd/Ctrl+0: Focus render window
+        self.root.bind(f'<{modifier}-0>', lambda e: self._focus_render_window())
+        self.ctrl.bind(f'<{modifier}-0>', lambda e: self._focus_render_window())
+        
+        # Cmd/Ctrl+1: Focus controls window
+        self.root.bind(f'<{modifier}-1>', lambda e: self._focus_controls_window())
+        self.ctrl.bind(f'<{modifier}-1>', lambda e: self._focus_controls_window())
+        # Also try with KeyPress in case the number key needs it
+        self.root.bind(f'<{modifier}-KeyPress-1>', lambda e: self._focus_controls_window())
+        self.ctrl.bind(f'<{modifier}-KeyPress-1>', lambda e: self._focus_controls_window())
+        
         # Left/Right arrows: Prev/Next page (bind to both windows)
         self.root.bind('<Left>', lambda e: self.prev_page())
         self.root.bind('<Right>', lambda e: self.next_page())
@@ -634,7 +645,8 @@ class LayoutViewer:
             # Window menu (standard macOS menu)
             window_menu = tk.Menu(menubar, name='window', tearoff=0)
             menubar.add_cascade(label='Window', menu=window_menu)
-            # The window menu is automatically populated by Tk on macOS
+            # The window menu is automatically populated by Tk on macOS with open windows
+            # Keyboard shortcuts Cmd+0 and Cmd+1 are bound directly, not via menu
             
             # Set app name in menu bar (attempts to override "Python")
             # This works if we're running as a bundled .app, but not from command line
@@ -671,6 +683,16 @@ class LayoutViewer:
         """Show preferences dialog (placeholder)."""
         from tkinter import messagebox
         messagebox.showinfo('Preferences', 'Preferences dialog not yet implemented.')
+    
+    def _focus_render_window(self):
+        """Bring the main render window to front."""
+        self.root.lift()
+        self.root.focus_force()
+    
+    def _focus_controls_window(self):
+        """Bring the controls window to front."""
+        self.ctrl.lift()
+        self.ctrl.focus_force()
     
     def _get_canvas_dimensions(self):
         """Get current canvas dimensions in pixels.
