@@ -175,62 +175,88 @@ def _validate_saved_page(path: str, pageno: int, expected_photos: List[Dict[str,
     
     # Find the page element and count photos/texts using same logic as save
     page_elem = None
+    left_owner = None
+    right_owner = None
     photo_count = 0
     photo_filenames = []
     text_count = 0
     
-    for page in root.findall('.//page'):
-        page_nr = int(page.get('pagenr', '0'))
+    # Special handling for page 1 in photobooks: find the LAST pagenr="0" type="emptypage" before pagenr="1"
+    if pageno == 1 and not single_page_mode:
+        all_pages = root.findall('.//page')
+        page1_index = None
         
-        if single_page_mode:
-            # Canvas/Calendar: direct page number match
-            if page_nr != pageno:
-                continue
-            left_owner = page_nr
-            right_owner = page_nr
-        elif page_nr % 2 == 0:
-            left_owner = page_nr
-            right_owner = page_nr + 1
-        else:
-            left_owner = max(1, page_nr - 1)
-            right_owner = page_nr
+        # Find the index of pagenr="1"
+        for i, page in enumerate(all_pages):
+            if page.get('pagenr') == '1':
+                page1_index = i
+                break
         
-        # Check if this is the page we're validating
-        if single_page_mode:
-            # For single page mode, we already matched above
-            page_elem = page
-        elif pageno not in (left_owner, right_owner):
-            continue
-        else:
-            page_elem = page
-        
-        # Count photos and texts on this page using same logic as save
-        for area in page_elem.findall('.//area'):
-            pos = area.find('position')
-            if pos is None:
-                continue
+        if page1_index is not None:
+            # Search backwards from pagenr="1" to find the closest pagenr="0" type="emptypage"
+            for i in range(page1_index - 1, -1, -1):
+                page = all_pages[i]
+                if page.get('pagenr') == '0' and page.get('type') == 'emptypage':
+                    page_elem = page
+                    # For page 0, the owners are 0 (left) and 1 (right)
+                    left_owner = 0
+                    right_owner = 1
+                    break
+    
+    # Standard page finding logic for all other pages
+    if page_elem is None:
+        for page in root.findall('.//page'):
+            page_nr = int(page.get('pagenr', '0'))
             
-            current_left = float(pos.get('left', '0').replace(',', '.'))
+            if single_page_mode:
+                # Canvas/Calendar: direct page number match
+                if page_nr != pageno:
+                    continue
+                left_owner = page_nr
+                right_owner = page_nr
+            elif page_nr % 2 == 0:
+                left_owner = page_nr
+                right_owner = page_nr + 1
+            else:
+                left_owner = max(1, page_nr - 1)
+                right_owner = page_nr
             
-            # Use determine_page_owner to check if area belongs to our page
-            area_owner = determine_page_owner(current_left, half_width, left_owner, right_owner)
-            if area_owner != pageno:
+            # Check if this is the page we're validating
+            if single_page_mode:
+                # For single page mode, we already matched above
+                page_elem = page
+                break
+            elif pageno not in (left_owner, right_owner):
                 continue
-            
-            # Check if it's a photo or text
-            image = area.find('image')
-            if image is not None:
-                filename = image.get('filename', '')
-                if filename:
-                    photo_count += 1
-                    photo_filenames.append(filename)
-            elif area.find('text') is not None:
-                text_count += 1
-        
-        break  # Found the page, no need to continue
+            else:
+                page_elem = page
+                break
     
     if page_elem is None:
         return [f"Page {pageno} not found in saved XML"]
+    
+    # Count photos and texts on this page using same logic as save
+    for area in page_elem.findall('.//area'):
+        pos = area.find('position')
+        if pos is None:
+            continue
+        
+        current_left = float(pos.get('left', '0').replace(',', '.'))
+        
+        # Use determine_page_owner to check if area belongs to our page
+        area_owner = determine_page_owner(current_left, half_width, left_owner, right_owner)
+        if area_owner != pageno:
+            continue
+        
+        # Check if it's a photo or text
+        image = area.find('image')
+        if image is not None:
+            filename = image.get('filename', '')
+            if filename:
+                photo_count += 1
+                photo_filenames.append(filename)
+        elif area.find('text') is not None:
+            text_count += 1
     
     # Validate counts
     expected_photo_count = len(expected_photos)
@@ -324,40 +350,63 @@ def update_page_layout(path: str, pageno: int, photos: List[Dict[str, Any]],
     # Photobook mode: A <page> with pagenr=N can contain logical pages based on even/odd:
     # - Even N: contains logical pages N (left) and N+1 (right)
     # - Odd N: contains logical pages N-1 (left) and N (right)
+    # - Special case: Page 1 is stored in pagenr="0" type="emptypage" that comes just before pagenr="1"
     page_elem = None
     is_right_page = False
     
-    for page in root.findall('.//page'):
-        try:
-            page_nr = int(page.get('pagenr', '0'))
-        except ValueError:
-            continue
+    # Special handling for page 1 in photobooks: find the LAST pagenr="0" type="emptypage" before pagenr="1"
+    if pageno == 1 and not single_page_mode:
+        all_pages = root.findall('.//page')
+        page1_index = None
         
-        if single_page_mode:
-            # Canvas/Calendar: direct page number match, no splitting
-            if page_nr == pageno:
-                page_elem = page
-                is_right_page = False
+        # Find the index of pagenr="1"
+        for i, page in enumerate(all_pages):
+            if page.get('pagenr') == '1':
+                page1_index = i
                 break
-        else:
-            # Photobook: determine which logical pages this <page> element contains
-            if page_nr % 2 == 0:
-                # Even pagenr: left=page_nr, right=page_nr+1
-                left_owner = page_nr
-                right_owner = page_nr + 1
-            else:
-                # Odd pagenr: left=page_nr-1, right=page_nr
-                left_owner = max(1, page_nr - 1)
-                right_owner = page_nr
+        
+        if page1_index is not None:
+            # Search backwards from pagenr="1" to find the closest pagenr="0" type="emptypage"
+            for i in range(page1_index - 1, -1, -1):
+                page = all_pages[i]
+                if page.get('pagenr') == '0' and page.get('type') == 'emptypage':
+                    page_elem = page
+                    is_right_page = True  # Page 1 is on the right side of the spread
+                    break
+    
+    # Standard page finding logic for all other pages
+    if page_elem is None:
+        for page in root.findall('.//page'):
+            try:
+                page_nr = int(page.get('pagenr', '0'))
+            except ValueError:
+                continue
             
-            if pageno == left_owner:
-                page_elem = page
-                is_right_page = False
-                break
-            elif pageno == right_owner:
-                page_elem = page
-                is_right_page = True
-                break
+            if single_page_mode:
+                # Canvas/Calendar: direct page number match, no splitting
+                if page_nr == pageno:
+                    page_elem = page
+                    is_right_page = False
+                    break
+            else:
+                # Photobook: determine which logical pages this <page> element contains
+                if page_nr % 2 == 0:
+                    # Even pagenr: left=page_nr, right=page_nr+1
+                    left_owner = page_nr
+                    right_owner = page_nr + 1
+                else:
+                    # Odd pagenr: left=page_nr-1, right=page_nr
+                    left_owner = max(1, page_nr - 1)
+                    right_owner = page_nr
+                
+                if pageno == left_owner:
+                    page_elem = page
+                    is_right_page = False
+                    break
+                elif pageno == right_owner:
+                    page_elem = page
+                    is_right_page = True
+                    break
     
     if page_elem is None:
         raise ValueError(f'Logical page {pageno} not found in {path}')
@@ -733,6 +782,12 @@ def update_page_layout(path: str, pageno: int, photos: List[Dict[str, Any]],
         pos.set('height', f"{physical_height:.2f}")
         pos.set('rotation', f"{physical_rot:.2f}")
         modified_texts += 1
+    
+    # Remove deleted text areas (if there are fewer texts than existing areas)
+    if len(texts) < len(text_areas):
+        for i in range(len(texts), len(text_areas)):
+            area_to_remove = text_areas[i]
+            area_to_remove.getparent().remove(area_to_remove)
     
     # Add new text areas if there are more texts than existing areas
     if len(texts) > len(text_areas):

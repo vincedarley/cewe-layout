@@ -3046,6 +3046,9 @@ class LayoutViewer:
                 photos = current_layout.photos
                 texts = current_layout.texts
                 
+                # Filter out empty photo slots (deleted photos with no filename)
+                photos = [p for p in photos if p.get('filename')]
+                
                 # Ensure all photos have image_width and image_height before saving
                 for photo in photos:
                     filename = photo.get('filename', '')

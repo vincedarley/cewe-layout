@@ -124,14 +124,43 @@ def extract_pages_info(fotobook_root):
     all_pages = fotobook_root.findall('.//page')
     logger.debug(f"extract_pages_info: Found {len(all_pages)} total page elements in XML")
 
+    # For photobooks: identify which pagenr="0" belongs to page 1 (the one just before pagenr="1" with type="emptypage")
+    page0_for_page1 = None
+    if not single_page_mode:
+        # Find pagenr="1" index
+        page1_index = None
+        for i, page in enumerate(all_pages):
+            if page.get('pagenr') == '1':
+                page1_index = i
+                break
+        
+        if page1_index is not None:
+            # Search backwards from pagenr="1" to find the closest pagenr="0" type="emptypage"
+            for i in range(page1_index - 1, -1, -1):
+                page = all_pages[i]
+                if page.get('pagenr') == '0' and page.get('type') == 'emptypage':
+                    page0_for_page1 = page
+                    logger.debug(f"extract_pages_info: Found pagenr='0' type='emptypage' for page 1 at index {i}")
+                    break
+
     for page in all_pages:
         pagenr_str = page.get('pagenr')
         page_type = page.get('type')
         is_normal = _is_normal_page(page)
-        logger.debug(f"extract_pages_info: Processing page pagenr='{pagenr_str}' type='{page_type}' is_normal={is_normal}")
         
-        # Process ALL pages (including page 0) to extract areas, but remember which pages are "normal"
-        # Areas from page 0 may belong to page 1 based on their position
+        # Special handling: if this is the pagenr="0" that belongs to page 1, treat it as page 0
+        # but we'll process its areas and assign them to page 1
+        is_page0_for_page1 = (page is page0_for_page1)
+        
+        logger.debug(f"extract_pages_info: Processing page pagenr='{pagenr_str}' type='{page_type}' is_normal={is_normal} is_page0_for_page1={is_page0_for_page1}")
+        
+        # Skip pages that are neither normal nor the special page 0 for page 1
+        # This ensures we don't read areas from the wrong pagenr="0" sections (covers, etc.)
+        if not is_normal and not is_page0_for_page1:
+            logger.debug(f"  Skipping page pagenr='{pagenr_str}' (not normal and not page 0 for page 1)")
+            continue
+        
+        # Process this page to extract areas
         try:
             pagenr = int(pagenr_str)
         except (TypeError, ValueError):
