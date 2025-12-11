@@ -2,7 +2,7 @@
 
 Utility to parse CEWE `.mcf` / `.xmcf` photobook files, inspect page photo and text slots and interactively generate new layouts.  It is intended to help you make great CEWE photobooks. It is not a replacement for the Cewe Creator software. You will absolutely need to use that as well as this tool.  The problem this tool aims to solve is that it is painful, slow and cumbersome to make nice photo layouts with 5 to 15 photos in Cewe Creator. The clever auto-layout tools provided by Cewe are (for my use cases) completely unhelpful. Hence this tool.
 
-The primary workflow step I aim to dramatically improve is this one: you have 11 photos you want to place on a single page. 2 of them are more important and should be approximately 3x the size of the others. Produce a nice-looking layout which achieves that aim, and where the photos collectively occupy most of the page (with edge gaps and internal gaps easily configurable).
+The primary workflow step I aim to dramatically improve is this one: you have 11 photos you want to place on a single page. 2 of them are more important and should be approximately 3x the size of the others. Produce a nice-looking layout which achieves that aim, and where the photos collectively occupy most of the page (with edge gaps and internal gaps easily configurable).  Using this tool, I've now built a 100+ page photobook that looks great, in very little time, and with very little hassle.
 
 **Quickstart**
 
@@ -17,13 +17,15 @@ pip install -r requirements.txt
 2. Run the diagnostic just to list all page contents of an unpacked `.xmcf` folder or `.mcf` file. This is perhaps a useful first step to reassure you that the tool correctly understands your photobook:
 
 ```bash
-python run_qlayout.py --input /path/to/Test-album.xmcf
+python run_qlayout.py --input /path/to/Test-album.xmcf --nogui
 ```
 
-3. Run the full tool (with GUI) against an unpacked `.xmcf` folder or `.mcf` file. Now you can use the GUI to interactively and algorithmically modify layouts in your photobook, and save them, etc:
+Note that if your photobook is stored in the newest '.mcfx' format ('x' at the end of the extension, not the start), that means your book's "files" have been put into an SQLite database and are one big blob. You will need to open the photobook in CEWE Creator and "Save As" the older file format.  At some point I might build in direct support for the database, but given we need to both read and write, that will require more careful work and testing... (feel free to contribute).
+
+3. Run the full tool (with GUI) against an unpacked `.xmcf` folder or `.mcf` file. Now you can use the GUI to interactively and algorithmically modify layouts in your photobook, and save them, etc (just remove the '--nogui' flag)
 
 ```bash
-python run_qlayout.py --input /path/to/Test-album.xmcf --gui
+python run_qlayout.py --input /path/to/Test-album.xmcf
 ```
 
 **Workflow**
@@ -42,7 +44,12 @@ Here's my current workflow:
 9) Hit "Save" when you are done with the page.  The photos used disappear from your directory - they've been moved into the photo album. This is very helpful, since you can then focus only on the photos you've not yet added. If there are photos I've decided I no longer want, I simply delete them from the directory (they are exported copies, so...).
 10) Move to the next empty page and go back to step 6.
 
-Once you're done: open the book in CEWE Creator and do any fine-tuning you wish. You can also use the "Gap Perfecter" or "Gridify" algorithms in QLayout to fine-tune some pages.
+Once you're done: open the book in CEWE Creator and do any fine-tuning you wish. 
+
+Optional steps in QLayout:
+1) You can also use the "Gap Perfecter" to ensure all edge gaps and internal gaps on a page are identical - fixing minor imperfections or overlaps.
+2) You can use the "Gridify" algorithm for some layouts.
+3) Export PDF - this exports just a single page of photos (no texts) so you can examine carefully.
 
 **Other capabilities**
 

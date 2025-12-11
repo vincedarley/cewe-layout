@@ -35,7 +35,7 @@ def rename_photos(directory, name_prefix, pattern='*'):
         sys.exit(1)
     
     # Supported image extensions
-    image_exts = {'.jpg', '.jpeg', '.JPG', '.JPEG'}
+    image_exts = {'.jpg', '.jpeg', '.JPG', '.JPEG', '.PNG', '.png'}
     
     # Get list of all photos matching the pattern
     photos = [f for f in photo_dir.glob(pattern) if f.is_file() and f.suffix in image_exts]
