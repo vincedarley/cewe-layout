@@ -5,7 +5,7 @@ Run with:
     python run_qlayout.py --cewe path/to/album.mcf                      (launches GUI by default)
     python run_qlayout.py --cewe path/to/album.mcf --nogui              (CLI dump mode)
     python run_qlayout.py --cewe path/to/album.mcf --unpatch            (restore backup)
-    python run_qlayout.py --startingPdf path.pdf --cewe output.xmcf     (convert PDF and launch GUI)
+    python run_qlayout.py --originalPdf path.pdf --cewe output.xmcf     (convert PDF and launch GUI)
     python run_qlayout.py --renamephotos DIRECTORY PREFIX [PATTERN]     (rename photo files)
 """
 import os
@@ -26,7 +26,7 @@ if __name__ == '__main__':
     )
     parser.add_argument('--cewe', 
                        help='Path to .mcf or .xmcf file (input for normal use, input/output for PDF conversion)')
-    parser.add_argument('--startingPdf',
+    parser.add_argument('--originalPdf',
                        help='Path to PDF file to convert into a CEWE photobook')
     parser.add_argument('--nogui', action='store_true', 
                        help='Use CLI dump mode instead of GUI (default is GUI)')
@@ -62,28 +62,28 @@ if __name__ == '__main__':
         if not args.cewe:
             parser.error('--cewe is required')
 
-        if args.startingPdf:
+        pdf_content = None
+
+        if args.originalPdf:
             # Import pdf2cewe conversion logic
-            import sys
             from pathlib import Path
-            pdf2cewe_path = Path(ROOT).parent / 'pdf2cewe'
-            if str(pdf2cewe_path) not in sys.path:
-                sys.path.insert(0, str(pdf2cewe_path))
+            from cewe_layout.pdf2cewe.pdf_extractor import extract_pdf_content, create_pdf_reader
+            from cewe_layout.pdf2cewe.mcf_writer import write_mcf_project
             
-            from pdf2cewe.pdf_extractor import extract_pdf_content
-            from pdf2cewe.mcf_writer import write_mcf_project
-            
-            # Extract PDF content (always needed for later use)
-            pdf_path = Path(args.startingPdf)
-            print(f"Extracting content from {pdf_path}...")
-            pdf_content = extract_pdf_content(pdf_path, page_range=None, verbose=True)
+            pdf_path = Path(args.originalPdf)
+            output_path = Path(args.cewe)
             
             # Only write if output doesn't already exist
-            output_path = Path(args.cewe)
             if output_path.exists():
                 print(f"✅ Output already exists: {args.cewe}")
-                print(f"   Skipping MCF write, using existing project")
+                print(f"   Creating on-demand PDF reader for GUI")
+                # Create lightweight reader for on-demand page access
+                pdf_content = create_pdf_reader(pdf_path, verbose=True)
             else:
+                # Extract all PDF content for initial conversion
+                print(f"Extracting content from {pdf_path}...")
+                pdf_content = extract_pdf_content(pdf_path, page_range=None, verbose=True)
+                
                 print(f"Writing MCF project to {args.cewe}...")
                 write_mcf_project(pdf_content, args.cewe, verbose=True)
                 
@@ -92,4 +92,4 @@ if __name__ == '__main__':
 
         from cewe_layout.parser import resolve_mcf_path
         real = resolve_mcf_path(args.cewe)
-        launch_gui(real)
+        launch_gui(real, pdf_content)

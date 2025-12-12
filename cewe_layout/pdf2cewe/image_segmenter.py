@@ -12,6 +12,8 @@ from PIL import Image
 
 def segment_composite_image(image_data: bytes, image_format: str, 
                             min_area: int = 50000,
+                            kernel_size: int = 5,
+                            iterations: int = 2,
                             verbose: bool = False) -> List[Dict[str, Any]]:
     """Segment a composite image into individual photos using adaptive thresholding.
     
@@ -21,6 +23,8 @@ def segment_composite_image(image_data: bytes, image_format: str,
         image_data: Image bytes
         image_format: Image format (jpeg, png, etc.)
         min_area: Minimum contour area in pixels (default 50000)
+        kernel_size: Size of morphological kernel (default 5)
+        iterations: Number of dilation/erosion iterations (default 2)
         verbose: Print debug info
         
     Returns:
@@ -68,9 +72,9 @@ def segment_composite_image(image_data: bytes, image_format: str,
     thresh = cv2.bitwise_not(thresh)
     
     # Use dilation and erosion to close gaps in edges
-    kernel = np.ones((5, 5), np.uint8)
-    thresh = cv2.dilate(thresh, kernel, iterations=2)
-    thresh = cv2.erode(thresh, kernel, iterations=2)
+    kernel = np.ones((kernel_size, kernel_size), np.uint8)
+    thresh = cv2.dilate(thresh, kernel, iterations=iterations)
+    thresh = cv2.erode(thresh, kernel, iterations=iterations)
     
     # Find contours
     contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
@@ -314,3 +318,98 @@ def should_segment_image(image_width: int, image_height: int,
     coverage = image_area / page_area if page_area > 0 else 0
     
     return coverage >= threshold
+
+
+def find_segmentation_for_count(image_data: bytes, image_format: str,
+                                  target_count: int,
+                                  min_area: int = 50000,
+                                  max_attempts: int = 20,
+                                  verbose: bool = False) -> Optional[List[Dict[str, Any]]]:
+    """Find segmentation parameters that produce the target number of photos.
+    
+    Tries different combinations of kernel_size and iterations to find
+    a segmentation that produces exactly the target number of photos.
+    
+    Args:
+        image_data: Image bytes
+        image_format: Image format (jpeg, png, etc.)
+        target_count: Desired number of photos
+        min_area: Minimum contour area in pixels
+        max_attempts: Maximum number of parameter combinations to try
+        verbose: Print debug info
+        
+    Returns:
+        List of segmented photos if successful, None if target count not achieved
+    """
+    # Define parameter search space
+    # Smaller kernel and fewer iterations = more photos (more sensitive)
+    # Larger kernel and more iterations = fewer photos (less sensitive)
+    # Focus on kernel sizes 1-7 for better sensitivity
+    param_combinations = [
+        # (kernel_size, iterations)
+        # Very sensitive (many photos)
+        (1, 0),   # Extremely sensitive
+        (1, 1),
+        (1, 2),
+        (1, 3),
+        (3, 0),
+        (3, 1),
+        (3, 2),
+        (3, 3),
+        (3, 4),
+        (5, 0),
+        (5, 1),
+        (5, 2),   # Default
+        (5, 3),
+        (5, 4),
+        (5, 5),
+        (7, 0),
+        (7, 1),
+        (7, 2),
+        (7, 3),
+        (7, 4),
+        (7, 5),
+    ]
+    
+    best_result = None
+    best_diff = float('inf')
+    
+    for kernel_size, iterations in param_combinations[:max_attempts]:
+        if verbose:
+            print(f"  Trying kernel_size={kernel_size}, iterations={iterations}")
+        
+        result = segment_composite_image(
+            image_data, image_format,
+            min_area=min_area,
+            kernel_size=kernel_size,
+            iterations=iterations,
+            verbose=False
+        )
+        
+        photo_count = len(result)
+        diff = abs(photo_count - target_count)
+        
+        if verbose:
+            print(f"    Got {photo_count} photos (target={target_count}, diff={diff})")
+        
+        # Update best result
+        if diff < best_diff:
+            best_diff = diff
+            best_result = result
+        
+        # If we found exact match, return immediately
+        if photo_count == target_count:
+            if verbose:
+                print(f"  ✅ Found exact match with kernel_size={kernel_size}, iterations={iterations}")
+            return result
+    
+    # Return best result if we got reasonably close (within 2 photos)
+    if best_diff <= 2 and best_result:
+        if verbose:
+            print(f"  ⚠️ Returning closest match: {len(best_result)} photos (target={target_count}, diff={best_diff})")
+        return best_result
+    
+    if verbose:
+        print(f"  ❌ Could not achieve target count {target_count} (best was {len(best_result) if best_result else 0}, diff={best_diff})")
+    
+    return None

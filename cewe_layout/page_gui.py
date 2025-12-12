@@ -70,24 +70,25 @@ class PageRenderer:
     All business state (layouts, modifications, algorithms) stays in LayoutViewer.
     """
     
-    def __init__(self, img_label: ttk.Label, mcf_base_folder: str, image_folder_attr: str,
+    def __init__(self, canvas: tk.Canvas, mcf_base_folder: str, image_folder_attr: str,
                  photo_dimensions_cache: dict):
         """Initialize the page renderer.
         
         Args:
-            img_label: Tkinter label widget to render into
+            canvas: Tkinter Canvas widget to render into
             mcf_base_folder: Base folder for resolving photo paths
             image_folder_attr: Image folder attribute from MCF
             photo_dimensions_cache: Reference to LayoutViewer's photo dimensions cache
                                    (shared because algorithms need it too)
         """
-        self.img_label = img_label
+        self.canvas = canvas
         self.mcf_base_folder = mcf_base_folder
         self.image_folder_attr = image_folder_attr
         self.photo_dimensions = photo_dimensions_cache  # Shared with LayoutViewer
         
         # Rendering state (caches, pixel images for buttons)
         self.photo_image = None  # Current displayed PhotoImage
+        self.canvas_image_id = None  # Canvas image item ID
         self.delete_button_pixel = tk.PhotoImage(width=1, height=1)
         self.delete_buttons = []  # Currently displayed delete button widgets
         
@@ -556,9 +557,17 @@ class PageRenderer:
             y_pos += dot_length + gap_length
 
     def _show_image(self, pil_img):
-        """Display PIL image in the label widget."""
+        """Display PIL image on the canvas."""
         self.photo_image = ImageTk.PhotoImage(pil_img)
-        self.img_label.configure(image=self.photo_image)
+        
+        # Clear existing image if any
+        if self.canvas_image_id is not None:
+            self.canvas.delete(self.canvas_image_id)
+        
+        # Create image centered on canvas
+        self.canvas_image_id = self.canvas.create_image(
+            0, 0, anchor='nw', image=self.photo_image
+        )
     
     def _create_delete_buttons(self, button_info, delete_callback):
         """Create delete button widgets overlaid on photo/text thumbnails.
@@ -591,7 +600,7 @@ class PageRenderer:
             
             # Create small white X button with red text and precise pixel sizing
             btn = tk.Button(
-                self.img_label,
+                self.canvas,
                 text='×',
                 font=('Arial', 12, 'bold'),
                 fg='red',
@@ -708,3 +717,191 @@ class PageRenderer:
                     return None
             
             return self.thumb_cache.get(cache_key)
+    
+    def draw_segmentation_overlay(self, segments: list, canvas_w: int, canvas_h: int, 
+                                   page_width: float, page_height: float, 
+                                   margin_mcf: float, origin_left: float = 0.0):
+        """Draw overlay showing segmentation rectangles on the current page image.
+        
+        Args:
+            segments: List of segment dicts with 'left', 'top', 'width', 'height' in image coordinates
+            canvas_w: Canvas width in pixels
+            canvas_h: Canvas height in pixels
+            page_width: Page width in MCF units
+            page_height: Page height in MCF units
+            margin_mcf: Display margin in MCF units
+            origin_left: Left origin offset for right pages in MCF units
+        """
+        if not self.photo_image:
+            logger.warning("No current page image to draw overlay on")
+            return
+        
+        # Get the underlying PIL Image
+        # We need to draw on a copy since PhotoImage doesn't support direct drawing
+        # Get current displayed image dimensions
+        display_img = self.photo_image
+        
+        # Create a copy of the current display as PIL Image
+        # Since we can't easily extract from PhotoImage, we'll draw on top of it using canvas items
+        # Store overlay data for canvas rendering
+        self.overlay_segments = segments
+        self.overlay_canvas_w = canvas_w
+        self.overlay_canvas_h = canvas_h
+        self.overlay_page_width = page_width
+        self.overlay_page_height = page_height
+        self.overlay_margin_mcf = margin_mcf
+        self.overlay_origin_left = origin_left
+    
+    def get_overlay_rectangles(self):
+        """Get overlay rectangle coordinates in canvas space.
+        
+        Returns:
+            List of (x1, y1, x2, y2) tuples in canvas pixel coordinates
+        """
+        if not hasattr(self, 'overlay_segments') or not self.overlay_segments:
+            return []
+        
+        segments = self.overlay_segments
+        canvas_w = self.overlay_canvas_w
+        canvas_h = self.overlay_canvas_h
+        page_width = self.overlay_page_width
+        page_height = self.overlay_page_height
+        margin_mcf = self.overlay_margin_mcf
+        origin_left = self.overlay_origin_left
+        
+        # Calculate scale factors (MCF to canvas pixels)
+        total_w_mcf = page_width + 2 * margin_mcf
+        total_h_mcf = page_height + 2 * margin_mcf
+        scale_x = canvas_w / total_w_mcf
+        scale_y = canvas_h / total_h_mcf
+        
+        rectangles = []
+        for seg in segments:
+            # Segment coordinates are in original image space (points/pixels)
+            # Convert to MCF coordinates (assuming 1:1 for now, may need adjustment)
+            # Add margin offset
+            left_mcf = seg['left'] + margin_mcf - origin_left
+            top_mcf = seg['top'] + margin_mcf
+            right_mcf = left_mcf + seg['width']
+            bottom_mcf = top_mcf + seg['height']
+            
+            # Convert to canvas pixels
+            x1 = int(left_mcf * scale_x)
+            y1 = int(top_mcf * scale_y)
+            x2 = int(right_mcf * scale_x)
+            y2 = int(bottom_mcf * scale_y)
+            
+            rectangles.append((x1, y1, x2, y2))
+        
+        return rectangles
+    
+    def clear_overlay(self):
+        """Clear the segmentation overlay."""
+        if hasattr(self, 'overlay_segments'):
+            del self.overlay_segments
+            del self.overlay_canvas_w
+            del self.overlay_canvas_h
+            del self.overlay_page_width
+            del self.overlay_page_height
+            del self.overlay_margin_mcf
+            del self.overlay_origin_left
+    
+    def show_segmentation_overlay(self, canvas, segments, canvas_w, canvas_h,
+                                   page_width, page_height, margin_mcf, origin_left,
+                                   accept_callback, reject_callback, button_frame_parent):
+        """Show overlay with segmentation rectangles and accept/reject buttons.
+        
+        Args:
+            canvas: Canvas widget to draw on
+            segments: List of segment dicts from segmentation
+            canvas_w, canvas_h: Canvas dimensions
+            page_width, page_height: Page dimensions in MCF units
+            margin_mcf: Display margin in MCF units
+            origin_left: Left origin offset for right pages
+            accept_callback: Function to call when user accepts
+            reject_callback: Function to call when user rejects
+            button_frame_parent: Parent widget for button frame
+            
+        Returns:
+            Tuple of (overlay_items, button_frame) for cleanup
+        """
+        # Store overlay data for coordinate calculation
+        self.draw_segmentation_overlay(
+            segments, canvas_w, canvas_h, page_width, page_height,
+            margin_mcf, origin_left
+        )
+        
+        # Draw rectangles on canvas
+        overlay_items = self._draw_overlay_rectangles_on_canvas(canvas)
+        
+        # Create button frame
+        button_frame = self._create_overlay_buttons(
+            button_frame_parent, accept_callback, reject_callback
+        )
+        
+        return overlay_items, button_frame
+    
+    def _draw_overlay_rectangles_on_canvas(self, canvas):
+        """Draw the overlay rectangles on the canvas.
+        
+        Args:
+            canvas: Canvas widget to draw on
+            
+        Returns:
+            List of canvas item IDs for cleanup
+        """
+        # Get rectangle coordinates
+        rectangles = self.get_overlay_rectangles()
+        
+        overlay_items = []
+        
+        # Draw each rectangle
+        for x1, y1, x2, y2 in rectangles:
+            # Draw rectangle outline in red
+            rect_id = canvas.create_rectangle(
+                x1, y1, x2, y2,
+                outline='red', width=3, tags='overlay'
+            )
+            overlay_items.append(rect_id)
+        
+        return overlay_items
+    
+    def _create_overlay_buttons(self, parent, accept_callback, reject_callback):
+        """Create accept/reject buttons in the overlay.
+        
+        Args:
+            parent: Parent widget for button frame
+            accept_callback: Function to call when user accepts
+            reject_callback: Function to call when user rejects
+            
+        Returns:
+            Button frame widget
+        """
+        import tkinter as tk
+        from tkinter import ttk
+        
+        button_frame = ttk.Frame(parent)
+        button_frame.grid(row=10, column=0, columnspan=3, sticky='ew', padx=4, pady=10)
+        
+        ttk.Label(button_frame, text='New segmentation:', font=('TkDefaultFont', 10, 'bold')).pack(side='left', padx=(0, 10))
+        
+        accept_btn = ttk.Button(button_frame, text='✓ Accept', command=accept_callback)
+        accept_btn.pack(side='left', padx=(0, 5))
+        
+        reject_btn = ttk.Button(button_frame, text='✗ Reject', command=reject_callback)
+        reject_btn.pack(side='left')
+        
+        return button_frame
+    
+    def clear_overlay_from_canvas(self, canvas, overlay_items):
+        """Clear overlay items from canvas.
+        
+        Args:
+            canvas: Canvas widget
+            overlay_items: List of canvas item IDs to remove
+        """
+        for item_id in overlay_items:
+            canvas.delete(item_id)
+        
+        # Clear stored overlay data
+        self.clear_overlay()

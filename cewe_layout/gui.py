@@ -77,10 +77,11 @@ def get_modifier_symbol():
 
 
 class LayoutViewer:
-    def __init__(self, root, mcf_root, mcf_file_path):
+    def __init__(self, root, mcf_root, mcf_file_path, pdf_content=None):
         # mcf_root is the parsed XML root; mcf_file_path is the full path to the .mcf file
         self.pages = extract_pages_info(mcf_root)
         self.mcf_file_path = mcf_file_path
+        self.pdf_content = pdf_content  # Store PDF content if provided
         # try to find the imagedir attribute on the root to locate images
         self.image_folder_attr = mcf_root.get('imagedir') or ''
         self.mcf_base_folder = '' if mcf_file_path is None else os.path.dirname(mcf_file_path)
@@ -240,8 +241,8 @@ class LayoutViewer:
         ratio_denom = 1000
         self.root.aspect(ratio_num, ratio_denom, ratio_num, ratio_denom)
 
-        self.img_label = ttk.Label(self.root)
-        self.img_label.pack(fill='both', expand=True)
+        self.canvas = tk.Canvas(self.root, bg='white', highlightthickness=0)
+        self.canvas.pack(fill='both', expand=True)
         
         # Enable drag-and-drop for photo files
         self._setup_drag_and_drop()
@@ -282,8 +283,7 @@ class LayoutViewer:
         self.goto_var = tk.StringVar()
         goto_entry = ttk.Entry(goto_frame, textvariable=self.goto_var, width=6)
         goto_entry.pack(side='left', padx=2, pady=2)
-        goto_btn = ttk.Button(goto_frame, text='Go', command=self.goto_page)
-        goto_btn.pack(side='left', pady=2)
+        goto_entry.bind('<Return>', lambda e: self.goto_page())
         
         # Page range label (e.g., "Pages 2-58")
         self.page_range_var = tk.StringVar(value='')
@@ -317,18 +317,29 @@ class LayoutViewer:
         debug_check = ttk.Checkbutton(algo_frame, text='Debug', variable=self.debug_var)
         debug_check.pack(side='left')
         
-        # Row 2: Modified pages label (pack label and value tightly)
+        # Row 2: PDF controls (only shown if pdf_content is available)
+        if self.pdf_content:
+            pdf_frame = ttk.Frame(self.ctrl)
+            pdf_frame.grid(row=2, column=0, columnspan=2, sticky='w', padx=4, pady=4)
+            ttk.Label(pdf_frame, text='PDF:').pack(side='left', padx=(0,4))
+            ttk.Label(pdf_frame, text='Photo count:').pack(side='left', padx=(0,4))
+            self.pdf_photo_count_var = tk.StringVar(value='0')
+            self.pdf_photo_count_entry = ttk.Entry(pdf_frame, textvariable=self.pdf_photo_count_var, width=5)
+            self.pdf_photo_count_entry.pack(side='left')
+            self.pdf_photo_count_entry.bind('<Return>', self._on_pdf_photo_count_change)
+        
+        # Row 3: Modified pages label (pack label and value tightly)
         modified_frame = ttk.Frame(self.ctrl)
-        modified_frame.grid(row=2, column=0, columnspan=3, sticky='w', padx=4, pady=(5,0))
+        modified_frame.grid(row=3, column=0, columnspan=3, sticky='w', padx=4, pady=(5,0))
         ttk.Label(modified_frame, text='Modified pages:').pack(side='left')
         self.modified_pages_var = tk.StringVar(value='(none)')
         self.modified_pages_label = ttk.Label(modified_frame, textvariable=self.modified_pages_var, 
                                               font=('TkDefaultFont', 9), foreground='blue')
         self.modified_pages_label.pack(side='left', padx=(2,0))
         
-        # Row 3: Action buttons (indented)
+        # Row 4: Action buttons (indented)
         actions_frame = ttk.Frame(self.ctrl)
-        actions_frame.grid(row=3, column=0, columnspan=3, sticky='w', padx=4, pady=4)
+        actions_frame.grid(row=4, column=0, columnspan=3, sticky='w', padx=4, pady=4)
         ttk.Label(actions_frame, text='  ').pack(side='left')  # Indentation spacer
         mod_sym = get_modifier_symbol()
         undo_btn = ttk.Button(actions_frame, text=f'Undo ({mod_sym}Z)', command=self.undo_layout)
@@ -340,9 +351,9 @@ class LayoutViewer:
         pdf_btn = ttk.Button(actions_frame, text=f'Export PDF ({mod_sym}P)', command=self.export_to_pdf)
         pdf_btn.pack(side='left', padx=(0,4))
 
-        # Row 4: Status message with label
+        # Row 5: Status message with label
         status_frame = ttk.Frame(self.ctrl)
-        status_frame.grid(row=4, column=0, columnspan=3, padx=4, pady=4, sticky='ew')
+        status_frame.grid(row=5, column=0, columnspan=3, padx=4, pady=4, sticky='ew')
         ttk.Label(status_frame, text='Status:').pack(side='left', padx=(0,4))
         self.status_var = tk.StringVar(value='')
         self.status_entry = ttk.Entry(status_frame, textvariable=self.status_var, 
@@ -353,7 +364,7 @@ class LayoutViewer:
         
         # Weights and cost display frame with label inside
         self.info_frame = ttk.Frame(self.ctrl, padding=8, relief='sunken', borderwidth=1)
-        self.info_frame.grid(row=5, column=0, columnspan=5, padx=4, pady=8, sticky='ew')
+        self.info_frame.grid(row=6, column=0, columnspan=5, padx=4, pady=8, sticky='ew')
         
         # Layout Info label inside the frame
         ttk.Label(self.info_frame, text='Layout Info:').grid(row=0, column=0, columnspan=2, sticky='w', padx=0, pady=(0,4))
@@ -509,7 +520,7 @@ class LayoutViewer:
 
         # Create page renderer (handles all visual rendering, no business logic)
         self.page_renderer = PageRenderer(
-            img_label=self.img_label,
+            canvas=self.canvas,
             mcf_base_folder=self.mcf_base_folder,
             image_folder_attr=self.image_folder_attr,
             photo_dimensions_cache=self.photo_dimensions
@@ -701,8 +712,8 @@ class LayoutViewer:
             Tuple of (width, height) in pixels
         """
         self.root.update_idletasks()  # Ensure geometry is current
-        canvas_w = self.img_label.winfo_width()
-        canvas_h = self.img_label.winfo_height()
+        canvas_w = self.canvas.winfo_width()
+        canvas_h = self.canvas.winfo_height()
         
         # On initial render, dimensions may not be available yet
         if canvas_w <= 1 or canvas_h <= 1:
@@ -936,6 +947,10 @@ class LayoutViewer:
                 title = f'{self.photobook_name} - Page {self.current_spread_pages[0]} : {len(all_photos)} photos'
         self.root.title(title)
         
+        # Update PDF photo count field if PDF content is available
+        if self.pdf_content:
+            self.pdf_photo_count_var.set(str(len(all_photos)))
+        
         # Get canvas dimensions and build render data
         canvas_w, canvas_h = self._get_canvas_dimensions()
         page_data_list = self._build_page_render_data(page_indices)
@@ -1089,9 +1104,9 @@ class LayoutViewer:
         drag_drop_available = False
         try:
             from tkinterdnd2 import DND_FILES, TkinterDnD
-            # Register the label widget for drag-and-drop
-            self.img_label.drop_target_register(DND_FILES)
-            self.img_label.dnd_bind('<<Drop>>', self._on_drop)
+            # Register the canvas widget for drag-and-drop
+            self.canvas.drop_target_register(DND_FILES)
+            self.canvas.dnd_bind('<<Drop>>', self._on_drop)
             drag_drop_available = True
         except (ImportError, AttributeError, Exception) as e:
             # tkinterdnd2 not available or failed to initialize
@@ -2421,16 +2436,251 @@ class LayoutViewer:
         # Update window aspect ratio
         ratio_num = int(self.canvas_aspect_ratio * 1000)
         ratio_denom = 1000
-        self.root.aspect(ratio_num, ratio_denom, ratio_num, ratio_denom)
+    
+    def _on_pdf_photo_count_change(self, event=None):
+        """Handle PDF photo count change - re-analyze page with new target count."""
+        if not self.pdf_content:
+            return
         
-        # Clear gaps for all pages so they get recalculated with new page dimensions
-        # When switching to spread mode, gaps need to be analyzed across double-width spread
-        # When switching to single page, gaps need to be analyzed for single page width
-        for pageno, _ in self.pages:
-            self.layout_mgr.clear_gaps(pageno)
+        try:
+            target_count = int(self.pdf_photo_count_var.get())
+        except ValueError:
+            print("Invalid photo count - must be an integer")
+            return
         
-        # Re-render with new mode (this will trigger update_weights_display which recalculates gaps)
+        # Get current page number (CEWE numbering: 0=cover, 1=first page, etc.)
+        current_pageno = self.pages[self.index][0]
+        
+        print(f"Re-analyzing CEWE page {current_pageno} with target photo count: {target_count}")
+        
+        # Check if we have pre-loaded pages or need to use on-demand reader
+        if 'reader' in self.pdf_content:
+            # On-demand reader mode
+            page_count = self.pdf_content.get('page_count', 0)
+            print(f"  PDF has {page_count} pages (on-demand mode)")
+            
+            if current_pageno >= page_count:
+                print(f"Error: CEWE page {current_pageno} not found in PDF content (PDF has {page_count} pages)")
+                return
+            
+            # Extract page on-demand
+            print(f"  Extracting page {current_pageno} from PDF...")
+            pdf_page = self.pdf_content['reader'].extract_page(current_pageno)
+        else:
+            # Pre-loaded pages mode
+            page_count = len(self.pdf_content['pages'])
+            print(f"  PDF has {page_count} pages (pre-loaded mode)")
+            
+            if current_pageno >= page_count:
+                print(f"Error: CEWE page {current_pageno} not found in PDF content (PDF has {page_count} pages)")
+                return
+            
+            pdf_page = self.pdf_content['pages'][current_pageno]
+        print(f"  PDF page has {len(pdf_page.get('images', []))} images")
+        
+        # Find the largest image on this page that we can re-segment
+        # Look for either segmented images or large single images
+        composite_image = None
+        for i, img in enumerate(pdf_page.get('images', [])):
+            print(f"    Image {i}: has 'segments'={img.get('segments') is not None}, has 'data'={img.get('data') is not None}")
+            if img.get('segments'):
+                # This is a segmented composite image
+                composite_image = img
+                print(f"    → Found segmented image")
+                break
+            elif img.get('data'):
+                # Large single image that could be re-segmented
+                if composite_image is None or (img.get('width', 0) * img.get('height', 0) > 
+                                                composite_image.get('width', 0) * composite_image.get('height', 0)):
+                    composite_image = img
+                    print(f"    → Using as potential composite (largest so far)")
+        
+        if not composite_image:
+            print(f"No image found to re-segment on CEWE page {current_pageno}")
+            self.status_var.set('No image to re-segment on this page')
+            return
+        
+        # Get the original image data
+        image_data = composite_image['data']
+        image_format = composite_image['format']
+        
+        # Import segmentation function
+        from .pdf2cewe.image_segmenter import find_segmentation_for_count
+        
+        # Try to find segmentation with target count
+        print(f"Searching for segmentation with {target_count} photos...")
+        new_segments = find_segmentation_for_count(
+            image_data, image_format, target_count, verbose=True
+        )
+        
+        if not new_segments:
+            print(f"Could not achieve target count of {target_count} photos")
+            self.status_var.set(f'❌ Could not find segmentation with {target_count} photos')
+            return
+        
+        print(f"✅ Found segmentation with {len(new_segments)} photos")
+        
+        # Show overlay with the new segmentation rectangles
+        self._show_segmentation_overlay(new_segments, current_pageno, composite_image, image_data, image_format)
+    
+    def _show_segmentation_overlay(self, segments, pageno, composite_image, image_data, image_format):
+        """Show overlay with segmentation rectangles and accept/reject buttons.
+        
+        Args:
+            segments: List of segment dicts from segmentation
+            pageno: Page number being re-segmented
+            composite_image: Original composite image dict from PDF
+            image_data: Original image bytes
+            image_format: Image format
+        """
+        # Store data for accept/reject handlers
+        self.pending_segmentation = {
+            'segments': segments,
+            'pageno': pageno,
+            'composite_image': composite_image,
+            'image_data': image_data,
+            'image_format': image_format
+        }
+        
+        # Get page info for rendering
+        _, page_info = self.pages[self.index]
+        page_width = page_info.get('page_width')
+        page_height = page_info.get('page_height')
+        origin_left = page_info.get('origin_left', 0.0)
+        
+        # Use page renderer to show overlay
+        canvas_w, canvas_h = self._get_canvas_dimensions()
+        self.overlay_items, self.overlay_button_frame = self.page_renderer.show_segmentation_overlay(
+            self.canvas, segments, canvas_w, canvas_h, page_width, page_height,
+            self.margin_mcf, origin_left,
+            self._accept_segmentation, self._reject_segmentation, self.ctrl
+        )
+    
+    def _clear_overlay(self):
+        """Clear the segmentation overlay and buttons."""
+        # Clear canvas items and button frame via page renderer
+        if hasattr(self, 'overlay_items'):
+            self.page_renderer.clear_overlay_from_canvas(self.canvas, self.overlay_items)
+            del self.overlay_items
+        
+        # Clear button frame
+        if hasattr(self, 'overlay_button_frame'):
+            self.overlay_button_frame.destroy()
+            del self.overlay_button_frame
+        
+        # Clear pending segmentation
+        if hasattr(self, 'pending_segmentation'):
+            del self.pending_segmentation
+    
+    def _accept_segmentation(self):
+        """Accept the new segmentation and rebuild the MCF page."""
+        if not hasattr(self, 'pending_segmentation'):
+            return
+        
+        seg_data = self.pending_segmentation
+        pageno = seg_data['pageno']
+        segments = seg_data['segments']
+        image_data = seg_data['image_data']
+        image_format = seg_data['image_format']
+        
+        print(f"Accepting new segmentation for page {pageno} with {len(segments)} photos")
+        
+        # Rebuild the MCF page with new segmentation
+        self._rebuild_mcf_page(pageno, segments, image_data, image_format)
+        
+        # Clear overlay
+        self._clear_overlay()
+        
+        # Re-render page
         self.render_page()
+        
+        self.status_var.set(f'✅ Applied new segmentation with {len(segments)} photos')
+    
+    def _reject_segmentation(self):
+        """Reject the new segmentation and keep the existing layout."""
+        print("Rejecting new segmentation")
+        
+        # Clear overlay
+        self._clear_overlay()
+        
+        self.status_var.set('Segmentation rejected')
+    
+    def _rebuild_mcf_page(self, pageno, segments, image_data, image_format):
+        """Rebuild a single MCF page with new segmentation.
+        
+        Args:
+            pageno: Page number to rebuild
+            segments: New segment list
+            image_data: Original composite image data
+            image_format: Image format
+        """
+        # Import MCF writer functions
+        from .pdf2cewe.mcf_writer import create_page_element
+        from pathlib import Path
+        import xml.etree.ElementTree as ET
+        
+        # Get output directory (the .xmcf directory)
+        mcf_dir = Path(self.mcf_file_path).parent
+        
+        # Delete old photos from this page
+        _, page_info = self.pages[self.index]
+        old_photos = page_info.get('photos', [])
+        for photo in old_photos:
+            filename = photo.get('filename', '')
+            if filename:
+                photo_path = mcf_dir / filename
+                if photo_path.exists():
+                    photo_path.unlink()
+                    print(f"  Deleted old photo: {filename}")
+        
+        # Create new page data structure for MCF writer
+        # This mimics the structure from pdf_extractor
+        page_data = {
+            'page_number': pageno,
+            'width': page_info.get('page_width'),  # In points
+            'height': page_info.get('page_height'),
+            'images': []
+        }
+        
+        # Add each segment as an image
+        for i, seg in enumerate(segments):
+            page_data['images'].append({
+                'data': seg['data'],
+                'format': seg['format'],
+                'left': seg['left'],
+                'top': seg['top'],
+                'width': seg['width'],
+                'height': seg['height']
+            })
+        
+        # Use MCF writer to create the page element with new photos
+        # Note: This creates the XML and writes the photos to disk
+        pt_to_mcf = 10.0  # 1 point = 10 MCF units
+        page_element = create_page_element(page_data, mcf_dir, pt_to_mcf, verbose=True)
+        
+        # Update the in-memory page data
+        # Extract the new photos from the generated XML
+        new_photos = []
+        for area in page_element.findall('.//area'):
+            if area.get('areatype') == 'imagebackground':
+                # This is a photo
+                photo_dict = {
+                    'filename': area.find('.//imagebackground').get('filename', ''),
+                    'area_left': float(area.get('left', 0)),
+                    'area_top': float(area.get('top', 0)),
+                    'area_width': float(area.get('width', 0)),
+                    'area_height': float(area.get('height', 0)),
+                }
+                new_photos.append(photo_dict)
+        
+        # Update the page info
+        page_info['photos'] = new_photos
+        
+        # Mark page as modified
+        self.modified_pages.add(pageno)
+        self._update_modified_pages_display()
+        
+        print(f"✅ Rebuilt page {pageno} with {len(new_photos)} photos")
     
     def _update_modified_pages_display(self):
         """Update the modified pages label in Controls window."""
@@ -3468,7 +3718,7 @@ class LayoutViewer:
         self.render_page()
 
 
-def launch_gui(mcf_path):
+def launch_gui(mcf_path, pdf_content):
     # Configure logging for the GUI
     import logging
     logging.basicConfig(
@@ -3487,5 +3737,5 @@ def launch_gui(mcf_path):
         # Fall back to regular Tk
         root = tk.Tk()
     
-    app = LayoutViewer(root, root_el, mcf_path)
+    app = LayoutViewer(root, root_el, mcf_path, pdf_content=pdf_content)
     root.mainloop()

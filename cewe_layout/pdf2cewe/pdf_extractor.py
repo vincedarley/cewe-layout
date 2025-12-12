@@ -7,6 +7,124 @@ from io import BytesIO
 from .image_segmenter import segment_composite_image, should_segment_image
 
 
+class PDFReader:
+    """Lightweight PDF reader for on-demand page extraction."""
+    
+    def __init__(self, pdf_path: Path, verbose: bool = False):
+        """Initialize PDF reader.
+        
+        Args:
+            pdf_path: Path to PDF file
+            verbose: Print detailed extraction info
+        """
+        self.pdf_path = pdf_path
+        self.verbose = verbose
+        self._doc = None
+        self._metadata = None
+        self._page_size = None
+        self._page_count = None
+    
+    def _ensure_open(self):
+        """Ensure PDF document is opened."""
+        if self._doc is None:
+            self._doc = fitz.open(self.pdf_path)
+            
+            # Cache metadata
+            self._metadata = {
+                'title': self._doc.metadata.get('title', ''),
+                'author': self._doc.metadata.get('author', ''),
+                'subject': self._doc.metadata.get('subject', ''),
+                'producer': self._doc.metadata.get('producer', ''),
+            }
+            
+            # Cache page size from first page
+            if len(self._doc) > 0:
+                first_page = self._doc[0]
+                self._page_size = (first_page.rect.width, first_page.rect.height)
+            else:
+                self._page_size = (0, 0)
+            
+            self._page_count = len(self._doc)
+    
+    @property
+    def metadata(self) -> Dict[str, str]:
+        """Get PDF metadata."""
+        self._ensure_open()
+        return self._metadata
+    
+    @property
+    def page_size(self) -> tuple:
+        """Get page size (width, height) in points."""
+        self._ensure_open()
+        return self._page_size
+    
+    @property
+    def page_count(self) -> int:
+        """Get number of pages."""
+        self._ensure_open()
+        return self._page_count
+    
+    def extract_page(self, page_num: int) -> Dict[str, Any]:
+        """Extract content from a single page.
+        
+        Args:
+            page_num: Page number (0-indexed)
+            
+        Returns:
+            Page data dictionary
+        """
+        self._ensure_open()
+        
+        if page_num >= len(self._doc):
+            raise ValueError(f"Page {page_num + 1} does not exist")
+        
+        page = self._doc[page_num]
+        return extract_page_content(page, page_num, self.verbose)
+    
+    def close(self):
+        """Close the PDF document."""
+        if self._doc is not None:
+            self._doc.close()
+            self._doc = None
+    
+    def __enter__(self):
+        """Context manager entry."""
+        return self
+    
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Context manager exit."""
+        self.close()
+
+
+def create_pdf_reader(pdf_path: Path, verbose: bool = False) -> Dict[str, Any]:
+    """Create a lightweight PDF reader for on-demand page access.
+    
+    This is used when the MCF project already exists and we just need
+    to be able to query individual pages without pre-loading everything.
+    
+    Args:
+        pdf_path: Path to PDF file
+        verbose: Print detailed extraction info
+        
+    Returns:
+        Dictionary containing:
+            - 'metadata': PDF metadata
+            - 'page_size': (width, height) in points
+            - 'page_count': Number of pages
+            - 'reader': PDFReader instance for on-demand page access
+            - 'pages': Empty list (pages loaded on-demand)
+    """
+    reader = PDFReader(pdf_path, verbose)
+    
+    return {
+        'metadata': reader.metadata,
+        'page_size': reader.page_size,
+        'page_count': reader.page_count,
+        'reader': reader,
+        'pages': [],  # Empty - pages loaded on-demand via reader
+    }
+
+
 def extract_pdf_content(pdf_path: Path, page_range: Optional[List[int]] = None, verbose: bool = False) -> Dict[str, Any]:
     """Extract all images and text from a PDF file.
     
