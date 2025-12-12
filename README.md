@@ -17,7 +17,7 @@ pip install -r requirements.txt
 2. Run the diagnostic just to list all page contents of an unpacked `.xmcf` folder or `.mcf` file. This is perhaps a useful first step to reassure you that the tool correctly understands your photobook:
 
 ```bash
-python run_qlayout.py --input /path/to/Test-album.xmcf --nogui
+python run_qlayout.py --cewe /path/to/Test-album.xmcf --nogui
 ```
 
 Note that if your photobook is stored in the newest '.mcfx' format ('x' at the end of the extension, not the start), that means your book's "files" have been put into an SQLite database and are one big blob. You will need to open the photobook in CEWE Creator and "Save As" the older file format.  At some point I might build in direct support for the database, but given we need to both read and write, that will require more careful work and testing... (feel free to contribute).
@@ -25,7 +25,7 @@ Note that if your photobook is stored in the newest '.mcfx' format ('x' at the e
 3. Run the full tool (with GUI) against an unpacked `.xmcf` folder or `.mcf` file. Now you can use the GUI to interactively and algorithmically modify layouts in your photobook, and save them, etc (just remove the '--nogui' flag)
 
 ```bash
-python run_qlayout.py --input /path/to/Test-album.xmcf
+python run_qlayout.py --cewe /path/to/Test-album.xmcf
 ```
 
 **Workflow**
@@ -88,8 +88,9 @@ Details for the technically minded:
 - Note that while QLayout is designed only to modify the location and size of photos and text blocks on pages in the data.mcf xml file, it does also rewrite the entire xml file. Its approach is to generically load the large xml file (most of which it does not understand!), and only manipulate the location/size portions of the file, and then generically save the entire xml file (while also making a backup of the original)
 - There does not seem to be any risk of file corruption, except perhaps if you choose to hit "Save" in both applications simultaneously. And we do make backups of original xml files, but of course use at your own risk.
 
-**TO DO ideas**
+**TO DO and possible ideas**
 
+- Refine handling of front/back-covers & spine, and validate we have all margins correct for those special pages.
 - More/better layout clean-up/fine-tuning algorithms?
 
 **Layout Algorithms**

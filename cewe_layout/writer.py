@@ -181,8 +181,32 @@ def _validate_saved_page(path: str, pageno: int, expected_photos: List[Dict[str,
     photo_filenames = []
     text_count = 0
     
+    # Special handling for cover pages (pagenr="0" type="fullcover")
+    if pageno == 0:
+        # Front cover
+        for page in root.findall('.//page'):
+            if page.get('pagenr') == '0' and page.get('type') == 'fullcover':
+                template_name = page.get('designStyleTemplateName', '')
+                if 'front' in template_name.lower():
+                    page_elem = page
+                    left_owner = 0
+                    right_owner = 0
+                    break
+    elif pageno > 1:
+        # Could be back cover - check if it's the max page number
+        all_pages = root.findall('.//page')
+        for page in all_pages:
+            page_nr_str = page.get('pagenr', '0')
+            if page_nr_str == '0' and page.get('type') == 'fullcover':
+                template_name = page.get('designStyleTemplateName', '')
+                if 'back' in template_name.lower():
+                    # This is back cover, check if pageno matches
+                    # Back cover is assigned page N+1 where N is max normal page
+                    # We'll validate this during the standard logic below
+                    pass
+    
     # Special handling for page 1 in photobooks: find the LAST pagenr="0" type="emptypage" before pagenr="1"
-    if pageno == 1 and not single_page_mode:
+    if page_elem is None and pageno == 1 and not single_page_mode:
         all_pages = root.findall('.//page')
         page1_index = None
         
@@ -347,6 +371,7 @@ def update_page_layout(path: str, pageno: int, photos: List[Dict[str, Any]],
     
     # Find the <page> element that contains this logical page
     # Canvas mode: single page, no left/right splitting
+    # Cover pages: pagenr="0" type="fullcover" (front or back)
     # Photobook mode: A <page> with pagenr=N can contain logical pages based on even/odd:
     # - Even N: contains logical pages N (left) and N+1 (right)
     # - Odd N: contains logical pages N-1 (left) and N (right)
@@ -354,8 +379,29 @@ def update_page_layout(path: str, pageno: int, photos: List[Dict[str, Any]],
     page_elem = None
     is_right_page = False
     
+    # Special handling for cover pages (pagenr="0" type="fullcover")
+    if pageno == 0:
+        # Front cover
+        for page in root.findall('.//page'):
+            if page.get('pagenr') == '0' and page.get('type') == 'fullcover':
+                template_name = page.get('designStyleTemplateName', '')
+                if 'front' in template_name.lower():
+                    page_elem = page
+                    is_right_page = False
+                    break
+    elif pageno > 1 and not single_page_mode:
+        # Check if this could be back cover
+        for page in root.findall('.//page'):
+            if page.get('pagenr') == '0' and page.get('type') == 'fullcover':
+                template_name = page.get('designStyleTemplateName', '')
+                if 'back' in template_name.lower():
+                    # Back cover found - this matches any pageno > normal pages
+                    page_elem = page
+                    is_right_page = False
+                    break
+    
     # Special handling for page 1 in photobooks: find the LAST pagenr="0" type="emptypage" before pagenr="1"
-    if pageno == 1 and not single_page_mode:
+    if page_elem is None and pageno == 1 and not single_page_mode:
         all_pages = root.findall('.//page')
         page1_index = None
         

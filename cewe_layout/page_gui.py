@@ -6,8 +6,44 @@ from dataclasses import dataclass
 import os
 from pathlib import Path
 import logging
+import re
+import html
 
 logger = logging.getLogger(__name__)
+
+def _extract_text_from_html(html_text):
+    """Extract plain text from HTML CDATA content.
+    
+    Args:
+        html_text: HTML string, possibly wrapped in CDATA
+        
+    Returns:
+        Plain text string with HTML tags removed
+    """
+    if not html_text:
+        return ""
+    
+    # Remove CDATA wrapper if present
+    text = re.sub(r'<!\[CDATA\[(.*?)\]\]>', r'\1', html_text, flags=re.DOTALL)
+    
+    # Remove <style>...</style> blocks (including CSS content)
+    text = re.sub(r'<style[^>]*>.*?</style>', '', text, flags=re.DOTALL | re.IGNORECASE)
+    
+    # Remove <head>...</head> blocks
+    text = re.sub(r'<head[^>]*>.*?</head>', '', text, flags=re.DOTALL | re.IGNORECASE)
+    
+    # Remove all HTML tags
+    text = re.sub(r'<[^>]+>', '', text)
+    
+    # Decode HTML entities
+    text = html.unescape(text)
+    
+    # Clean up whitespace
+    text = ' '.join(text.split())
+    
+    return text.strip()
+
+
 
 
 @dataclass
@@ -312,10 +348,107 @@ class PageRenderer:
             x1 = frame_x + (local_left + w) * scale
             y1 = frame_y + (top + h) * scale
 
-            # draw text block background
-            draw.rectangle([x0, y0, x1, y1], fill='#ffffcc')  # Light yellow background
-            # wireframe overlay in green
-            draw.rectangle([x0, y0, x1, y1], outline='green', width=2)
+            # Draw text block background (translucent light yellow)
+            # Create a semi-transparent overlay
+            from PIL import Image
+            overlay = Image.new('RGBA', (int(x1-x0), int(y1-y0)), (255, 255, 204, 128))  # Light yellow, 50% opacity
+            draw._image.paste(overlay, (int(x0), int(y0)), overlay)
+            
+            # Draw dashed frame (similar to page frame)
+            self._draw_dashed_rectangle(draw, x0, y0, x1, y1, 'green', dash_length=5, gap_length=3, line_width=2)
+            
+            # Extract and display the actual text content
+            raw_html = t.get('raw_html', '')
+            plain_text = _extract_text_from_html(raw_html)
+            
+            # Get font size and alignment from parsed data
+            font_size = t.get('font_size', 12)
+            h_align = t.get('h_align', 'left')
+            v_align = t.get('v_align', 'top')
+            
+            # Create font at the appropriate size (scale appropriately for display)
+            try:
+                # MCF coordinate system uses 254 DPI (10 units per mm)
+                # Font sizes are in points (72 points = 1 inch)
+                # So: 1 point = 254/72 ≈ 3.528 MCF units
+                # Then scale converts MCF units to screen pixels
+                display_font_size = max(8, int(font_size * 3.528 * scale))
+                text_font = ImageFont.truetype('Arial', display_font_size)
+            except:
+                text_font = None
+            
+            if plain_text:
+                # Draw the text content with alignment
+                max_width = int(x1 - x0 - 8)  # 4px padding on each side
+                if max_width > 0:
+                    # Simple word wrapping
+                    words = plain_text.split()
+                    lines = []
+                    current_line = []
+                    
+                    for word in words:
+                        test_line = ' '.join(current_line + [word])
+                        if text_font:
+                            bbox = draw.textbbox((0, 0), test_line, font=text_font)
+                            text_width = bbox[2] - bbox[0]
+                        else:
+                            text_width = len(test_line) * 6  # Rough estimate
+                        
+                        if text_width <= max_width:
+                            current_line.append(word)
+                        else:
+                            if current_line:
+                                lines.append(' '.join(current_line))
+                                current_line = [word]
+                            else:
+                                lines.append(word)  # Word too long, add anyway
+                    
+                    if current_line:
+                        lines.append(' '.join(current_line))
+                    
+                    # Calculate line height from font
+                    if text_font:
+                        # Get actual line height from font metrics
+                        bbox = draw.textbbox((0, 0), 'Ay', font=text_font)
+                        line_height = int((bbox[3] - bbox[1]) * 1.2)  # Add 20% for line spacing
+                    else:
+                        line_height = 14
+                    
+                    total_text_height = len(lines) * line_height
+                    box_height = y1 - y0
+                    
+                    # Calculate vertical position based on alignment
+                    if v_align == 'center':
+                        y_start = y0 + (box_height - total_text_height) / 2
+                    elif v_align == 'bottom':
+                        y_start = y1 - total_text_height - 4
+                    else:  # top
+                        y_start = y0 + 4
+                    
+                    # Draw each line with horizontal alignment
+                    y_offset = y_start
+                    for line in lines:
+                        if y_offset < y1:  # Only draw if within bounds
+                            # Calculate horizontal position based on alignment
+                            if text_font:
+                                bbox = draw.textbbox((0, 0), line, font=text_font)
+                                line_width = bbox[2] - bbox[0]
+                            else:
+                                line_width = len(line) * 6
+                            
+                            if h_align == 'center':
+                                x_pos = x0 + (x1 - x0 - line_width) / 2
+                            elif h_align == 'right':
+                                x_pos = x1 - line_width - 4
+                            else:  # left
+                                x_pos = x0 + 4
+                            
+                            draw.text((x_pos, y_offset), line, fill='black', font=text_font)
+                            y_offset += line_height
+                        else:
+                            break
+            
+            # Draw label in top-left corner
             draw.text((x0+4, y0+4), f'T{i}', fill='green', font=label_font)
             
             # Store delete button position info for text boxes
@@ -365,6 +498,51 @@ class PageRenderer:
         draw_dashed_line(frame_x + frame_w, frame_y, frame_x + frame_w, frame_y + frame_h)  # Right
         draw_dashed_line(frame_x + frame_w, frame_y + frame_h, frame_x, frame_y + frame_h)  # Bottom
         draw_dashed_line(frame_x, frame_y + frame_h, frame_x, frame_y)  # Left
+    
+    def _draw_dashed_rectangle(self, draw, x0, y0, x1, y1, color, dash_length=5, gap_length=3, line_width=2):
+        """Draw a dashed rectangle outline.
+        
+        Args:
+            draw: PIL ImageDraw object
+            x0, y0: Top-left corner coordinates
+            x1, y1: Bottom-right corner coordinates
+            color: Line color
+            dash_length: Length of each dash
+            gap_length: Length of gap between dashes
+            line_width: Width of the line
+        """
+        # Helper function to draw dashed line
+        def draw_dashed_line(xa, ya, xb, yb):
+            # Calculate line length and direction
+            dx = xb - xa
+            dy = yb - ya
+            length = (dx**2 + dy**2)**0.5
+            if length == 0:
+                return
+            
+            # Unit vector
+            ux = dx / length
+            uy = dy / length
+            
+            # Draw dashes
+            pos = 0
+            while pos < length:
+                # Start of dash
+                start_x = xa + ux * pos
+                start_y = ya + uy * pos
+                # End of dash
+                end_pos = min(pos + dash_length, length)
+                end_x = xa + ux * end_pos
+                end_y = ya + uy * end_pos
+                
+                draw.line([(start_x, start_y), (end_x, end_y)], fill=color, width=line_width)
+                pos += dash_length + gap_length
+        
+        # Draw four sides as dashed lines
+        draw_dashed_line(x0, y0, x1, y0)  # Top
+        draw_dashed_line(x1, y0, x1, y1)  # Right
+        draw_dashed_line(x1, y1, x0, y1)  # Bottom
+        draw_dashed_line(x0, y1, x0, y0)  # Left
     
     def _draw_crease_line(self, draw, crease_x, crease_y, crease_h, color):
         """Draw dotted line down the center crease in spread mode."""

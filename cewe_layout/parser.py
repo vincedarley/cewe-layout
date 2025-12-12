@@ -111,6 +111,7 @@ def extract_pages_info(fotobook_root):
     # in a single <page> element (the "bundle"). To handle that we split areas
     # by the bundle width into left/right halves and assign them to adjacent pages.
     # EXCEPT for Canvas and Calendar formats which have standalone pages with no splitting.
+    # ALSO extract cover pages (pagenr="0" type="fullcover") as special pages.
     from collections import defaultdict
 
     canvas_mode = is_canvas_format(fotobook_root)
@@ -123,7 +124,194 @@ def extract_pages_info(fotobook_root):
     
     all_pages = fotobook_root.findall('.//page')
     logger.debug(f"extract_pages_info: Found {len(all_pages)} total page elements in XML")
+    
+    # Find cover page (type="fullcover")
+    # Note: The fullcover page contains BOTH front and back covers in one spread
+    # Left half = back cover, Right half = front cover (just like normal page spreads)
+    cover_page = None
+    for page in all_pages:
+        if page.get('type') == 'fullcover':
+            template_name = page.get('designStyleTemplateName', '')
+            # Find the cover page that has areas (content)
+            if page.findall('.//area'):
+                cover_page = page
+                break
+    
+    if cover_page is None:
+        logger.debug(f"extract_pages_info: No fullcover pages with content found")
+    else:
+        logger.debug(f"extract_pages_info: Found fullcover page with areas")
 
+    # Helper function to extract areas from a cover page
+    def _process_cover_page(page_el, page_number, is_front_cover):
+        """Process a cover page and add it to pages_map."""
+        bundlesize = page_el.find('./bundlesize')
+        if bundlesize is None:
+            logger.warning(f"Cover page {page_number} missing bundlesize, skipping")
+            return
+        
+        try:
+            spread_w = float(bundlesize.get('width'))
+            spread_h = float(bundlesize.get('height'))
+        except (TypeError, ValueError, AttributeError) as e:
+            logger.warning(f"Cover page {page_number} has invalid bundlesize: {e}, skipping")
+            return
+        
+        # Extract background for cover
+        background_id = None
+        for bg in page_el.findall('background'):
+            if bg.get('alignment') is not None:
+                background_id = bg.get('designElementId')
+                break
+        
+        # Cover page width: MCF stores full spread width, but we display half for single page
+        # (just like normal pages - only show full width in spread mode)
+        page_w = spread_w / 2.0
+        
+        # Initialize page entry
+        pages_map[page_number] = {
+            'photos': [],
+            'texts': [],
+            'page_width': page_w,
+            'page_height': spread_h,
+            'origin_left': 0.0,
+            'background_id': background_id,
+            'is_canvas': False,
+            'is_calendar': False,
+            'is_cover': True,
+            'is_front_cover': is_front_cover,
+            'has_full_bleed': True,  # Covers have bleed on all 4 sides
+            'rotation': 0.0,
+            'physical_width': spread_w,  # Store original for potential spread mode
+            'physical_height': spread_h,
+            'calendar_edge_gaps': None
+        }
+        
+        # Extract areas from cover page
+        # Front cover is right half (x >= spread_w/2), back cover is left half (x < spread_w/2)
+        for area in page_el.findall('.//area'):
+            pos = area.find('position')
+            if pos is None:
+                continue
+            
+            try:
+                area_left = float(pos.get('left').replace(',', '.'))
+                area_top = float(pos.get('top').replace(',', '.'))
+                area_width = float(pos.get('width').replace(',', '.'))
+                area_height = float(pos.get('height').replace(',', '.'))
+                area_rot = float(pos.get('rotation').replace(',', '.'))
+            except (TypeError, ValueError, AttributeError) as e:
+                logger.warning(f"Cover page {page_number}: Failed to parse area position: {e}")
+                continue
+            
+            areatype = area.get('areatype', 'imagearea')
+            
+            # Filter based on which half of the spread this area is in
+            area_center_x = area_left + area_width / 2.0
+            is_on_right_half = area_center_x >= page_w  # page_w is spread_w/2
+            
+            # Skip this area if it's not on the correct half
+            if is_front_cover and not is_on_right_half:
+                continue  # Front cover: skip left half
+            if not is_front_cover and is_on_right_half:
+                continue  # Back cover: skip right half
+            
+            # Offset x coordinate if this is the front cover (right half needs -spread_w/2 offset)
+            if is_front_cover:
+                area_left -= page_w
+            
+            areatype = area.get('areatype', 'imagearea')
+            
+            if areatype == 'textarea':
+                raw_html = ""
+                text_tag = area.find('text')
+                if text_tag is not None and text_tag.text:
+                    raw_html = text_tag.text.strip()
+                
+                # Parse textFormat for font size and alignment
+                font_size = 12  # default
+                h_align = 'left'  # default horizontal alignment
+                v_align = 'top'  # default vertical alignment
+                
+                text_format = area.find('.//textFormat')
+                if text_format is not None:
+                    # Parse font attribute (format: "FontName,size,...")
+                    font_attr = text_format.get('font', '')
+                    if font_attr:
+                        parts = font_attr.split(',')
+                        if len(parts) > 1:
+                            try:
+                                font_size = int(parts[1])
+                            except (ValueError, IndexError):
+                                pass
+                    
+                    # Parse alignment (format: "ALIGNVCENTER,ALIGNHCENTER" or "ALIGNLEFT", etc.)
+                    alignment = text_format.get('Alignment', '')
+                    if alignment:
+                        # Horizontal alignment
+                        if 'ALIGNHCENTER' in alignment:
+                            h_align = 'center'
+                        elif 'ALIGNTRAILING' in alignment or 'ALIGNRIGHT' in alignment:
+                            h_align = 'right'
+                        elif 'ALIGNLEADING' in alignment or 'ALIGNLEFT' in alignment:
+                            h_align = 'left'
+                        
+                        # Vertical alignment
+                        if 'ALIGNVCENTER' in alignment:
+                            v_align = 'center'
+                        elif 'ALIGNBOTTOM' in alignment:
+                            v_align = 'bottom'
+                        elif 'ALIGNTOP' in alignment:
+                            v_align = 'top'
+                
+                # Extract plain text for debug output
+                import re, html
+                plain_text = raw_html
+                plain_text = re.sub(r'<!\[CDATA\[(.*?)\]\]>', r'\1', plain_text, flags=re.DOTALL)
+                plain_text = re.sub(r'<style[^>]*>.*?</style>', '', plain_text, flags=re.DOTALL | re.IGNORECASE)
+                plain_text = re.sub(r'<head[^>]*>.*?</head>', '', plain_text, flags=re.DOTALL | re.IGNORECASE)
+                plain_text = re.sub(r'<[^>]+>', '', plain_text)
+                plain_text = html.unescape(plain_text)
+                plain_text = ' '.join(plain_text.split()).strip()
+                
+                logger.info(f"  Page {page_number} textarea: text='{plain_text[:50]}{'...' if len(plain_text) > 50 else ''}' font_size={font_size} h_align={h_align} v_align={v_align}")
+                
+                text_info = {
+                    'area_left': area_left,
+                    'area_top': area_top,
+                    'area_width': area_width,
+                    'area_height': area_height,
+                    'area_rot': area_rot,
+                    'raw_html': raw_html,
+                    'font_size': font_size,
+                    'h_align': h_align,
+                    'v_align': v_align,
+                }
+                pages_map[page_number]['texts'].append(text_info)
+            elif areatype == 'imagearea':
+                for imageTag in area.findall('image'):
+                    info = {
+                        'filename': imageTag.get('filename'),
+                        'area_left': area_left,
+                        'area_top': area_top,
+                        'area_width': area_width,
+                        'area_height': area_height,
+                        'area_rot': area_rot,
+                    }
+                    cut = imageTag.find('cutout')
+                    if cut is not None:
+                        try:
+                            cleft = cut.get('left')
+                            ctop = cut.get('top')
+                            cscale = cut.get('scale')
+                            info['cutout'] = {'left': cleft, 'top': ctop, 'scale': cscale}
+                        except (TypeError, AttributeError):
+                            info['cutout'] = None
+                    else:
+                        info['cutout'] = None
+                    
+                    pages_map[page_number]['photos'].append(info)
+    
     # For photobooks: identify which pagenr="0" belongs to page 1 (the one just before pagenr="1" with type="emptypage")
     page0_for_page1 = None
     if not single_page_mode:
@@ -299,13 +487,71 @@ def extract_pages_info(fotobook_root):
             areatype = area.get('areatype', 'imagearea')
             
             if areatype == 'textarea':
-                # Text block - just store position/size, don't need content
+                # Text block - store position/size and raw HTML content
+                # Extract the text content
+                raw_html = ""
+                text_tag = area.find('text')
+                if text_tag is not None and text_tag.text:
+                    raw_html = text_tag.text.strip()
+                
+                # Parse textFormat for font size and alignment
+                font_size = 12  # default
+                h_align = 'left'  # default horizontal alignment
+                v_align = 'top'  # default vertical alignment
+                
+                text_format = area.find('.//textFormat')
+                if text_format is not None:
+                    # Parse font attribute (format: "FontName,size,...")
+                    font_attr = text_format.get('font', '')
+                    if font_attr:
+                        parts = font_attr.split(',')
+                        if len(parts) > 1:
+                            try:
+                                font_size = int(parts[1])
+                            except (ValueError, IndexError):
+                                pass
+                    
+                    # Parse alignment (format: "ALIGNVCENTER,ALIGNHCENTER" or "ALIGNLEFT", etc.)
+                    alignment = text_format.get('Alignment', '')
+                    if alignment:
+                        # Horizontal alignment
+                        if 'ALIGNHCENTER' in alignment:
+                            h_align = 'center'
+                        elif 'ALIGNTRAILING' in alignment or 'ALIGNRIGHT' in alignment:
+                            h_align = 'right'
+                        elif 'ALIGNLEADING' in alignment or 'ALIGNLEFT' in alignment:
+                            h_align = 'left'
+                        
+                        # Vertical alignment
+                        if 'ALIGNVCENTER' in alignment:
+                            v_align = 'center'
+                        elif 'ALIGNBOTTOM' in alignment:
+                            v_align = 'bottom'
+                        elif 'ALIGNTOP' in alignment:
+                            v_align = 'top'
+                
+                # Extract plain text for debug output
+                import re, html
+                plain_text = raw_html
+                plain_text = re.sub(r'<!\[CDATA\[(.*?)\]\]>', r'\1', plain_text, flags=re.DOTALL)
+                plain_text = re.sub(r'<style[^>]*>.*?</style>', '', plain_text, flags=re.DOTALL | re.IGNORECASE)
+                plain_text = re.sub(r'<head[^>]*>.*?</head>', '', plain_text, flags=re.DOTALL | re.IGNORECASE)
+                plain_text = re.sub(r'<[^>]+>', '', plain_text)
+                plain_text = html.unescape(plain_text)
+                plain_text = ' '.join(plain_text.split()).strip()
+                
+                logger.info(f"  Page {owner} textarea: text='{plain_text[:50]}{'...' if len(plain_text) > 50 else ''}' font_size={font_size} h_align={h_align} v_align={v_align}")
+                
                 text_info = {
                     'area_left': area_left,
                     'area_top': area_top,
                     'area_width': area_width,
                     'area_height': area_height,
                     'area_rot': area_rot,
+                    'raw_html': raw_html,
+                    'font_size': font_size,
+                    'h_align': h_align,
+                    'v_align': v_align,
                 }
                 pages_map[owner]['texts'].append(text_info)
             else:
@@ -334,19 +580,35 @@ def extract_pages_info(fotobook_root):
 
                     pages_map[owner]['photos'].append(info)
 
-    # Build final pages list, excluding page 0 (covers/special pages)
-    # We process page 0 to extract its areas, but don't include it in results
+    # Process cover page (if it exists)
+    # The fullcover page contains BOTH covers - we process it twice:
+    # Once for front cover (right half, page 0) and once for back cover (left half, page N+1)
+    if cover_page is not None:
+        # Process front cover (right half) as page 0
+        _process_cover_page(cover_page, 0, is_front_cover=True)
+    
+    # Build final pages list, including covers
+    # Normal pages start at 1, covers are at 0 and N+1
     pages = []
+    
+    # Determine max normal page number to assign back cover
+    normal_page_nums = [k for k in pages_map.keys() if k >= 1]
+    max_normal_page = max(normal_page_nums) if normal_page_nums else 0
+    
+    # Process back cover (left half) as page N+1
+    if cover_page is not None:
+        back_cover_page_num = max_normal_page + 1
+        _process_cover_page(cover_page, back_cover_page_num, is_front_cover=False)
+    
+    # Build sorted pages list: page 0 (front cover), pages 1..N, page N+1 (back cover)
     for k in sorted(pages_map.keys()):
-        if k < 1:  # Skip page 0 and any negative page numbers
-            logger.debug(f"extract_pages_info: Skipping page {k} from final results (not a normal page)")
-            continue
         entry = pages_map[k]
         pages.append((k, entry))
     
     logger.debug(f"extract_pages_info: Final pages_map keys: {sorted(pages_map.keys())}")
     logger.debug(f"extract_pages_info: Returning {len(pages)} pages")
     for page_num, page_data in pages:
-        logger.debug(f"  Page {page_num}: {len(page_data['photos'])} photos, {len(page_data['texts'])} texts")
+        is_cover = page_data.get('is_cover', False)
+        logger.debug(f"  Page {page_num}: {len(page_data['photos'])} photos, {len(page_data['texts'])} texts (cover={is_cover})")
     
     return pages

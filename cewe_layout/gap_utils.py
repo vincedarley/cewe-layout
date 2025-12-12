@@ -319,7 +319,8 @@ def report_gap_variations(analysis: GapAnalysis, pageno: int = None) -> None:
 
 
 def transform_page_to_gapfree(page_width: float, page_height: float,
-                               edge_gap: Dict[str, float], internal_gap: float, is_spread: bool) -> Tuple[float, float]:
+                               edge_gap: Dict[str, float], internal_gap: float, is_spread: bool,
+                               has_full_bleed: bool = False) -> Tuple[float, float]:
     """
     Transform page dimensions from MCF space to gap-free space for algorithms.
     
@@ -334,12 +335,16 @@ def transform_page_to_gapfree(page_width: float, page_height: float,
     For spread mode or positive edge_gap:
     - Formula: page - left_gap - right_gap + internal_gap
     
+    For covers with full bleed (has_full_bleed=True):
+    - All 4 edges have bleed (no centerfold), so apply left_gap even in single page mode
+    
     Args:
         page_width: Page width in MCF units.
         page_height: Page height in MCF units.
         edge_gap: Edge gap dict with 'top', 'bottom', 'left', 'right' keys.
         internal_gap: Internal gap (spacing between items) in MCF units.
         is_spread: True if spread mode (double page), False if single page mode.
+        has_full_bleed: True if this is a cover page with bleed on all 4 sides.
     
     Returns:
         Tuple (gapfree_width, gapfree_height) in MCF units.
@@ -350,7 +355,8 @@ def transform_page_to_gapfree(page_width: float, page_height: float,
     bottom_gap = edge_gap['bottom']
     
     # Check if we should avoid centerfold bleed (negative gap on one edge in single-page mode)
-    avoid_centerfold = (left_gap < 0 or right_gap < 0) and not is_spread
+    # Covers have bleed on all 4 sides, so they don't avoid centerfold
+    avoid_centerfold = (left_gap < 0 or right_gap < 0) and not is_spread and not has_full_bleed
     if avoid_centerfold:
         # In single page mode with bleed, don't apply left gap (it's the centerfold)
         gapfree_width = page_width - right_gap + internal_gap
@@ -363,7 +369,7 @@ def transform_page_to_gapfree(page_width: float, page_height: float,
 
 def transform_item_to_gapfree(left: float, top: float, width: float, height: float,
                                edge_gap: Dict[str, float], internal_gap: float, 
-                               is_spread: bool, is_left_page: bool) -> Tuple[float, float, float, float]:
+                               is_spread: bool, is_left_page: bool, has_full_bleed: bool = False) -> Tuple[float, float, float, float]:
     """
     Transform an item (photo or text) from MCF space to gap-free space for algorithms.
     
@@ -374,6 +380,9 @@ def transform_item_to_gapfree(left: float, top: float, width: float, height: flo
     For single page mode with negative edge_gap (bleed):
     - Right page: left position stays at 0 (no bleed at centerfold on left edge)
     - Left page: left position subtracts left_gap normally (bleed on left edge)
+    
+    For covers with full bleed (has_full_bleed=True):
+    - All 4 edges have bleed (no centerfold), so always subtract left_gap
     
     This ensures items in gap-free space perfectly fill the gap-free page with no gaps.
     
@@ -386,6 +395,7 @@ def transform_item_to_gapfree(left: float, top: float, width: float, height: flo
         internal_gap: Internal gap (spacing between items) in MCF units.
         is_spread: True if spread mode (double page), False if single page mode.
         is_left_page: True if this is the left/even page, False if right/odd page.
+        has_full_bleed: True if this is a cover page with bleed on all 4 sides.
 
     
     Returns:
@@ -394,7 +404,7 @@ def transform_item_to_gapfree(left: float, top: float, width: float, height: flo
     left_gap = edge_gap['left']
     top_gap = edge_gap['top']
     
-    has_no_left_edge = left_gap < 0 and not is_spread and not is_left_page
+    has_no_left_edge = left_gap < 0 and not is_spread and not is_left_page and not has_full_bleed
     if has_no_left_edge:
         gapfree_left = left  # Do not subtract left_gap at center fold
     else:
@@ -408,7 +418,7 @@ def transform_item_to_gapfree(left: float, top: float, width: float, height: flo
 def transform_item_from_gapfree(gapfree_left: float, gapfree_top: float,
                                  gapfree_width: float, gapfree_height: float,
                                  edge_gap: Dict[str, float], internal_gap: float, 
-                                 is_spread: bool, is_left_page: bool) -> Tuple[float, float, float, float]:
+                                 is_spread: bool, is_left_page: bool, has_full_bleed: bool = False) -> Tuple[float, float, float, float]:
     """
     Transform an item from gap-free space back to MCF space.
     
@@ -420,6 +430,9 @@ def transform_item_from_gapfree(gapfree_left: float, gapfree_top: float,
     - Right page: left position stays at 0 (no bleed at centerfold on left edge)
     - Left page: left position adds left_gap normally (bleed on left edge)
     
+    For covers with full bleed (has_full_bleed=True):
+    - All 4 edges have bleed (no centerfold), so always add left_gap
+    
     Args:
         gapfree_left: Item left position in gap-free space.
         gapfree_top: Item top position in gap-free space.
@@ -429,6 +442,7 @@ def transform_item_from_gapfree(gapfree_left: float, gapfree_top: float,
         internal_gap: Internal gap (spacing between items) in MCF units.
         is_spread: True if spread mode (double page), False if single page mode.
         is_left_page: True if this is the left/even page, False if right/odd page.
+        has_full_bleed: True if this is a cover page with bleed on all 4 sides.
 
     Returns:
         Tuple (left, top, width, height) in MCF units.
@@ -436,7 +450,7 @@ def transform_item_from_gapfree(gapfree_left: float, gapfree_top: float,
     left_gap = edge_gap['left']
     top_gap = edge_gap['top']
     
-    has_no_left_edge = left_gap < 0 and not is_spread and not is_left_page
+    has_no_left_edge = left_gap < 0 and not is_spread and not is_left_page and not has_full_bleed
     if has_no_left_edge:
         left = gapfree_left  # Do not add left_gap at center fold
     else:
@@ -452,7 +466,7 @@ def transform_item_for_gap_change(
     page_width: float, page_height: float,
     old_edge_gap: Dict[str, float], old_internal_gap: float,
     new_edge_gap: Dict[str, float], new_internal_gap: float,
-    is_spread: bool, is_left_page: bool
+    is_spread: bool, is_left_page: bool, has_full_bleed: bool = False
 ) -> Tuple[float, float, float, float]:
     """
     Transform an item when gap parameters change.
@@ -485,6 +499,7 @@ def transform_item_for_gap_change(
         new_internal_gap: New internal gap in MCF units
         is_spread: True if spread mode, False if single page mode.
         is_left_page: True if left page, False if right page.
+        has_full_bleed: True if this is a cover page with bleed on all 4 sides.
     
     Returns:
         Tuple (new_left, new_top, new_width, new_height) in MCF units with new gaps
@@ -495,10 +510,10 @@ def transform_item_for_gap_change(
     
     # Step 1: Calculate old and new gap-free page sizes
     old_gf_page_w, old_gf_page_h = transform_page_to_gapfree(
-        page_width, page_height, old_edge_gap, old_internal_gap, is_spread
+        page_width, page_height, old_edge_gap, old_internal_gap, is_spread, has_full_bleed
     )
     new_gf_page_w, new_gf_page_h = transform_page_to_gapfree(
-        page_width, page_height, new_edge_gap, new_internal_gap, is_spread
+        page_width, page_height, new_edge_gap, new_internal_gap, is_spread, has_full_bleed
     )
     
     # Step 2: Calculate scale factors
@@ -507,7 +522,7 @@ def transform_item_for_gap_change(
     
     # Step 3: Transform to gap-free space using old gaps
     gf_left, gf_top, gf_width, gf_height = transform_item_to_gapfree(
-        mcf_left, mcf_top, mcf_width, mcf_height, old_edge_gap, old_internal_gap, is_spread, is_left_page
+        mcf_left, mcf_top, mcf_width, mcf_height, old_edge_gap, old_internal_gap, is_spread, is_left_page, has_full_bleed
     )
     
     # Step 4: Scale gap-free coordinates (relative to top-left origin)
@@ -519,7 +534,7 @@ def transform_item_for_gap_change(
     # Step 5: Transform back to MCF space with new gaps
     new_left, new_top, new_width, new_height = transform_item_from_gapfree(
         scaled_gf_left, scaled_gf_top, scaled_gf_width, scaled_gf_height,
-        new_edge_gap, new_internal_gap, is_spread, is_left_page
+        new_edge_gap, new_internal_gap, is_spread, is_left_page, has_full_bleed
     )
     
     return new_left, new_top, new_width, new_height

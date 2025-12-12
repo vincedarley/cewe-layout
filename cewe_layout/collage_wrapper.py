@@ -22,7 +22,7 @@ def generate_layout_for_page(photos, page_width_mcf, page_height_mcf, photo_dime
                            algorithm, preferred_sizes=None,
                            edge_gap=0.0, internal_gap=0.0,
                            texts=None, use_slot_aspect=None, slot_aspect_ratios=None,
-                           origin_left=0.0, pageno=None, is_spread=False, **kwargs):
+                           origin_left=0.0, pageno=None, is_spread=False, has_full_bleed=False, **kwargs):
     """
     High-level function to generate a new layout for a page.
     
@@ -44,6 +44,7 @@ def generate_layout_for_page(photos, page_width_mcf, page_height_mcf, photo_dime
         origin_left: Origin offset for right-side pages in MCF units. Default 0.0.
         pageno: Optional page number for error messages. Default None.
         is_spread: True if viewing/editing in spread mode (two pages side-by-side). Default False.
+        has_full_bleed: True if this is a cover page with bleed on all 4 sides. Default False.
         **kwargs: Additional algorithm-specific parameters.
     
     Returns:
@@ -80,18 +81,18 @@ def generate_layout_for_page(photos, page_width_mcf, page_height_mcf, photo_dime
     is_left_page = (origin_left if origin_left else 0.0) == 0.0
     # Transform page to gap-free space (algorithm operates in gap-free coordinates)
     algo_page_width, algo_page_height = transform_page_to_gapfree(
-        page_width_mcf, page_height_mcf, edge_gap, internal_gap, is_spread
+        page_width_mcf, page_height_mcf, edge_gap, internal_gap, is_spread, has_full_bleed
     )
     
     # Step 1: Translate MCF photos and texts to abstract layout rectangles
     photo_rects, error = _photos_to_rectangles(
         photos, photo_dimensions, preferred_sizes, edge_gap, internal_gap, 
-        use_slot_aspect, slot_aspect_ratios, origin_left, is_spread, is_left_page
+        use_slot_aspect, slot_aspect_ratios, origin_left, is_spread, is_left_page, has_full_bleed
     )
     if error:
         return False, [], [], error
     
-    text_rects, error = _texts_to_rectangles(texts, preferred_sizes, edge_gap, internal_gap, origin_left, pageno, is_spread, is_left_page)
+    text_rects, error = _texts_to_rectangles(texts, preferred_sizes, edge_gap, internal_gap, origin_left, pageno, is_spread, is_left_page, has_full_bleed)
     if error:
         return False, [], [], error
     
@@ -169,13 +170,13 @@ def generate_layout_for_page(photos, page_width_mcf, page_height_mcf, photo_dime
     photo_positioned = [r for r in positioned_rects if r.item_id.isdigit()]
     text_positioned = [r for r in positioned_rects if r.item_id.startswith('TEXT_')]
     
-    updated_photos = _rectangles_to_photos(photos, photo_positioned, edge_gap, internal_gap, is_spread, is_left_page)
-    updated_texts = _rectangles_to_texts(texts, text_positioned, edge_gap, internal_gap, is_spread, is_left_page)
+    updated_photos = _rectangles_to_photos(photos, photo_positioned, edge_gap, internal_gap, is_spread, is_left_page, has_full_bleed)
+    updated_texts = _rectangles_to_texts(texts, text_positioned, edge_gap, internal_gap, is_spread, is_left_page, has_full_bleed)
     
     return True, updated_photos, updated_texts, ""
 
 
-def _photos_to_rectangles(photos, photo_dimensions, preferred_sizes=None, edge_gap=0.0, internal_gap=0.0, use_slot_aspect=None, slot_aspect_ratios=None, origin_left=0.0, is_spread=False, is_left_page=True):
+def _photos_to_rectangles(photos, photo_dimensions, preferred_sizes=None, edge_gap=0.0, internal_gap=0.0, use_slot_aspect=None, slot_aspect_ratios=None, origin_left=0.0, is_spread=False, is_left_page=True, has_full_bleed=False):
     """
     Convert MCF photo list to abstract LayoutRectangle objects in gap-free space.
     
@@ -275,7 +276,7 @@ def _photos_to_rectangles(photos, photo_dimensions, preferred_sizes=None, edge_g
             # Then transform to gap-free space
             rect_x, rect_y, _, _ = transform_item_to_gapfree(
                 page_left, page_top, page_width, page_height,
-                edge_gap, internal_gap, is_spread, is_left_page
+                edge_gap, internal_gap, is_spread, is_left_page, has_full_bleed
             )
         
         # Use determined dimensions (either image or slot)
@@ -293,7 +294,7 @@ def _photos_to_rectangles(photos, photo_dimensions, preferred_sizes=None, edge_g
     return rectangles, ""
 
 
-def _texts_to_rectangles(texts, preferred_sizes=None, edge_gap=0.0, internal_gap=0.0, origin_left=0.0, pageno=None, is_spread=False, is_left_page=True):
+def _texts_to_rectangles(texts, preferred_sizes=None, edge_gap=0.0, internal_gap=0.0, origin_left=0.0, pageno=None, is_spread=False, is_left_page=True, has_full_bleed=False):
     """
     Convert MCF text block list to abstract LayoutRectangle objects in gap-free space.
     
@@ -340,7 +341,7 @@ def _texts_to_rectangles(texts, preferred_sizes=None, edge_gap=0.0, internal_gap
             # Then transform to gap-free space
             rect_x, rect_y, _, _ = transform_item_to_gapfree(
                 page_left, page_top, float(area_width), float(area_height),
-                edge_gap, internal_gap, is_spread, is_left_page
+                edge_gap, internal_gap, is_spread, is_left_page, has_full_bleed
             )
         
         # Transform dimensions to gap-free space (same as photos for consistency)
@@ -359,7 +360,7 @@ def _texts_to_rectangles(texts, preferred_sizes=None, edge_gap=0.0, internal_gap
     return rectangles, ""
 
 
-def _rectangles_to_photos(photos, rectangles, edge_gap=0.0, internal_gap=0.0, is_spread=False, is_left_page=True):
+def _rectangles_to_photos(photos, rectangles, edge_gap=0.0, internal_gap=0.0, is_spread=False, is_left_page=True, has_full_bleed=False):
     """
     Convert algorithm output (positioned LayoutRectangle) back to MCF photo format.
     
@@ -388,7 +389,7 @@ def _rectangles_to_photos(photos, rectangles, edge_gap=0.0, internal_gap=0.0, is
             # Transform from gap-free space back to MCF space
             left, top, width, height = transform_item_from_gapfree(
                 rect.x, rect.y, rect.width, rect.height,
-                edge_gap, internal_gap, is_spread, is_left_page
+                edge_gap, internal_gap, is_spread, is_left_page, has_full_bleed
             )
             photo['area_left'] = left
             photo['area_top'] = top
@@ -402,7 +403,7 @@ def _rectangles_to_photos(photos, rectangles, edge_gap=0.0, internal_gap=0.0, is
     return updated_photos
 
 
-def _rectangles_to_texts(texts, rectangles, edge_gap=0.0, internal_gap=0.0, is_spread=False, is_left_page=True):
+def _rectangles_to_texts(texts, rectangles, edge_gap=0.0, internal_gap=0.0, is_spread=False, is_left_page=True, has_full_bleed=False):
     """
     Convert algorithm output (positioned LayoutRectangle) back to MCF text block format.
     
@@ -434,7 +435,7 @@ def _rectangles_to_texts(texts, rectangles, edge_gap=0.0, internal_gap=0.0, is_s
             # Transform from gap-free space back to MCF space
             left, top, width, height = transform_item_from_gapfree(
                 rect.x, rect.y, rect.width, rect.height,
-                edge_gap, internal_gap, is_spread, is_left_page
+                edge_gap, internal_gap, is_spread, is_left_page, has_full_bleed
             )
             text['area_left'] = left
             text['area_top'] = top

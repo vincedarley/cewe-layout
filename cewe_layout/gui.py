@@ -798,32 +798,91 @@ class LayoutViewer:
             page_indices = [self.index]
             self.current_spread_pages = [self.pages[self.index][0]]
         elif in_spread_mode:
-            # Spread mode: ensure even page on left, odd page on right
+            # Spread mode: handle covers specially
+            # Covers (page 0 and max page) can form a spread with each other
+            # but NOT with normal pages (1...N)
             current_pageno = self.pages[self.index][0]
+            current_info = self.pages[self.index][1]
+            is_current_cover = current_info.get('is_cover', False)
             
-            if current_pageno % 2 == 0:
-                # Current page is even - it goes on left, find next odd page for right
-                left_idx = self.index
-                # Find next page (should be odd if pages are consecutive)
-                if self.index < len(self.pages) - 1:
-                    right_idx = self.index + 1
-                    page_indices = [left_idx, right_idx]
-                    self.current_spread_pages = [self.pages[left_idx][0], self.pages[right_idx][0]]
+            # Find max normal page and covers
+            max_page = max(pn for pn, _ in self.pages)
+            
+            if is_current_cover:
+                # Current page is a cover
+                if current_pageno == 0:
+                    # Front cover (page 0) - check if back cover exists for spread
+                    back_cover_idx = None
+                    for i, (pn, info) in enumerate(self.pages):
+                        if pn == max_page and info.get('is_cover', False):
+                            back_cover_idx = i
+                            break
+                    
+                    if back_cover_idx is not None:
+                        # Show front and back cover as spread
+                        page_indices = [self.index, back_cover_idx]
+                        self.current_spread_pages = [0, max_page]
+                    else:
+                        # Only front cover exists
+                        page_indices = [self.index]
+                        self.current_spread_pages = [current_pageno]
                 else:
-                    # Even page is last page - show it alone
-                    page_indices = [left_idx]
-                    self.current_spread_pages = [self.pages[left_idx][0]]
+                    # Back cover (max page) - check if front cover exists for spread
+                    front_cover_idx = None
+                    for i, (pn, info) in enumerate(self.pages):
+                        if pn == 0 and info.get('is_cover', False):
+                            front_cover_idx = i
+                            break
+                    
+                    if front_cover_idx is not None:
+                        # Show front and back cover as spread (front on left)
+                        page_indices = [front_cover_idx, self.index]
+                        self.current_spread_pages = [0, max_page]
+                    else:
+                        # Only back cover exists
+                        page_indices = [self.index]
+                        self.current_spread_pages = [current_pageno]
             else:
-                # Current page is odd - find previous even page for left
-                if self.index > 0:
-                    left_idx = self.index - 1
-                    right_idx = self.index
-                    page_indices = [left_idx, right_idx]
-                    self.current_spread_pages = [self.pages[left_idx][0], self.pages[right_idx][0]]
+                # Normal page spread logic (even on left, odd on right)
+                if current_pageno % 2 == 0:
+                    # Current page is even - it goes on left, find next odd page for right
+                    left_idx = self.index
+                    # Find next page (should be odd if pages are consecutive)
+                    if self.index < len(self.pages) - 1:
+                        right_pageno = self.pages[self.index + 1][0]
+                        right_info = self.pages[self.index + 1][1]
+                        # Don't pair with covers
+                        if not right_info.get('is_cover', False):
+                            right_idx = self.index + 1
+                            page_indices = [left_idx, right_idx]
+                            self.current_spread_pages = [self.pages[left_idx][0], self.pages[right_idx][0]]
+                        else:
+                            # Next page is a cover, show current alone
+                            page_indices = [left_idx]
+                            self.current_spread_pages = [self.pages[left_idx][0]]
+                    else:
+                        # Even page is last page - show it alone
+                        page_indices = [left_idx]
+                        self.current_spread_pages = [self.pages[left_idx][0]]
                 else:
-                    # Odd page is first page - show it alone
-                    page_indices = [self.index]
-                    self.current_spread_pages = [self.pages[self.index][0]]
+                    # Current page is odd - find previous even page for left
+                    if self.index > 0:
+                        left_pageno = self.pages[self.index - 1][0]
+                        left_info = self.pages[self.index - 1][1]
+                        # Don't pair with covers
+                        if not left_info.get('is_cover', False):
+                            left_idx = self.index - 1
+                            right_idx = self.index
+                            page_indices = [left_idx, right_idx]
+                            self.current_spread_pages = [self.pages[left_idx][0], self.pages[right_idx][0]]
+                        else:
+                            # Previous page is a cover, show current alone
+                            page_indices = [self.index]
+                            self.current_spread_pages = [self.pages[self.index][0]]
+                    else:
+                        # Odd page is first page - show it alone
+                        page_indices = [self.index]
+                        self.current_spread_pages = [self.pages[self.index][0]]
         else:
             # Single page mode
             page_indices = [self.index]
@@ -1431,6 +1490,9 @@ class LayoutViewer:
         edge_gap = self.layout_mgr.get_edge_gap(pageno)
         internal_gap = self.layout_mgr.get_internal_gap(pageno)
         
+        # Check if this page has full bleed (covers)
+        has_full_bleed = info.get('has_full_bleed', False)
+        
         # Build LayoutRectangle list from CURRENT layout (photos and texts)
         # This is what we evaluate (algorithm output or original)
         # But we use gaps from layout manager as fixed parameters
@@ -1452,7 +1514,7 @@ class LayoutViewer:
             base_fn, _, _ = extract_metadata_from_filename(fn)
             preferred_size = self.layout_mgr.get_size(pageno, base_fn)
             gf_left, gf_top, gf_width, gf_height = transform_item_to_gapfree(
-                left, top, w, h, edge_gap, internal_gap, self.spread_mode.get(), is_left_page
+                left, top, w, h, edge_gap, internal_gap, self.spread_mode.get(), is_left_page, has_full_bleed
             )
             
             rect = LayoutRectangle(
@@ -1480,7 +1542,7 @@ class LayoutViewer:
             text_id = f'TEXT_{i}'
             preferred_size = self.layout_mgr.get_size(pageno, text_id)
             gf_left, gf_top, gf_width, gf_height = transform_item_to_gapfree(
-                left, top, w, h, edge_gap, internal_gap, self.spread_mode.get(), is_left_page
+                left, top, w, h, edge_gap, internal_gap, self.spread_mode.get(), is_left_page, has_full_bleed
             )
             
             rect = LayoutRectangle(
@@ -1498,7 +1560,7 @@ class LayoutViewer:
         
         # Evaluate in gap-free coordinate space using centralized transformation
         eval_page_w, eval_page_h = transform_page_to_gapfree(
-            page_w, page_h, edge_gap, internal_gap, self.spread_mode.get()
+            page_w, page_h, edge_gap, internal_gap, self.spread_mode.get(), has_full_bleed
         )
         
         # DEBUG: Print evaluation inputs if debug flag is set
@@ -2168,15 +2230,46 @@ class LayoutViewer:
 
     def prev_page(self):
         if self.spread_mode.get():
-            # In spread mode, navigate to previous even page
+            # In spread mode, navigate to previous even page (or cover spread)
             current_pageno = self.pages[self.index][0]
+            current_info = self.pages[self.index][1]
+            is_current_cover = current_info.get('is_cover', False)
             
-            # Find previous even page
+            if is_current_cover:
+                # Navigate from cover to last normal page
+                for i in range(len(self.pages) - 1, -1, -1):
+                    pageno, info = self.pages[i]
+                    if not info.get('is_cover', False):
+                        # Found last normal page
+                        # If it's odd, go to even page before it
+                        if pageno % 2 == 1 and i > 0:
+                            self.index = i - 1
+                        else:
+                            self.index = i
+                        pageno = self.pages[self.index][0]
+                        self.show_status(f'Loading page {pageno}...')
+                        self.root.update_idletasks()
+                        self.render_page()
+                        return
+                # No normal pages, stay on cover
+                return
+            
+            # Find previous even page (normal pages only)
             for i in range(self.index - 1, -1, -1):
-                pageno = self.pages[i][0]
-                if pageno % 2 == 0:
+                pageno, info = self.pages[i]
+                if not info.get('is_cover', False) and pageno % 2 == 0:
                     self.index = i
                     self.show_status(f'Loading pages {pageno}-{pageno+1}...')
+                    self.root.update_idletasks()
+                    self.render_page()
+                    return
+            
+            # No more even pages before - check for front cover
+            for i in range(len(self.pages)):
+                pageno, info = self.pages[i]
+                if pageno == 0 and info.get('is_cover', False):
+                    self.index = i
+                    self.show_status('Loading covers...')
                     self.root.update_idletasks()
                     self.render_page()
                     return
@@ -2195,22 +2288,43 @@ class LayoutViewer:
 
     def next_page(self):
         if self.spread_mode.get():
-            # In spread mode, navigate to next even page
+            # In spread mode, navigate to next even page (or cover spread)
             current_pageno = self.pages[self.index][0]
+            current_info = self.pages[self.index][1]
+            is_current_cover = current_info.get('is_cover', False)
             
-            # Find next even page after current spread
+            if is_current_cover:
+                # Already at covers (last spread), stay there
+                self.show_status('Last page of book')
+                return
+            
+            # Find next even page after current spread (normal pages only)
             start_search = self.index + 2 if current_pageno % 2 == 0 else self.index + 1
             
             for i in range(start_search, len(self.pages)):
-                pageno = self.pages[i][0]
-                if pageno % 2 == 0:
+                pageno, info = self.pages[i]
+                if not info.get('is_cover', False) and pageno % 2 == 0:
                     self.index = i
                     # Check if there's an odd page following
                     if i < len(self.pages) - 1:
                         next_pageno = self.pages[i + 1][0]
-                        self.show_status(f'Loading pages {pageno}-{next_pageno}...')
+                        next_info = self.pages[i + 1][1]
+                        if not next_info.get('is_cover', False):
+                            self.show_status(f'Loading pages {pageno}-{next_pageno}...')
+                        else:
+                            self.show_status(f'Loading page {pageno}...')
                     else:
                         self.show_status(f'Loading page {pageno}...')
+                    self.root.update_idletasks()
+                    self.render_page()
+                    return
+            
+            # No more normal even pages - check for back cover
+            for i in range(len(self.pages)):
+                pageno, info = self.pages[i]
+                if pageno > 1 and info.get('is_cover', False):
+                    self.index = i
+                    self.show_status('Loading covers...')
                     self.root.update_idletasks()
                     self.render_page()
                     return
@@ -2608,6 +2722,9 @@ class LayoutViewer:
                 
                 # Run algorithm on combined spread
                 algo_start = time()
+                # Check if this is a cover spread (page 0 and back cover)
+                is_cover_spread = any(info.get('is_cover', False) for _, info in page_infos)
+                has_full_bleed = is_cover_spread
                 success, updated_photos, updated_texts, error_msg = generate_layout_for_page(
                     all_photos, spread_w, page_h, self.photo_dimensions,
                     algorithm=algorithm, edge_gap=edge_gap, internal_gap=internal_gap, texts=all_texts,
@@ -2616,7 +2733,8 @@ class LayoutViewer:
                     slot_aspect_ratios=slot_aspect_ratios_combined,
                     origin_left=0.0,  # Spread starts at 0
                     pageno=pageno0,  # For logging
-                    is_spread=True  # Spread mode: two pages side-by-side
+                    is_spread=True,  # Spread mode: two pages side-by-side
+                    has_full_bleed=has_full_bleed
                 )
                 algo_time = time() - algo_start
                 print(f"Algorithm: {algo_time:.3f}s")
@@ -2914,6 +3032,8 @@ class LayoutViewer:
                     )
                 
                 algo_start = time()
+                # Check if this is a cover page
+                has_full_bleed = info.get('has_full_bleed', False)
                 success, updated_photos, updated_texts, error_msg = generate_layout_for_page(
                     photos, page_w, page_h, self.photo_dimensions,
                     algorithm=algorithm, edge_gap=edge_gap, internal_gap=internal_gap, texts=texts,
@@ -2921,7 +3041,8 @@ class LayoutViewer:
                     use_slot_aspect=use_slot_aspect_for_photos, 
                     slot_aspect_ratios=slot_aspect_ratios_for_page,
                     origin_left=info.get('origin_left', 0.0), pageno=pageno,
-                    is_spread=self.spread_mode.get()  # Use GUI checkbox state
+                    is_spread=self.spread_mode.get(),  # Use GUI checkbox state
+                    has_full_bleed=has_full_bleed
                 )
                 algo_time = time() - algo_start
                 print(f"Algorithm: {algo_time:.3f}s")
