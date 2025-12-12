@@ -566,8 +566,11 @@ class PageRenderer:
         
         # Create image centered on canvas
         self.canvas_image_id = self.canvas.create_image(
-            0, 0, anchor='nw', image=self.photo_image
+            0, 0, anchor='nw', image=self.photo_image, tags='page_image'
         )
+        
+        # Ensure the image is at the bottom layer (below buttons and overlays)
+        self.canvas.tag_lower('page_image')
     
     def _create_delete_buttons(self, button_info, delete_callback):
         """Create delete button widgets overlaid on photo/text thumbnails.
@@ -769,27 +772,44 @@ class PageRenderer:
         margin_mcf = self.overlay_margin_mcf
         origin_left = self.overlay_origin_left
         
+        logger.info(f"Overlay calculation: canvas={canvas_w}x{canvas_h}, page={page_width}x{page_height} MCF, margin={margin_mcf}")
+        
+        # Conversion factor: PDF points to MCF units
+        # 1 point = 25.4mm/72 = 0.352778mm = 3.52778 MCF units (0.1mm units)
+        pt_to_mcf = 3.52778
+        
         # Calculate scale factors (MCF to canvas pixels)
         total_w_mcf = page_width + 2 * margin_mcf
         total_h_mcf = page_height + 2 * margin_mcf
-        scale_x = canvas_w / total_w_mcf
-        scale_y = canvas_h / total_h_mcf
+        scale = min(canvas_w / total_w_mcf, canvas_h / total_h_mcf)
+        
+        logger.info(f"Scale factor: {scale} pixels/MCF, pt_to_mcf={pt_to_mcf}")
         
         rectangles = []
-        for seg in segments:
-            # Segment coordinates are in original image space (points/pixels)
-            # Convert to MCF coordinates (assuming 1:1 for now, may need adjustment)
-            # Add margin offset
-            left_mcf = seg['left'] + margin_mcf - origin_left
-            top_mcf = seg['top'] + margin_mcf
-            right_mcf = left_mcf + seg['width']
-            bottom_mcf = top_mcf + seg['height']
+        for i, seg in enumerate(segments):
+            # Segment coordinates are in PDF points (from original PDF)
+            # Need to convert: PDF points -> MCF units -> canvas pixels
             
-            # Convert to canvas pixels
-            x1 = int(left_mcf * scale_x)
-            y1 = int(top_mcf * scale_y)
-            x2 = int(right_mcf * scale_x)
-            y2 = int(bottom_mcf * scale_y)
+            logger.info(f"  Segment {i}: left={seg['left']:.2f} pt, top={seg['top']:.2f} pt, "
+                       f"width={seg['width']:.2f} pt, height={seg['height']:.2f} pt")
+            
+            # Convert PDF points to MCF units
+            seg_left_mcf = seg['left'] * pt_to_mcf
+            seg_top_mcf = seg['top'] * pt_to_mcf
+            seg_width_mcf = seg['width'] * pt_to_mcf
+            seg_height_mcf = seg['height'] * pt_to_mcf
+            
+            logger.info(f"  In MCF: left={seg_left_mcf:.2f}, top={seg_top_mcf:.2f}, "
+                       f"width={seg_width_mcf:.2f}, height={seg_height_mcf:.2f}")
+            
+            # Apply same transformation as photo rendering:
+            # Add margin offset, subtract origin_left, then scale to canvas pixels
+            x1 = int((margin_mcf + seg_left_mcf - origin_left) * scale)
+            y1 = int((margin_mcf + seg_top_mcf) * scale)
+            x2 = int((margin_mcf + seg_left_mcf - origin_left + seg_width_mcf) * scale)
+            y2 = int((margin_mcf + seg_top_mcf + seg_height_mcf) * scale)
+            
+            logger.info(f"  Canvas coords: ({x1}, {y1}) to ({x2}, {y2}), size={x2-x1}x{y2-y1}")
             
             rectangles.append((x1, y1, x2, y2))
         
@@ -853,17 +873,29 @@ class PageRenderer:
         # Get rectangle coordinates
         rectangles = self.get_overlay_rectangles()
         
+        logger.info(f"Drawing {len(rectangles)} overlay rectangles")
+        
         overlay_items = []
         
-        # Draw each rectangle
-        for x1, y1, x2, y2 in rectangles:
-            # Draw rectangle outline in red
+        # Draw each rectangle as a green outline
+        for i, (x1, y1, x2, y2) in enumerate(rectangles):
+            logger.info(f"  Drawing rectangle {i}: ({x1}, {y1}) to ({x2}, {y2}), size={x2-x1}x{y2-y1}")
+            
+            # Draw green outline only (no fill)
             rect_id = canvas.create_rectangle(
                 x1, y1, x2, y2,
-                outline='red', width=3, tags='overlay'
+                fill='',  # No fill
+                outline='#00ff00',  # Bright green outline
+                width=5,
+                tags='overlay'
             )
             overlay_items.append(rect_id)
         
+        # Ensure overlay rectangles appear above the image
+        for item_id in overlay_items:
+            canvas.tag_raise(item_id)
+        
+        logger.info(f"Created {len(overlay_items)} overlay items")
         return overlay_items
     
     def _create_overlay_buttons(self, parent, accept_callback, reject_callback):
@@ -879,6 +911,8 @@ class PageRenderer:
         """
         import tkinter as tk
         from tkinter import ttk
+        
+        logger.info("Creating overlay accept/reject buttons in control window")
         
         button_frame = ttk.Frame(parent)
         button_frame.grid(row=10, column=0, columnspan=3, sticky='ew', padx=4, pady=10)

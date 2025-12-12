@@ -331,6 +331,95 @@ def extract_pages_info(fotobook_root):
                     logger.debug(f"extract_pages_info: Found pagenr='0' type='emptypage' for page 1 at index {i}")
                     break
 
+    # Pre-create entries for all normal pages (even if empty)
+    # This ensures empty pages don't get lost
+    for page in all_pages:
+        pagenr_str = page.get('pagenr')
+        page_type = page.get('type')
+        is_normal = _is_normal_page(page)
+        is_page0_for_page1 = (page is page0_for_page1)
+        
+        if not is_normal and not is_page0_for_page1:
+            continue
+            
+        try:
+            pagenr = int(pagenr_str)
+        except (TypeError, ValueError):
+            continue
+        
+        # Get bundlesize for this page
+        bundlesize = page.find('./bundlesize')
+        if bundlesize is None:
+            continue
+        try:
+            spread_w = float(bundlesize.get('width'))
+            spread_h = float(bundlesize.get('height'))
+        except (TypeError, ValueError, AttributeError):
+            continue
+        
+        # Check rotation
+        page_rotation = page.get('rotation', '0')
+        try:
+            rotation_degrees = float(page_rotation)
+        except (TypeError, ValueError):
+            rotation_degrees = 0.0
+        
+        if rotation_degrees in (90.0, 270.0):
+            logical_spread_w = spread_h
+            logical_spread_h = spread_w
+        else:
+            logical_spread_w = spread_w
+            logical_spread_h = spread_h
+        
+        if canvas_mode:
+            half = logical_spread_w
+        else:
+            half = logical_spread_w / 2.0
+        
+        # Extract background
+        background_id = None
+        for bg in page.findall('background'):
+            if bg.get('alignment') is not None:
+                background_id = bg.get('designElementId')
+                break
+        
+        # Pre-create page entries for both left and right pages
+        # (or just the single page in canvas mode)
+        if single_page_mode:
+            owners = [pagenr]
+            origin_lefts = [0.0]
+            page_widths = [logical_spread_w]
+        else:
+            if (pagenr % 2) == 0:
+                # Even pagenr -> left page is pagenr, right is pagenr+1
+                owners = [pagenr, pagenr + 1]
+                origin_lefts = [0.0, half]
+            else:
+                # Odd pagenr -> left page is pagenr-1 (or skip if would be < 1), right is pagenr
+                owners = [max(1, pagenr - 1), pagenr]
+                origin_lefts = [0.0, half]
+            page_widths = [half, half]
+        
+        for owner, origin_left, page_width in zip(owners, origin_lefts, page_widths):
+            if owner not in pages_map:
+                pages_map[owner] = {
+                    'photos': [], 
+                    'texts': [], 
+                    'page_width': page_width, 
+                    'page_height': logical_spread_h, 
+                    'origin_left': origin_left, 
+                    'background_id': background_id, 
+                    'is_canvas': canvas_mode,
+                    'is_calendar': calendar_mode,
+                    'rotation': rotation_degrees,
+                    'physical_width': spread_w,
+                    'physical_height': spread_h,
+                    'calendar_edge_gaps': CALENDAR_EDGE_GAPS.copy() if calendar_mode else None,
+                    'cewe_pagenr': pagenr,
+                    'page_type': page_type
+                }
+    
+    # Now process areas and add them to the pre-created pages
     for page in all_pages:
         pagenr_str = page.get('pagenr')
         page_type = page.get('type')
@@ -455,33 +544,11 @@ def extract_pages_info(fotobook_root):
                 owner = determine_page_owner(area_left, half, left_owner, right_owner)
                 logger.debug(f"  Page {pagenr}: area at left={area_left} assigned to owner={owner}")
 
-                # origin_left is 0 for left pages, half for right pages
-                origin_left = 0.0 if owner == left_owner else half
-                page_width = half  # Half of spread for each page
-            
+            # Page should already exist in pages_map (pre-created above)
+            # If it doesn't, something is wrong but continue anyway
             if owner not in pages_map:
-                # Extract background designElementId for background color
-                background_id = None
-                for bg in page.findall('background'):
-                    if bg.get('alignment') is not None:  # Primary background has alignment attribute
-                        background_id = bg.get('designElementId')
-                        break
-                
-                # Store both logical dimensions (for UI) and physical dimensions (for saving)
-                pages_map[owner] = {
-                    'photos': [], 
-                    'texts': [], 
-                    'page_width': page_width, 
-                    'page_height': logical_spread_h, 
-                    'origin_left': origin_left, 
-                    'background_id': background_id, 
-                    'is_canvas': canvas_mode,
-                    'is_calendar': calendar_mode,
-                    'rotation': rotation_degrees,
-                    'physical_width': spread_w,  # Original dimensions before rotation
-                    'physical_height': spread_h,
-                    'calendar_edge_gaps': CALENDAR_EDGE_GAPS.copy() if calendar_mode else None
-                }
+                logger.warning(f"Page {pagenr}: owner {owner} not found in pages_map - this shouldn't happen")
+                continue
 
             # Check area type
             areatype = area.get('areatype', 'imagearea')

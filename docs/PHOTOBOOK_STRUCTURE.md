@@ -22,7 +22,8 @@ A typical CEWE photobook has the following structure:
 | Last-1 | N-2 | `normalpage` | Last content page | **PDF Page N-1** |
 | Last | 0 | `emptypage` or `EMPTY` | Inside back cover (blank page) | **Not in PDF** |
 
-**Note**: The back cover fullcover page (1st in list) contains both back cover AND front cover areas positioned on the same spread.
+**Note**: The back cover fullcover page (1st in list) contains both back cover AND front cover areas positioned on the same spread.  And the 4th "0" empty page is where the contents of page 1 actually goes
+in xml, using the usual x-offset aspect applied to the contents of any odd-numbered page.
 
 ### Key Points
 

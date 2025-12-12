@@ -189,7 +189,7 @@ def extract_page_content(page: fitz.Page, page_num: int, verbose: bool = False) 
         Dictionary with 'images' and 'text_blocks' lists
     """
     if verbose:
-        print(f"Processing page {page_num + 1}...")
+        print(f"Processing PDF page index {page_num} (CEWE page {page_num})...")
     
     page_rect = page.rect
     page_data = {

@@ -2404,6 +2404,11 @@ class LayoutViewer:
     def _do_resize_render(self):
         """Actually perform the render after resize."""
         self._resize_pending = False
+        
+        # Don't re-render if overlay is active (would hide it)
+        if hasattr(self, 'overlay_items'):
+            return
+        
         self.render_page()
     
     def _on_spread_mode_change(self):
@@ -2520,8 +2525,54 @@ class LayoutViewer:
         
         print(f"✅ Found segmentation with {len(new_segments)} photos")
         
+        # Scale segments from image pixels to PDF points/MCF units
+        # The composite_image has width/height in PDF points (which equals MCF units for our purposes)
+        from PIL import Image as PILImage
+        from io import BytesIO
+        temp_img = PILImage.open(BytesIO(image_data))
+        img_width_pixels = temp_img.width
+        img_height_pixels = temp_img.height
+        
+        print(f"  Composite image on PDF page: left={composite_image.get('left')}, top={composite_image.get('top')}, width={composite_image.get('width')}, height={composite_image.get('height')}")
+        
+        # Calculate scale factors
+        scale_x = composite_image['width'] / img_width_pixels
+        scale_y = composite_image['height'] / img_height_pixels
+        
+        print(f"  Image: {img_width_pixels}x{img_height_pixels} pixels -> {composite_image['width']:.1f}x{composite_image['height']:.1f} points")
+        print(f"  Scale factors: x={scale_x:.4f}, y={scale_y:.4f}")
+        
+        # Scale segment coordinates from pixels to points
+        # Segments are image-relative (0,0 = top-left of image)
+        # We need to scale them and position them absolutely on the page
+        scaled_segments = []
+        for i, seg in enumerate(new_segments):
+            # Scale from image pixels to points
+            seg_left_points = seg['left'] * scale_x
+            seg_top_points = seg['top'] * scale_y
+            seg_width_points = seg['width'] * scale_x
+            seg_height_points = seg['height'] * scale_y
+            
+            # Add composite image position to make absolute page coordinates
+            abs_left = composite_image['left'] + seg_left_points
+            abs_top = composite_image['top'] + seg_top_points
+            
+            print(f"  Segment {i} in pixels: ({seg['left']}, {seg['top']}) {seg['width']}x{seg['height']}")
+            print(f"  Segment {i} in points (image-relative): ({seg_left_points:.1f}, {seg_top_points:.1f}) {seg_width_points:.1f}x{seg_height_points:.1f}")
+            print(f"  Segment {i} in points (page-absolute): ({abs_left:.1f}, {abs_top:.1f}) {seg_width_points:.1f}x{seg_height_points:.1f}")
+            
+            scaled_seg = {
+                'left': abs_left,
+                'top': abs_top,
+                'width': seg_width_points,
+                'height': seg_height_points,
+                'data': seg['data'],
+                'format': seg['format'],
+            }
+            scaled_segments.append(scaled_seg)
+        
         # Show overlay with the new segmentation rectangles
-        self._show_segmentation_overlay(new_segments, current_pageno, composite_image, image_data, image_format)
+        self._show_segmentation_overlay(scaled_segments, current_pageno, composite_image, image_data, image_format)
     
     def _show_segmentation_overlay(self, segments, pageno, composite_image, image_data, image_format):
         """Show overlay with segmentation rectangles and accept/reject buttons.
@@ -2635,16 +2686,20 @@ class LayoutViewer:
         
         # Create new page data structure for MCF writer
         # This mimics the structure from pdf_extractor
+        # Note: page_width/page_height in page_info are in MCF units, need to convert to PDF points
+        pt_to_mcf = 3.52778
         page_data = {
-            'page_number': pageno,
-            'width': page_info.get('page_width'),  # In points
-            'height': page_info.get('page_height'),
-            'images': []
+            'page_num': pageno,  # mcf_writer expects 'page_num' not 'page_number'
+            'width': page_info.get('page_width') / pt_to_mcf,  # Convert MCF units to PDF points
+            'height': page_info.get('page_height') / pt_to_mcf,
+            'images': [],
+            'text_blocks': []  # mcf_writer expects this field
         }
         
         # Add each segment as an image
         for i, seg in enumerate(segments):
             page_data['images'].append({
+                'index': i,  # Unique index for this image on the page
                 'data': seg['data'],
                 'format': seg['format'],
                 'left': seg['left'],
@@ -2655,29 +2710,96 @@ class LayoutViewer:
         
         # Use MCF writer to create the page element with new photos
         # Note: This creates the XML and writes the photos to disk
-        pt_to_mcf = 10.0  # 1 point = 10 MCF units
-        page_element = create_page_element(page_data, mcf_dir, pt_to_mcf, verbose=True)
+        # Get MCF page metadata
+        cewe_pagenr = page_info.get('cewe_pagenr', pageno)
+        page_type = page_info.get('page_type', 'normalpage')
+        is_cover = (cewe_pagenr == 0 and page_type in ('fullcover', 'calendarcoverfront'))
+        
+        page_element = create_page_element(
+            page_data, mcf_dir, pt_to_mcf, 
+            cewe_pagenr, page_type, is_cover, 
+            verbose=True
+        )
         
         # Update the in-memory page data
         # Extract the new photos from the generated XML
         new_photos = []
+        print(f"  Searching for photos in page element with {len(list(page_element))} children")
         for area in page_element.findall('.//area'):
-            if area.get('areatype') == 'imagebackground':
-                # This is a photo
-                photo_dict = {
-                    'filename': area.find('.//imagebackground').get('filename', ''),
-                    'area_left': float(area.get('left', 0)),
-                    'area_top': float(area.get('top', 0)),
-                    'area_width': float(area.get('width', 0)),
-                    'area_height': float(area.get('height', 0)),
-                }
-                new_photos.append(photo_dict)
+            areatype = area.get('areatype')
+            print(f"    Found area with areatype='{areatype}'")
+            if areatype == 'imagearea':
+                # This is a photo - extract position and image info
+                pos = area.find('position')
+                img = area.find('image')
+                print(f"      pos={pos}, img={img}")
+                if pos is not None and img is not None:
+                    filename = img.get('filename', '')
+                    print(f"      Creating photo_dict with filename='{filename}'")
+                    photo_dict = {
+                        'filename': filename,
+                        'area_left': float(pos.get('left', 0)),
+                        'area_top': float(pos.get('top', 0)),
+                        'area_width': float(pos.get('width', 0)),
+                        'area_height': float(pos.get('height', 0)),
+                    }
+                    new_photos.append(photo_dict)
+        
+        print(f"  Extracted {len(new_photos)} photos from page element")
         
         # Update the page info
         page_info['photos'] = new_photos
         
-        # Mark page as modified
-        self.modified_pages.add(pageno)
+        # Write the new page element directly to the MCF file
+        # This bypasses the normal save flow since we've already created the image files
+        from .parser import parse_mcf_from_path
+        
+        # Load the MCF XML
+        tree = ET.parse(self.mcf_file_path)
+        root = tree.getroot()
+        
+        # Find the page element with matching cewe_pagenr
+        cewe_pagenr = page_info.get('cewe_pagenr', pageno)
+        page_to_replace = None
+        for page in root.findall('.//page'):
+            if page.get('pagenr') == str(cewe_pagenr):
+                page_to_replace = page
+                break
+        
+        if page_to_replace is not None:
+            # Replace the old page element with the new one
+            parent = root.find(f".//page[@pagenr='{cewe_pagenr}']/..")
+            if parent is not None:
+                idx = list(parent).index(page_to_replace)
+                parent.remove(page_to_replace)
+                parent.insert(idx, page_element)
+                
+                # Save the MCF file (with backup)
+                backup_path = Path(self.mcf_file_path).with_suffix('.mcf~')
+                if backup_path.exists():
+                    backup_path.unlink()
+                Path(self.mcf_file_path).rename(backup_path)
+                
+                tree.write(self.mcf_file_path, encoding='utf-8', xml_declaration=True)
+                print(f"  Saved MCF file with updated page {pageno}")
+            else:
+                print(f"  Warning: Could not find parent for page {cewe_pagenr}")
+        else:
+            print(f"  Warning: Could not find page element with pagenr={cewe_pagenr}")
+        
+        # Update the in-memory page data and layout manager
+        page_info['photos'] = new_photos
+        texts = page_info.get('texts', [])
+        self.layout_mgr.set_original(pageno, new_photos, texts)
+        
+        # Set preferred size for each new photo (default to 1.0)
+        for photo in new_photos:
+            base_fn = os.path.splitext(os.path.basename(photo.get('filename', '')))[0]
+            self.layout_mgr.set_size(pageno, base_fn, 1.0)
+        
+        # Clear modified pages since we just saved
+        if pageno in self.modified_pages:
+            self.modified_pages.remove(pageno)
         self._update_modified_pages_display()
         
         print(f"✅ Rebuilt page {pageno} with {len(new_photos)} photos")
