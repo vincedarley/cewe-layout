@@ -10,3 +10,8 @@ __pycache__/
 # Specific subfolders (redundant with above but explicit)
 /cewe_layout/__pycache__
 /cewe_layout/algorithms/__pycache__
+.idea/cewe-layout.iml
+.idea/misc.xml
+.idea/modules.xml
+.idea/vcs.xml
+.idea/inspectionProfiles/profiles_settings.xml

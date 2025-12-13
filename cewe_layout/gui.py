@@ -1,15 +1,16 @@
 """Simple Tkinter UI to browse pages and display layout rectangles."""
 import tkinter as tk
 from tkinter import ttk, filedialog
-from PIL import Image, ImageDraw, ImageTk
+
 import math
 import os
-import sys
 import platform
 from pathlib import Path
 import threading
 import shutil
 import logging
+
+from .pdf2cewe.pdf_extractor import performSegmentationOnPage
 
 logger = logging.getLogger(__name__)
 
@@ -32,13 +33,10 @@ from .gap_utils import (
     report_gap_variations,
     transform_page_to_gapfree,
     transform_item_to_gapfree,
-    transform_item_from_gapfree,
     transform_item_for_gap_change,
-    make_uniform_edge_gap,
-    make_edge_gap
+    make_uniform_edge_gap
 )
 from .file_utils import (
-    split_safecontainer_prefix,
     extract_metadata_from_filename,
     encode_metadata_in_filename
 )
@@ -252,14 +250,14 @@ class LayoutViewer:
         self._resize_pending = False
 
         # Controls window
-        self.ctrl = tk.Toplevel(self.root)
-        self.ctrl.title('QLayout Controls')
-        self.ctrl.geometry('+50+50')
+        self.ctrlWin = tk.Toplevel(self.root)
+        self.ctrlWin.title('QLayout Controls')
+        self.ctrlWin.geometry('+50+50')
 
         # Row 0: Navigation - organize in two frames for tight grouping
         # For Canvas mode, hide all page navigation controls
         # For Calendar mode, show navigation but with 'Month:' label
-        nav_frame = ttk.Frame(self.ctrl)
+        nav_frame = ttk.Frame(self.ctrlWin)
         if not self.is_canvas:
             nav_frame.grid(row=0, column=0, sticky='w', padx=4, pady=4)
         if self.is_canvas:
@@ -276,7 +274,7 @@ class LayoutViewer:
         next_btn = ttk.Button(nav_frame, text='Next (→)', command=self.next_page)
         next_btn.pack(side='left')
         
-        goto_frame = ttk.Frame(self.ctrl)
+        goto_frame = ttk.Frame(self.ctrlWin)
         if not self.is_canvas:
             goto_frame.grid(row=0, column=1, sticky='w', padx=4, pady=4)
         ttk.Label(goto_frame, text='Go to:').pack(side='left', pady=2)
@@ -298,7 +296,7 @@ class LayoutViewer:
         spread_check.pack(side='left', padx=(8,0))
         
         # Row 1: Algorithm selection and Generate button - pack in single frame
-        algo_frame = ttk.Frame(self.ctrl)
+        algo_frame = ttk.Frame(self.ctrlWin)
         algo_frame.grid(row=1, column=0, columnspan=2, sticky='w', padx=4, pady=4)
         ttk.Label(algo_frame, text='Algorithm:').pack(side='left', padx=(0,4))
         algo_menu = ttk.OptionMenu(
@@ -319,7 +317,7 @@ class LayoutViewer:
         
         # Row 2: PDF controls (only shown if pdf_content is available)
         if self.pdf_content:
-            pdf_frame = ttk.Frame(self.ctrl)
+            pdf_frame = ttk.Frame(self.ctrlWin)
             pdf_frame.grid(row=2, column=0, columnspan=2, sticky='w', padx=4, pady=4)
             ttk.Label(pdf_frame, text='PDF:').pack(side='left', padx=(0,4))
             ttk.Label(pdf_frame, text='Photo count:').pack(side='left', padx=(0,4))
@@ -346,7 +344,7 @@ class LayoutViewer:
             self.segmentation_algorithm_combo.pack(side='left')
         
         # Row 3: Modified pages label (pack label and value tightly)
-        modified_frame = ttk.Frame(self.ctrl)
+        modified_frame = ttk.Frame(self.ctrlWin)
         modified_frame.grid(row=3, column=0, columnspan=3, sticky='w', padx=4, pady=(5,0))
         ttk.Label(modified_frame, text='Modified pages:').pack(side='left')
         self.modified_pages_var = tk.StringVar(value='(none)')
@@ -355,7 +353,7 @@ class LayoutViewer:
         self.modified_pages_label.pack(side='left', padx=(2,0))
         
         # Row 4: Action buttons (indented)
-        actions_frame = ttk.Frame(self.ctrl)
+        actions_frame = ttk.Frame(self.ctrlWin)
         actions_frame.grid(row=4, column=0, columnspan=3, sticky='w', padx=4, pady=4)
         ttk.Label(actions_frame, text='  ').pack(side='left')  # Indentation spacer
         mod_sym = get_modifier_symbol()
@@ -369,7 +367,7 @@ class LayoutViewer:
         pdf_btn.pack(side='left', padx=(0,4))
 
         # Row 5: Status message with label
-        status_frame = ttk.Frame(self.ctrl)
+        status_frame = ttk.Frame(self.ctrlWin)
         status_frame.grid(row=5, column=0, columnspan=3, padx=4, pady=4, sticky='ew')
         ttk.Label(status_frame, text='Status:').pack(side='left', padx=(0,4))
         self.status_var = tk.StringVar(value='')
@@ -380,7 +378,7 @@ class LayoutViewer:
         self.status_style = ttk.Style()
         
         # Weights and cost display frame with label inside
-        self.info_frame = ttk.Frame(self.ctrl, padding=8, relief='sunken', borderwidth=1)
+        self.info_frame = ttk.Frame(self.ctrlWin, padding=8, relief='sunken', borderwidth=1)
         self.info_frame.grid(row=6, column=0, columnspan=5, padx=4, pady=8, sticky='ew')
         
         # Layout Info label inside the frame
@@ -578,62 +576,62 @@ class LayoutViewer:
         # Cmd/Ctrl+S: Save Modified
         self.root.bind(f'<{modifier}-s>', lambda e: self.save_layout())
         self.root.bind(f'<{modifier}-S>', lambda e: self.save_layout())
-        self.ctrl.bind(f'<{modifier}-s>', lambda e: self.save_layout())
-        self.ctrl.bind(f'<{modifier}-S>', lambda e: self.save_layout())
+        self.ctrlWin.bind(f'<{modifier}-s>', lambda e: self.save_layout())
+        self.ctrlWin.bind(f'<{modifier}-S>', lambda e: self.save_layout())
         
         # Cmd/Ctrl+P: Export PDF
         self.root.bind(f'<{modifier}-p>', lambda e: self.export_to_pdf())
         self.root.bind(f'<{modifier}-P>', lambda e: self.export_to_pdf())
-        self.ctrl.bind(f'<{modifier}-p>', lambda e: self.export_to_pdf())
-        self.ctrl.bind(f'<{modifier}-P>', lambda e: self.export_to_pdf())
+        self.ctrlWin.bind(f'<{modifier}-p>', lambda e: self.export_to_pdf())
+        self.ctrlWin.bind(f'<{modifier}-P>', lambda e: self.export_to_pdf())
         
         # Cmd/Ctrl+Z: Undo
         self.root.bind(f'<{modifier}-z>', lambda e: self.undo_layout())
         self.root.bind(f'<{modifier}-Z>', lambda e: self.undo_layout())
-        self.ctrl.bind(f'<{modifier}-z>', lambda e: self.undo_layout())
-        self.ctrl.bind(f'<{modifier}-Z>', lambda e: self.undo_layout())
+        self.ctrlWin.bind(f'<{modifier}-z>', lambda e: self.undo_layout())
+        self.ctrlWin.bind(f'<{modifier}-Z>', lambda e: self.undo_layout())
         
         # Cmd/Ctrl+R: Generate Layout
         self.root.bind(f'<{modifier}-r>', lambda e: self.generate_layout())
         self.root.bind(f'<{modifier}-R>', lambda e: self.generate_layout())
-        self.ctrl.bind(f'<{modifier}-r>', lambda e: self.generate_layout())
-        self.ctrl.bind(f'<{modifier}-R>', lambda e: self.generate_layout())
+        self.ctrlWin.bind(f'<{modifier}-r>', lambda e: self.generate_layout())
+        self.ctrlWin.bind(f'<{modifier}-R>', lambda e: self.generate_layout())
         
         # Cmd/Ctrl+Shift+N: New Text Box
         self.root.bind(f'<{modifier}-Shift-n>', lambda e: self.add_text_box())
         self.root.bind(f'<{modifier}-Shift-N>', lambda e: self.add_text_box())
-        self.ctrl.bind(f'<{modifier}-Shift-n>', lambda e: self.add_text_box())
-        self.ctrl.bind(f'<{modifier}-Shift-N>', lambda e: self.add_text_box())
+        self.ctrlWin.bind(f'<{modifier}-Shift-n>', lambda e: self.add_text_box())
+        self.ctrlWin.bind(f'<{modifier}-Shift-N>', lambda e: self.add_text_box())
         
         # Cmd/Ctrl+O: Open Photos
         self.root.bind(f'<{modifier}-o>', lambda e: self._prompt_add_photos())
         self.root.bind(f'<{modifier}-O>', lambda e: self._prompt_add_photos())
-        self.ctrl.bind(f'<{modifier}-o>', lambda e: self._prompt_add_photos())
-        self.ctrl.bind(f'<{modifier}-O>', lambda e: self._prompt_add_photos())
+        self.ctrlWin.bind(f'<{modifier}-o>', lambda e: self._prompt_add_photos())
+        self.ctrlWin.bind(f'<{modifier}-O>', lambda e: self._prompt_add_photos())
         
         # Cmd/Ctrl+W: Close/Quit (macOS convention)
         if is_macos():
             self.root.bind(f'<{modifier}-w>', lambda e: self.quit())
             self.root.bind(f'<{modifier}-W>', lambda e: self.quit())
-            self.ctrl.bind(f'<{modifier}-w>', lambda e: self.quit())
-            self.ctrl.bind(f'<{modifier}-W>', lambda e: self.quit())
+            self.ctrlWin.bind(f'<{modifier}-w>', lambda e: self.quit())
+            self.ctrlWin.bind(f'<{modifier}-W>', lambda e: self.quit())
         
         # Cmd/Ctrl+0: Focus render window
         self.root.bind(f'<{modifier}-0>', lambda e: self._focus_render_window())
-        self.ctrl.bind(f'<{modifier}-0>', lambda e: self._focus_render_window())
+        self.ctrlWin.bind(f'<{modifier}-0>', lambda e: self._focus_render_window())
         
         # Cmd/Ctrl+1: Focus controls window
         self.root.bind(f'<{modifier}-1>', lambda e: self._focus_controls_window())
-        self.ctrl.bind(f'<{modifier}-1>', lambda e: self._focus_controls_window())
+        self.ctrlWin.bind(f'<{modifier}-1>', lambda e: self._focus_controls_window())
         # Also try with KeyPress in case the number key needs it
         self.root.bind(f'<{modifier}-KeyPress-1>', lambda e: self._focus_controls_window())
-        self.ctrl.bind(f'<{modifier}-KeyPress-1>', lambda e: self._focus_controls_window())
+        self.ctrlWin.bind(f'<{modifier}-KeyPress-1>', lambda e: self._focus_controls_window())
         
         # Left/Right arrows: Prev/Next page (bind to both windows)
         self.root.bind('<Left>', lambda e: self.prev_page())
         self.root.bind('<Right>', lambda e: self.next_page())
-        self.ctrl.bind('<Left>', lambda e: self.prev_page())
-        self.ctrl.bind('<Right>', lambda e: self.next_page())
+        self.ctrlWin.bind('<Left>', lambda e: self.prev_page())
+        self.ctrlWin.bind('<Right>', lambda e: self.next_page())
     
     def _setup_macos_menu(self):
         """Setup macOS-specific menu bar."""
@@ -690,7 +688,7 @@ class LayoutViewer:
             
             # Apply menu to both windows
             self.root.config(menu=menubar)
-            self.ctrl.config(menu=menubar)
+            self.ctrlWin.config(menu=menubar)
                 
         except Exception as e:
             # If menu setup fails, just log it and continue
@@ -716,8 +714,8 @@ class LayoutViewer:
     
     def _focus_controls_window(self):
         """Bring the controls window to front."""
-        self.ctrl.lift()
-        self.ctrl.focus_force()
+        self.ctrlWin.lift()
+        self.ctrlWin.focus_force()
     
     def _get_canvas_dimensions(self):
         """Get current canvas dimensions in pixels.
@@ -1854,7 +1852,6 @@ class LayoutViewer:
             use_slot_aspect_for_photos: Dict mapping photo index to bool (use slot AR)
             slot_aspect_ratios: Dict mapping item index to float aspect ratio
         """
-        import json
         from pathlib import Path
         
         debug_file = Path(f"Debug-Page-{pageno}.txt")
@@ -2487,179 +2484,31 @@ class LayoutViewer:
             print(f"Re-segmenting photo #{specific_photo_index+1} on CEWE page {current_pageno} into {target_count} photos")
         else:
             print(f"Re-analyzing entire CEWE page {current_pageno} with target photo count: {target_count}")
-        
-        # Check if we have pre-loaded pages or need to use on-demand reader
-        if 'reader' in self.pdf_content:
-            # On-demand reader mode
-            page_count = self.pdf_content.get('page_count', 0)
-            print(f"  PDF has {page_count} pages (on-demand mode)")
-            
-            if current_pageno >= page_count:
-                print(f"Error: CEWE page {current_pageno} not found in PDF content (PDF has {page_count} pages)")
-                return
-            
-            # Extract page on-demand
-            print(f"  Extracting page {current_pageno} from PDF...")
-            pdf_page = self.pdf_content['reader'].extract_page(current_pageno)
-        else:
-            # Pre-loaded pages mode
-            page_count = len(self.pdf_content['pages'])
-            print(f"  PDF has {page_count} pages (pre-loaded mode)")
-            
-            if current_pageno >= page_count:
-                print(f"Error: CEWE page {current_pageno} not found in PDF content (PDF has {page_count} pages)")
-                return
-            
-            pdf_page = self.pdf_content['pages'][current_pageno]
-        print(f"  PDF page has {len(pdf_page.get('images', []))} images")
-        
-        # Determine which image to re-segment
-        composite_image = None
-        photos_to_replace = []  # Track which photos will be replaced
-        
-        if specific_photo_index is not None:
-            # Mode 2: Re-segment a specific photo
-            # Find the corresponding image in the PDF page
-            _, page_info = self.pages[self.index]
-            photos = page_info.get('photos', [])
-            
-            if specific_photo_index >= len(photos):
-                print(f"Error: Photo #{specific_photo_index+1} not found (page has {len(photos)} photos)")
-                self.status_var.set(f'Error: Photo #{specific_photo_index+1} not found')
-                return
-            
-            # Find the PDF image that corresponds to this photo
-            # For now, use the image at the same index (this may need refinement)
-            images_with_data = [img for img in pdf_page.get('images', []) if img.get('data')]
-            if specific_photo_index < len(images_with_data):
-                composite_image = images_with_data[specific_photo_index]
-                photos_to_replace = [specific_photo_index]
-                print(f"  Re-segmenting photo #{specific_photo_index+1}: {composite_image.get('width'):.1f}x{composite_image.get('height'):.1f}")
-            else:
-                print(f"Error: Cannot find PDF image for photo #{specific_photo_index+1}")
-                self.status_var.set(f'Error: Cannot find image for photo #{specific_photo_index+1}')
-                return
-        else:
-            # Mode 1: Re-segment entire page from full PDF page
-            # Extract the embedded composite image using explicit marker
-            print(f"  Extracting embedded composite image from PDF page {current_pageno}...")
-            
-            # Get the explicitly marked composite image from PDF extraction
-            composite_image = pdf_page.get('composite_image')
-            
-            if not composite_image:
-                print("Error: No composite image found in PDF page data")
-                print(f"  Available images: {len(pdf_page.get('images', []))}")
-                self.status_var.set('Error: No composite image in page data')
-                return
-            
-            # Get actual pixel dimensions
-            from PIL import Image as PILImage
-            from io import BytesIO
-            temp_img = PILImage.open(BytesIO(composite_image['data']))
-            pixel_width = temp_img.width
-            pixel_height = temp_img.height
-            
-            # All photos will be replaced
-            _, page_info = self.pages[self.index]
-            photos = page_info.get('photos', [])
-            photos_to_replace = list(range(len(photos)))
-            print(f"  Using embedded composite image: {pixel_width}x{pixel_height} pixels ({composite_image['width']:.1f}x{composite_image['height']:.1f} points)")
-            
-            # DEBUG: Save composite image for comparison
-            debug_path = f"/tmp/composite_page{current_pageno}.{composite_image.get('format', 'jpeg')}"
-            temp_img.save(debug_path)
-            print(f"  DEBUG: Saved composite image to {debug_path}")
-        
-        if not composite_image:
-            print(f"No image found to re-segment")
-            self.status_var.set('No image to re-segment')
-            return
-        
-        # Get the original image data
-        image_data = composite_image['data']
-        image_format = composite_image['format']
-        
+                
         # Get selected algorithm and segmenter
         from .pdf2cewe.segmenter_base import get_segmenter
         # Ensure segmenters are registered
-        from .pdf2cewe import image_segmenter, grid_segmenter
-        
-        algorithm = self.segmentation_algorithm_var.get() if hasattr(self, 'segmentation_algorithm_var') else 'morphological'
+
+        algorithm = self.segmentation_algorithm_var.get();
         segmenter = get_segmenter(algorithm)
         
         if segmenter is None:
             print(f"Unknown segmentation algorithm: {algorithm}")
             self.status_var.set(f'❌ Unknown algorithm: {algorithm}')
             return
-        
-        # Try to find segmentation with target count
-        print(f"Searching for segmentation with {target_count} photos using {segmenter.get_name()}...")
-        new_segments = segmenter.segment_for_count(
-            image_data, image_format, target_count, verbose=True
-        )
-        
-        if not new_segments:
-            print(f"Could not achieve target count of {target_count} photos")
-            self.status_var.set(f'❌ Could not find segmentation with {target_count} photos')
-            return
-        
-        print(f"✅ Found segmentation with {len(new_segments)} photos")
-        
-        # Scale segments from image pixels to PDF points/MCF units
-        # The composite_image has width/height in PDF points (which equals MCF units for our purposes)
-        from PIL import Image as PILImage
-        from io import BytesIO
-        temp_img = PILImage.open(BytesIO(image_data))
-        img_width_pixels = temp_img.width
-        img_height_pixels = temp_img.height
-        
-        # DEBUG: Save composite image to see what we're segmenting
-        debug_path = f"/tmp/composite_page{current_pageno}.{image_format}"
-        temp_img.save(debug_path)
-        print(f"  DEBUG: Saved composite image to {debug_path}")
-        
-        print(f"  Composite image on PDF page: left={composite_image.get('left')}, top={composite_image.get('top')}, width={composite_image.get('width')}, height={composite_image.get('height')}")
-        
-        # Calculate scale factors
-        scale_x = composite_image['width'] / img_width_pixels
-        scale_y = composite_image['height'] / img_height_pixels
-        
-        print(f"  Image: {img_width_pixels}x{img_height_pixels} pixels -> {composite_image['width']:.1f}x{composite_image['height']:.1f} points")
-        print(f"  Scale factors: x={scale_x:.4f}, y={scale_y:.4f}")
-        
-        # Scale segment coordinates from pixels to points
-        # Segments are image-relative (0,0 = top-left of image)
-        # We need to scale them and position them absolutely on the page
-        scaled_segments = []
-        for i, seg in enumerate(new_segments):
-            # Scale from image pixels to points
-            seg_left_points = seg['left'] * scale_x
-            seg_top_points = seg['top'] * scale_y
-            seg_width_points = seg['width'] * scale_x
-            seg_height_points = seg['height'] * scale_y
-            
-            # Add composite image position to make absolute page coordinates
-            abs_left = composite_image['left'] + seg_left_points
-            abs_top = composite_image['top'] + seg_top_points
-            
-            print(f"  Segment {i} in pixels: ({seg['left']}, {seg['top']}) {seg['width']}x{seg['height']}")
-            print(f"  Segment {i} in points (image-relative): ({seg_left_points:.1f}, {seg_top_points:.1f}) {seg_width_points:.1f}x{seg_height_points:.1f}")
-            print(f"  Segment {i} in points (page-absolute): ({abs_left:.1f}, {abs_top:.1f}) {seg_width_points:.1f}x{seg_height_points:.1f}")
-            
-            scaled_seg = {
-                'left': abs_left,
-                'top': abs_top,
-                'width': seg_width_points,
-                'height': seg_height_points,
-                'data': seg['data'],
-                'format': seg['format'],
-            }
-            scaled_segments.append(scaled_seg)
-        
-        # Show overlay with the new segmentation rectangles
-        self._show_segmentation_overlay(scaled_segments, current_pageno, composite_image, image_data, image_format, photos_to_replace)
-    
+
+        scaled_segments, image_data, image_format, image_to_segment, photos_to_replace = performSegmentationOnPage(self.pdf_content,
+                                                                                                 self.pages, self.index,
+                                                                                                 self.status_var,
+                                                                                                 current_pageno,
+                                                                                                 segmenter,
+                                                                                                 specific_photo_index,
+                                                                                                 target_count)
+
+        if scaled_segments != None:
+            # Show overlay with the new segmentation rectangles
+            self._show_segmentation_overlay(scaled_segments, current_pageno, image_to_segment, image_data, image_format, photos_to_replace)
+
     def _show_segmentation_overlay(self, segments, pageno, composite_image, image_data, image_format, photos_to_replace):
         """Show overlay with segmentation rectangles and accept/reject buttons.
         
@@ -2706,7 +2555,7 @@ class LayoutViewer:
         self.overlay_items, self.overlay_button_frame = self.page_renderer.show_segmentation_overlay(
             self.canvas, spread_relative_segments, canvas_w, canvas_h, page_width, page_height,
             self.margin_mcf, origin_left,
-            self._accept_segmentation, self._reject_segmentation, self.ctrl
+            self._accept_segmentation, self._reject_segmentation, self.ctrlWin
         )
     
     def _clear_overlay(self):
@@ -2929,8 +2778,7 @@ class LayoutViewer:
         
         # Write the new page element directly to the MCF file
         # This bypasses the normal save flow since we've already created the image files
-        from .parser import parse_mcf_from_path
-        
+
         # Load the MCF XML
         tree = ET.parse(self.mcf_file_path)
         root = tree.getroot()
@@ -3039,7 +2887,6 @@ class LayoutViewer:
             use_slot_aspect_for_photos: Dict mapping photo index to bool (use slot AR)
             slot_aspect_ratios: Dict mapping (pageno, photo_idx) to float aspect ratio
         """
-        import json
         from pathlib import Path
         
         debug_file = Path(f"Debug-Page-{pageno}.txt")

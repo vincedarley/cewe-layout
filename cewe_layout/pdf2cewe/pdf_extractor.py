@@ -4,6 +4,9 @@ import fitz  # PyMuPDF
 from pathlib import Path
 from typing import Dict, List, Optional, Any
 from io import BytesIO
+
+from PIL import Image
+
 from .image_segmenter import segment_composite_image, should_segment_image
 
 
@@ -440,3 +443,202 @@ def merge_text_group(blocks: List[Dict[str, Any]]) -> Dict[str, Any]:
     })
     
     return merged
+
+
+def _makeScaledSegments(composite_image, current_pageno, image_data, image_format,
+                        new_segments: list[dict[str, Any]]) -> list[Any]:
+    # Scale segments from image pixels to PDF points/MCF units
+    # The composite_image has width/height in PDF points (which equals MCF units for our purposes)
+    from PIL import Image as PILImage
+    from io import BytesIO
+    temp_img = PILImage.open(BytesIO(image_data))
+    img_width_pixels = temp_img.width
+    img_height_pixels = temp_img.height
+
+    # DEBUG: Save composite image to see what we're segmenting
+    debug_path = f"/tmp/composite_page{current_pageno}.{image_format}"
+    temp_img.save(debug_path)
+    print(f"  DEBUG: Saved composite image to {debug_path}")
+
+    print(
+        f"  Composite image on PDF page: left={composite_image.get('left')}, top={composite_image.get('top')}, width={composite_image.get('width')}, height={composite_image.get('height')}")
+
+    # Calculate scale factors
+    scale_x = composite_image['width'] / img_width_pixels
+    scale_y = composite_image['height'] / img_height_pixels
+
+    print(
+        f"  Image: {img_width_pixels}x{img_height_pixels} pixels -> {composite_image['width']:.1f}x{composite_image['height']:.1f} points")
+    print(f"  Scale factors: x={scale_x:.4f}, y={scale_y:.4f}")
+
+    # Scale segment coordinates from pixels to points
+    # Segments are image-relative (0,0 = top-left of image)
+    # We need to scale them and position them absolutely on the page
+    scaled_segments = []
+    for i, seg in enumerate(new_segments):
+        # Scale from image pixels to points
+        seg_left_points = seg['left'] * scale_x
+        seg_top_points = seg['top'] * scale_y
+        seg_width_points = seg['width'] * scale_x
+        seg_height_points = seg['height'] * scale_y
+
+        # Add composite image position to make absolute page coordinates
+        abs_left = composite_image['left'] + seg_left_points
+        abs_top = composite_image['top'] + seg_top_points
+
+        print(f"  Segment {i} in pixels: ({seg['left']}, {seg['top']}) {seg['width']}x{seg['height']}")
+        print(
+            f"  Segment {i} in points (image-relative): ({seg_left_points:.1f}, {seg_top_points:.1f}) {seg_width_points:.1f}x{seg_height_points:.1f}")
+        print(
+            f"  Segment {i} in points (page-absolute): ({abs_left:.1f}, {abs_top:.1f}) {seg_width_points:.1f}x{seg_height_points:.1f}")
+
+        scaled_seg = {
+            'left': abs_left,
+            'top': abs_top,
+            'width': seg_width_points,
+            'height': seg_height_points,
+            'data': seg['data'],
+            'format': seg['format'],
+        }
+        scaled_segments.append(scaled_seg)
+    return scaled_segments
+
+
+def _getPdfPage(pdf_content, current_pageno) -> Any:
+    pdf_page = None
+    # Check if we have pre-loaded pages or need to use on-demand reader
+    if 'reader' in pdf_content:
+        # On-demand reader mode
+        page_count = pdf_content.get('page_count', 0)
+        print(f"  PDF has {page_count} pages (on-demand mode)")
+
+        if current_pageno >= page_count:
+            print(f"Error: CEWE page {current_pageno} not found in PDF content (PDF has {page_count} pages)")
+            pdf_page = None
+
+        # Extract page on-demand
+        print(f"  Extracting page {current_pageno} from PDF...")
+        pdf_page = pdf_content['reader'].extract_page(current_pageno)
+    else:
+        # Pre-loaded pages mode
+        page_count = len(pdf_content['pages'])
+        print(f"  PDF has {page_count} pages (pre-loaded mode)")
+
+        if current_pageno >= page_count:
+            print(f"Error: CEWE page {current_pageno} not found in PDF content (PDF has {page_count} pages)")
+            pdf_page = None
+
+        pdf_page = pdf_content['pages'][current_pageno]
+    return pdf_page
+
+
+def _getImageToSegment(pages, index, status_var, current_pageno, pdf_page, specific_photo_index: int | None) -> tuple[Any, list[int]]:
+    image_to_segment = None
+    photos_to_replace = []  # Track which photos will be replaced
+
+    if specific_photo_index is not None:
+        # Mode 2: Re-segment a specific photo
+        # Find the corresponding image in the PDF page
+        _, page_info = pages[index]
+        photos = page_info.get('photos', [])
+
+        if specific_photo_index >= len(photos):
+            print(f"Error: Photo #{specific_photo_index + 1} not found (page has {len(photos)} photos)")
+            status_var.set(f'Error: Photo #{specific_photo_index + 1} not found')
+            return None
+
+        # Find the PDF image that corresponds to this photo
+        # For now, use the image at the same index (this may need refinement)
+        images_with_data = [img for img in pdf_page.get('images', []) if img.get('data')]
+        if specific_photo_index < len(images_with_data):
+            composite_image = images_with_data[specific_photo_index]
+            photos_to_replace = [specific_photo_index]
+            print(
+                f"  Re-segmenting photo #{specific_photo_index + 1}: {composite_image.get('width'):.1f}x{composite_image.get('height'):.1f}")
+        else:
+            print(f"Error: Cannot find PDF image for photo #{specific_photo_index + 1}")
+            status_var.set(f'Error: Cannot find image for photo #{specific_photo_index + 1}')
+            return None
+    else:
+        # Mode 1: Re-segment entire page from full PDF page
+        # Extract the embedded composite image using explicit marker
+        print(f"  Extracting embedded composite image from PDF page {current_pageno}...")
+
+        # Get the explicitly marked composite image from PDF extraction
+        composite_image = pdf_page.get('composite_image')
+
+        if not composite_image:
+            print("Error: No composite image found in PDF page data")
+            print(f"  Available images: {len(pdf_page.get('images', []))}")
+            status_var.set('Error: No composite image in page data')
+            return None
+
+        # Get actual pixel dimensions
+        from PIL import Image as PILImage
+        from io import BytesIO
+        temp_img = PILImage.open(BytesIO(composite_image['data']))
+        pixel_width = temp_img.width
+        pixel_height = temp_img.height
+
+        # All photos will be replaced
+        _, page_info = pages[index]
+        photos = page_info.get('photos', [])
+        photos_to_replace = list(range(len(photos)))
+        print(
+            f"  Using embedded composite image: {pixel_width}x{pixel_height} pixels ({composite_image['width']:.1f}x{composite_image['height']:.1f} points)")
+
+        # DEBUG: Save composite image for comparison
+        debug_path = f"/tmp/composite_page{current_pageno}.{composite_image.get('format', 'jpeg')}"
+        temp_img.save(debug_path)
+        print(f"  DEBUG: Saved composite image to {debug_path}")
+    return composite_image, photos_to_replace
+
+
+def _segmentPage(pdf_content, pages, index, status_var, current_pageno, segmenter: ImageSegmenter,
+                              specific_photo_index: int | None,
+                              target_count: int) -> tuple[list[dict[str, Any]] | None, Any, Any, Any, list[int]]:
+    pdf_page = _getPdfPage(pdf_content, current_pageno)
+    print(f"  PDF page has {len(pdf_page.get('images', []))} images")
+
+    # Determine which image to re-segment
+    image_to_segment, photos_to_replace = _getImageToSegment(pages, index, status_var,
+                                                             current_pageno, pdf_page, specific_photo_index)
+
+    if not image_to_segment:
+        print(f"No image found to re-segment")
+        status_var.set('No image to re-segment')
+        return None
+
+    # Get the original image data
+    image_data = image_to_segment['data']
+    image_format = image_to_segment['format']
+
+    # Try to find segmentation with target count
+    print(f"Searching for segmentation with {target_count} photos using {segmenter.get_name()}...")
+    new_segments = segmenter.segment_for_count(
+        image_data, image_format, target_count, verbose=True
+    )
+
+    if not new_segments:
+        print(f"Could not achieve target count of {target_count} photos")
+        status_var.set(f'❌ Could not find segmentation with {target_count} photos')
+        return None
+
+    return new_segments, image_data, image_format, image_to_segment, photos_to_replace
+
+
+def performSegmentationOnPage(pdf_content, pages, index, status_var, current_pageno, segmenter: ImageSegmenter,
+            specific_photo_index: int | None, target_count: int) -> \
+tuple[list[int], list[Any], Any, list[dict[str, Any]] | None, Any]:
+    new_segments, image_data, image_format, image_to_segment, photos_to_replace = _segmentPage(
+        pdf_content, pages, index, status_var,
+        current_pageno, segmenter, specific_photo_index, target_count)
+
+    if new_segments:
+        print(f"✅ Found segmentation with {len(new_segments)} photos")
+
+        scaled_segments = _makeScaledSegments(image_to_segment, current_pageno, image_data, image_format,
+                                          new_segments)
+        return scaled_segments, image_data, image_format, image_to_segment, photos_to_replace
+    else:
+        return None

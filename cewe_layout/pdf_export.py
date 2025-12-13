@@ -3,6 +3,7 @@
 Standalone module for exporting page layouts to PDF with photos and text boxes.
 """
 import os
+
 from reportlab.pdfgen import canvas
 from reportlab.lib.utils import ImageReader
 
@@ -82,3 +83,5 @@ def export_layout_to_pdf(photos, texts, page_w, page_h, origin_left, mcf_base_fo
                 pass
     
     pdf_canvas.save()
+
+
