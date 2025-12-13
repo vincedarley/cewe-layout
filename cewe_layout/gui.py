@@ -868,9 +868,9 @@ class LayoutViewer:
                             break
                     
                     if back_cover_idx is not None:
-                        # Show front and back cover as spread
-                        page_indices = [self.index, back_cover_idx]
-                        self.current_spread_pages = [0, max_page]
+                        # Show front and back cover as spread (back on left, front on right)
+                        page_indices = [back_cover_idx, self.index]
+                        self.current_spread_pages = [max_page, 0]
                     else:
                         # Only front cover exists
                         page_indices = [self.index]
@@ -884,9 +884,9 @@ class LayoutViewer:
                             break
                     
                     if front_cover_idx is not None:
-                        # Show front and back cover as spread (front on left)
-                        page_indices = [front_cover_idx, self.index]
-                        self.current_spread_pages = [0, max_page]
+                        # Show front and back cover as spread (back on left, front on right)
+                        page_indices = [self.index, front_cover_idx]
+                        self.current_spread_pages = [max_page, 0]
                     else:
                         # Only back cover exists
                         page_indices = [self.index]
@@ -2291,22 +2291,17 @@ class LayoutViewer:
             is_current_cover = current_info.get('is_cover', False)
             
             if is_current_cover:
-                # Navigate from cover to last normal page
+                # Navigate from cover spread to last normal even page
                 for i in range(len(self.pages) - 1, -1, -1):
                     pageno, info = self.pages[i]
-                    if not info.get('is_cover', False):
-                        # Found last normal page
-                        # If it's odd, go to even page before it
-                        if pageno % 2 == 1 and i > 0:
-                            self.index = i - 1
-                        else:
-                            self.index = i
-                        pageno = self.pages[self.index][0]
+                    if not info.get('is_cover', False) and pageno % 2 == 0:
+                        # Found last normal even page
+                        self.index = i
                         self.show_status(f'Loading page {pageno}...')
                         self.root.update_idletasks()
                         self.render_page()
                         return
-                # No normal pages, stay on cover
+                # No normal even pages, stay on cover
                 return
             
             # Find previous even page (normal pages only)
@@ -2349,7 +2344,17 @@ class LayoutViewer:
             is_current_cover = current_info.get('is_cover', False)
             
             if is_current_cover:
-                # Already at covers (last spread), stay there
+                # Navigate forward from cover spread to first normal page (page 1)
+                for i in range(len(self.pages)):
+                    pageno, info = self.pages[i]
+                    if not info.get('is_cover', False):
+                        # Found first normal page
+                        self.index = i
+                        self.show_status(f'Loading page {pageno}...')
+                        self.root.update_idletasks()
+                        self.render_page()
+                        return
+                # No normal pages, stay on cover
                 self.show_status('Last page of book')
                 return
             
@@ -2459,9 +2464,13 @@ class LayoutViewer:
         page_h = first_page_info.get('page_height')
         
         if self.spread_mode.get():
-            # Entering spread mode: navigate to nearest even page
+            # Entering spread mode: navigate to nearest even page (unless on a cover)
             current_pageno = self.pages[self.index][0]
-            if current_pageno % 2 != 0:
+            current_info = self.pages[self.index][1]
+            is_current_cover = current_info.get('is_cover', False)
+            
+            # Only navigate if not on a cover and on odd page
+            if current_pageno % 2 != 0 and not is_current_cover:
                 # Current page is odd - navigate to previous even page if possible
                 for i in range(self.index - 1, -1, -1):
                     if self.pages[i][0] % 2 == 0:
@@ -2481,6 +2490,9 @@ class LayoutViewer:
         # Update window aspect ratio
         ratio_num = int(self.canvas_aspect_ratio * 1000)
         ratio_denom = 1000
+        
+        # Re-render to immediately show the change
+        self.render_page()
     
     def _on_pdf_photo_count_change(self, event=None):
         """Handle PDF photo count change - re-analyze page with new target count."""

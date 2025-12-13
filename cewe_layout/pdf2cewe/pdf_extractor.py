@@ -614,7 +614,15 @@ def _convert_page_to_mcf_coordinates(page_data: Dict[str, Any], page_num: int, t
     """
     PT_TO_MCF = 3.52778  # 1 PDF point = 25.4mm/72 = 0.352778mm = 3.52778 * 0.1mm
 
-    page_width_mcf = page_width_pdf * PT_TO_MCF
+    # Calculate page dimensions in MCF units and round to nearest integer
+    # This ensures consistent dimensions throughout the photobook and avoids
+    # floating-point errors placing photos on wrong pages (e.g., 2825.8 vs 2826.0)
+    #
+    # FUTURE: Consider allowing user to override page size here to:
+    #   (a) Scale the entire book to a different size (e.g., change aspect ratio)
+    #   (b) Snap to one of CEWE's standard printable sizes (e.g., 21x28cm, 28x21cm)
+    #       to ensure the resulting MCF can be physically printed
+    page_width_mcf = round(page_width_pdf * PT_TO_MCF)
     is_right_page, x_offset_mcf = _get_page_positioning(page_num, total_pages, page_width_mcf)
 
     logger.info(f"Converting page {page_num} to MCF: is_right={is_right_page}, x_offset={x_offset_mcf:.1f} MCF")

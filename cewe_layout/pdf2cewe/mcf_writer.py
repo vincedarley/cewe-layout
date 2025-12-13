@@ -92,6 +92,17 @@ def create_mcf_xml(pdf_content: Dict[str, Any], output_dir: Path, verbose: bool 
     # So 1 point = 0.352778 mm = 3.52778 MCF units
     pt_to_mcf = 3.52778
     
+    # Calculate page dimensions in MCF units and round to nearest integer
+    # This ensures consistent dimensions throughout the photobook and avoids
+    # floating-point errors in bundlesize specifications
+    #
+    # FUTURE: Consider allowing user to override page size here to:
+    #   (a) Scale the entire book to a different size (e.g., change aspect ratio)
+    #   (b) Snap to one of CEWE's standard printable sizes (e.g., 21x28cm, 28x21cm)
+    #       to ensure the resulting MCF can be physically printed
+    page_width_mcf = round(page_width * pt_to_mcf)
+    page_height_mcf = round(page_height * pt_to_mcf)
+    
     fotobook = ET.SubElement(mcf, 'fotobook')
     fotobook.set('productname', 'Custom Photobook')
     # CEWE pagecount = number of content pages + 3 (front cover, inside front, inside back)
@@ -118,23 +129,23 @@ def create_mcf_xml(pdf_content: Dict[str, Any], output_dir: Path, verbose: bool 
         cover_page = create_cover_spread_element(
             pdf_content['pages'][0],   # Front cover (right half)
             pdf_content['pages'][-1],  # Back cover (left half)
-            output_dir, page_width * pt_to_mcf, page_height * pt_to_mcf, verbose
+            output_dir, page_width_mcf, page_height_mcf, verbose
         )
         fotobook.append(cover_page)
     elif len(pdf_content['pages']) == 1:
         # Only one page - use it as front cover
         cover_page = create_cover_spread_element(
             pdf_content['pages'][0], None,
-            output_dir, page_width * pt_to_mcf, page_height * pt_to_mcf, verbose
+            output_dir, page_width_mcf, page_height_mcf, verbose
         )
         fotobook.append(cover_page)
     
     # Add spine page (required structure)
-    spine_page = create_spine_page(page_width * pt_to_mcf, page_height * pt_to_mcf)
+    spine_page = create_spine_page(page_width_mcf, page_height_mcf)
     fotobook.append(spine_page)
     
     # Add empty front cover fullcover page (required structure)
-    front_cover_empty = create_empty_cover_page(page_width * pt_to_mcf, page_height * pt_to_mcf)
+    front_cover_empty = create_empty_cover_page(page_width_mcf, page_height_mcf)
     fotobook.append(front_cover_empty)
     
     # Note: Inside front cover (4th pagenr=0 emptypage) will be added as dummy page 0
@@ -156,7 +167,7 @@ def create_mcf_xml(pdf_content: Dict[str, Any], output_dir: Path, verbose: bool 
             fotobook.append(dummy_page)
             
             # Create empty page 1
-            empty_page_1 = create_empty_page(page_width * pt_to_mcf, page_height * pt_to_mcf)
+            empty_page_1 = create_empty_page(page_width_mcf, page_height_mcf)
             empty_page_1.set('pagenr', '1')
             empty_page_1.set('type', 'normalpage')
             fotobook.append(empty_page_1)
@@ -184,16 +195,16 @@ def create_mcf_xml(pdf_content: Dict[str, Any], output_dir: Path, verbose: bool 
                 
                 # Also create an empty page element for the odd (right) page
                 # This has no areas, just bundlesize and background
-                odd_page_elem = create_empty_content_page(page_width * pt_to_mcf, page_height * pt_to_mcf, cewe_pagenr + 1)
+                odd_page_elem = create_empty_content_page(page_width_mcf, page_height_mcf, cewe_pagenr + 1)
                 fotobook.append(odd_page_elem)
         else:
             # Odd page without a preceding even page (shouldn't happen normally)
             # Create empty page element
-            odd_page_elem = create_empty_content_page(page_width * pt_to_mcf, page_height * pt_to_mcf, cewe_pagenr)
+            odd_page_elem = create_empty_content_page(page_width_mcf, page_height_mcf, cewe_pagenr)
             fotobook.append(odd_page_elem)
     
     # Add inside back cover (empty page, pagenr=0)
-    inside_back = create_empty_page(page_width * pt_to_mcf, page_height * pt_to_mcf)
+    inside_back = create_empty_page(page_width_mcf, page_height_mcf)
     fotobook.append(inside_back)
     
     return mcf
