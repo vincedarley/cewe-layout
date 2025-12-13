@@ -552,6 +552,20 @@ def extract_pages_info(fotobook_root):
                 logger.warning(f"Page {pagenr}: owner {owner} not found in pages_map - this shouldn't happen")
                 continue
 
+            # VALIDATION: Check if area is in the wrong page's XML
+            # In photobook mode, ALL areas for a spread should be in the LEFT page's XML (even pagenr)
+            # The left page XML contains areas for both the left page (pagenr) and right page (pagenr+1)
+            # If we're processing an odd-numbered page (right page) and find ANY areas, that's wrong
+            if not single_page_mode and not canvas_mode:
+                if (pagenr % 2) == 1:
+                    # We're processing an odd (right) page, but areas should NEVER be in odd page XML
+                    # They should all be in the even (left) page XML of this spread
+                    logger.error(f"Page {pagenr}: Found area in WRONG page XML! Area at left={area_left:.1f} "
+                               f"belongs to page {owner}, but is in odd page {pagenr}'s XML. "
+                               f"All areas for this spread should be in page {pagenr-1}'s XML (the left page). "
+                               f"SKIPPING this area.")
+                    continue
+            
             # Check area type
             areatype = area.get('areatype', 'imagearea')
             

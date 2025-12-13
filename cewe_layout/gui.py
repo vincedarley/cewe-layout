@@ -556,24 +556,9 @@ class LayoutViewer:
         self.undersized_penalty = 5.0  # Default undersized penalty factor
         self.empty_threshold = 0.05  # Default empty space threshold (5%)
         self.modified_pages = set()  # Track pages with unsaved changes
-        
-        # Find the last page with actual photos (non-empty filenames)
-        last_page_with_photos = 0
-        for idx, (pageno, info) in enumerate(self.pages):
-            photos = info.get('photos', [])
-            # Check if page has any photos with actual filenames (not empty slots)
-            has_photos = any(p.get('filename') for p in photos)
-            if has_photos:
-                last_page_with_photos = idx
-        
-        # Start at the last page with photos
-        # For Canvas mode, there's only 1 page at index 0
-        # For photobooks and calendars, skip page 0 (cover/title) and start at page 1 or later
-        if self.is_canvas or len(self.pages) == 1:
-            self.index = last_page_with_photos
-        else:
-            self.index = max(1, last_page_with_photos)
-        
+
+        self.index = self._pageToStartOn()
+
         # Setup keyboard shortcuts
         self._setup_keyboard_shortcuts()
         
@@ -582,6 +567,24 @@ class LayoutViewer:
             self._setup_macos_menu()
         
         self.render_page()
+
+    def _pageToStartOn(self) -> int:
+        # Find the first page that needs work (is completely empty or has empty rects)
+        for idx, (pageno, info) in enumerate(self.pages):
+            photos = info.get('photos', [])
+            texts = info.get('texts', [])
+
+            # Check if page is completely empty (no photos, no texts)
+            is_completely_empty = (len(photos) == 0 and len(texts) == 0)
+
+            # Check if page has empty rects (photos without filenames)
+            has_empty_rects = any(not p.get('filename') for p in photos)
+
+            if is_completely_empty or has_empty_rects:
+                return idx
+
+        # Start at page 0 if all pages are complete
+        return 0
 
     def _setup_keyboard_shortcuts(self):
         """Setup keyboard shortcuts for common actions."""
@@ -2591,7 +2594,10 @@ class LayoutViewer:
             del self.pending_segmentation
     
     def _accept_segmentation(self):
-        """Accept the new segmentation and rebuild the MCF page."""
+        """Accept the new segmentation and update in-memory data structures.
+        
+        This does NOT save to disk - the user must click "Save Modified" to persist changes.
+        """
         if not hasattr(self, 'pending_segmentation'):
             return
         
@@ -2607,8 +2613,8 @@ class LayoutViewer:
         else:
             print(f"Accepting new segmentation for page {pageno} with {len(segments)} photos (replacing all photos)")
         
-        # Rebuild the MCF page with new segmentation
-        self._rebuild_mcf_page(pageno, segments, image_data, image_format, photos_to_replace)
+        # Update in-memory structures (don't write to disk yet)
+        self._update_page_with_segmentation(pageno, segments, image_data, image_format, photos_to_replace)
         
         # Clear overlay
         self._clear_overlay()
@@ -2616,7 +2622,7 @@ class LayoutViewer:
         # Re-render page
         self.render_page()
         
-        self.status_var.set(f'✅ Applied new segmentation with {len(segments)} photos')
+        self.status_var.set(f'✅ Applied new segmentation with {len(segments)} photos (not saved to disk yet)')
     
     def _reject_segmentation(self):
         """Reject the new segmentation and keep the existing layout."""
@@ -2627,234 +2633,106 @@ class LayoutViewer:
         
         self.status_var.set('Segmentation rejected')
     
-    def _rebuild_mcf_page(self, pageno, segments, image_data, image_format, photos_to_replace=None):
-        """Rebuild a single MCF page with new segmentation.
+    def _update_page_with_segmentation(self, pageno, segments, image_data, image_format, photos_to_replace=None):
+        """Update in-memory data structures with new segmentation.
+        
+        This does NOT save to disk or modify the MCF file. Changes are held in memory
+        and will be written when the user clicks "Save Modified".
         
         Args:
-            pageno: Page number to rebuild
-            segments: New segment list
+            pageno: Page number to update
+            segments: New segment list (in MCF spread coordinates)
             image_data: Original composite image data
-            image_format: Image format
-            photos_to_replace: List of photo indices to replace (None = replace all photos)
+            image_format: Image format (e.g., 'JPEG', 'PNG')
+            photos_to_replace: List of photo indices to replace (None/empty = replace all)
         """
-        # Import MCF writer functions
-        from .pdf2cewe.mcf_writer import create_page_element
         from pathlib import Path
-        import xml.etree.ElementTree as ET
+        from PIL import Image
+        import io
+        from .file_utils import encode_metadata_in_filename
         
-        # Get output directory (the .xmcf directory)
-        mcf_dir = Path(self.mcf_file_path).parent
+        # Get album directory and create parallel -photos directory
+        album_path = Path(self.mcf_file_path).parent
+        album_name = album_path.name.replace('.xmcf', '').replace('.mcfx', '')
+        photos_dir = album_path.parent / f"{album_name}-photos"
+        photos_dir.mkdir(exist_ok=True)
         
-        # Delete only the specified photos
+        print(f"Saving segmentation images to: {photos_dir}")
+        
+        # Get page info
         _, page_info = self.pages[self.index]
-        old_photos = page_info.get('photos', [])
         
-        if photos_to_replace is None or not photos_to_replace:
-            # Replace all photos
-            photos_to_delete = old_photos
-            photos_to_keep = []
-        else:
-            # Replace only specified photos
-            photos_to_delete = [old_photos[i] for i in photos_to_replace if i < len(old_photos)]
-            photos_to_keep = [p for i, p in enumerate(old_photos) if i not in photos_to_replace]
+        # Create new photo dicts from segments and save image files
+        new_photo_dicts = []
+        new_photo_filenames = []
         
-        for photo in photos_to_delete:
-            filename = photo.get('filename', '')
-            if filename:
-                photo_path = mcf_dir / filename
-                if photo_path.exists():
-                    photo_path.unlink()
-                    print(f"  Deleted old photo: {filename}")
-        
-        # Handle partial photo replacement
-        pt_to_mcf = 3.52778
-        cewe_pagenr = page_info.get('cewe_pagenr', pageno)
-        page_type = page_info.get('page_type', 'normalpage')
-        is_cover = (cewe_pagenr == 0 and page_type in ('fullcover', 'calendarcoverfront'))
-        origin_left_mcf = page_info.get('origin_left', 0.0)
-        
-        print(f"  Page {pageno}: origin_left={origin_left_mcf} MCF, cewe_pagenr={cewe_pagenr}")
-        
-        if photos_to_keep:
-            print(f"  Partial replacement: keeping {len(photos_to_keep)} photos, adding {len(segments)} new photos")
+        for i, seg in enumerate(segments):
+            # Generate filename with metadata
+            base_name = f"seg_p{pageno:03d}_{i:04d}"
+            ext = 'jpg' if image_format.upper() in ['JPEG', 'JPG'] else image_format.lower()
+            # Encode metadata in filename (size=1.0, page=pageno)
+            filename_with_meta = encode_metadata_in_filename(f"{base_name}.{ext}", 1.0, pageno)
             
-            # Load the existing page XML
-            tree = ET.parse(self.mcf_file_path)
-            root = tree.getroot()
+            # Full path in -photos directory
+            image_path = photos_dir / filename_with_meta
             
-            # Find the existing page element
-            page_element = None
-            for page in root.findall('.//page'):
-                if page.get('pagenr') == str(cewe_pagenr):
-                    page_element = page
-                    break
-            
-            if page_element is None:
-                print(f"Error: Could not find page element for pagenr={cewe_pagenr}")
-                return
-            
-            # Remove the old photo areas (the ones being replaced)
-            areas_to_remove = []
-            for area in page_element.findall('.//area'):
-                if area.get('areatype') == 'imagearea':
-                    # Check if this is one of the photos to delete
-                    img = area.find('image')
-                    if img is not None:
-                        filename = img.get('filename', '')
-                        if any(filename == p.get('filename', '') for p in photos_to_delete):
-                            areas_to_remove.append(area)
-            
-            for area in areas_to_remove:
-                page_element.remove(area)
-            
-            # Add new image areas for the segments
-            from .pdf2cewe.mcf_writer import create_image_area
-            
-            # Find the highest z-position in existing areas
-            max_z = 1000
-            for area in page_element.findall('.//area'):
-                pos = area.find('position')
-                if pos is not None:
-                    z = int(pos.get('zposition', 1000))
-                    max_z = max(max_z, z)
-            
-            z_position = max_z + 1
-            
-            # Add each segment as a new area
-            # Segments come from PDF in MCF spread coordinates, need to write as MCF spread coords
-            for i, seg in enumerate(segments):
-                print(f"  Segment {i} (MCF spread): left={seg['left']:.1f}, top={seg['top']:.1f}, "
-                      f"width={seg['width']:.1f}, height={seg['height']:.1f}")
-                img_dict = {
-                    'index': len(old_photos) + i,  # Continue numbering from existing photos
-                    'data': seg['data'],
-                    'format': seg['format'],
-                    'left': seg['left'],  # MCF spread coordinate
-                    'top': seg['top'],
-                    'width': seg['width'],
-                    'height': seg['height'],
-                    'page_num': pageno
-                }
-                # Coordinates are already in MCF spread units
-                area = create_image_area(img_dict, mcf_dir, z_position, verbose=True)
-                page_element.append(area)
-                z_position += 1
-            
-        else:
-            # Full page replacement - create entirely new page element
-            print(f"  Full page replacement: {len(segments)} new photos")
-            
-            # Segments are already in MCF spread coordinates
-            # page_width and page_height are also in MCF units
-            page_data = {
-                'page_num': pageno,
-                'width': page_info.get('page_width'),  # Already in MCF
-                'height': page_info.get('page_height'),  # Already in MCF
-                'images': [],
-                'text_blocks': []
-            }
-            
-            for i, seg in enumerate(segments):
-                # Segments are already in MCF spread coordinates
-                # create_page_element expects MCF spread coordinates
-                page_data['images'].append({
-                    'index': i,
-                    'data': seg['data'],
-                    'format': seg['format'],
-                    'left': seg['left'],  # MCF spread coordinate - no conversion needed
-                    'top': seg['top'],
-                    'width': seg['width'],
-                    'height': seg['height']
-                })
-            
-            # Coordinates are already in MCF units
-            page_element = create_page_element(
-                page_data, mcf_dir,
-                cewe_pagenr, page_type, is_cover, 
-                verbose=True
-            )
-        
-        # Update the in-memory page data
-        # Extract the new photos from the generated XML
-        new_photos = []
-        print(f"  Searching for photos in page element with {len(list(page_element))} children")
-        for area in page_element.findall('.//area'):
-            areatype = area.get('areatype')
-            print(f"    Found area with areatype='{areatype}'")
-            if areatype == 'imagearea':
-                # This is a photo - extract position and image info
-                pos = area.find('position')
-                img = area.find('image')
-                print(f"      pos={pos}, img={img}")
-                if pos is not None and img is not None:
-                    filename = img.get('filename', '')
-                    print(f"      Creating photo_dict with filename='{filename}'")
-                    photo_dict = {
-                        'filename': filename,
-                        'area_left': float(pos.get('left', 0)),
-                        'area_top': float(pos.get('top', 0)),
-                        'area_width': float(pos.get('width', 0)),
-                        'area_height': float(pos.get('height', 0)),
-                    }
-                    new_photos.append(photo_dict)
-        
-        print(f"  Extracted {len(new_photos)} photos from page element")
-        
-        # Update the page info
-        page_info['photos'] = new_photos
-        
-        # Write the new page element directly to the MCF file
-        # This bypasses the normal save flow since we've already created the image files
-
-        # Load the MCF XML
-        tree = ET.parse(self.mcf_file_path)
-        root = tree.getroot()
-        
-        # Find the page element with matching cewe_pagenr
-        cewe_pagenr = page_info.get('cewe_pagenr', pageno)
-        page_to_replace = None
-        for page in root.findall('.//page'):
-            if page.get('pagenr') == str(cewe_pagenr):
-                page_to_replace = page
-                break
-        
-        if page_to_replace is not None:
-            # Replace the old page element with the new one
-            parent = root.find(f".//page[@pagenr='{cewe_pagenr}']/..")
-            if parent is not None:
-                idx = list(parent).index(page_to_replace)
-                parent.remove(page_to_replace)
-                parent.insert(idx, page_element)
-                
-                # Save the MCF file (with backup)
-                backup_path = Path(self.mcf_file_path).with_suffix('.mcf~')
-                if backup_path.exists():
-                    backup_path.unlink()
-                Path(self.mcf_file_path).rename(backup_path)
-                
-                tree.write(self.mcf_file_path, encoding='utf-8', xml_declaration=True)
-                print(f"  Saved MCF file with updated page {pageno}")
+            # Extract and save this segment's image data
+            # If seg has 'data' key, use it directly; otherwise extract from composite
+            if 'data' in seg:
+                # Segment already has image data
+                image_path.write_bytes(seg['data'])
             else:
-                print(f"  Warning: Could not find parent for page {cewe_pagenr}")
+                # Extract from composite image (this shouldn't happen with current code)
+                # But handle it just in case
+                img = Image.open(io.BytesIO(image_data))
+                # Crop to segment bounds (assuming segments have x,y,w,h in pixel coords)
+                # This is a fallback - normally segments should have 'data'
+                if 'x' in seg and 'y' in seg and 'width' in seg and 'height' in seg:
+                    cropped = img.crop((seg['x'], seg['y'], seg['x'] + seg['width'], seg['y'] + seg['height']))
+                    cropped.save(image_path, quality=95)
+                else:
+                    print(f"  Warning: Segment {i} missing data or crop coordinates")
+                    continue
+            
+            print(f"  Saved segment {i} to: {filename_with_meta}")
+            
+            # Create photo dict with safecontainer prefix
+            safe_filename = f"safecontainer:/{filename_with_meta}"
+            photo_dict = {
+                'filename': safe_filename,
+                'area_left': seg['left'],    # MCF spread coordinates
+                'area_top': seg['top'],
+                'area_width': seg['width'],
+                'area_height': seg['height'],
+                'area_rot': 0,
+                'cutout': None,
+                '_source_path': str(image_path)  # Track source for save_layout
+            }
+            new_photo_dicts.append(photo_dict)
+            new_photo_filenames.append(safe_filename)
+        
+        # Use LayoutManager API to update the page with new photos
+        success = self.layout_mgr.replace_photos_with_new(
+            pageno=pageno,
+            photos_to_remove_indices=photos_to_replace if photos_to_replace else None,
+            new_photos=new_photo_dicts,
+            new_photo_filenames=new_photo_filenames,
+            preferred_sizes=None  # Will default to 1.0 for all
+        )
+        
+        if not success:
+            print(f"  Error: Failed to update layout for page {pageno}")
+            return
+        
+        # Mark page as modified
+        self._mark_current_pages_modified()
+        
+        if photos_to_replace:
+            print(f"  ✅ Replaced {len(photos_to_replace)} photos with {len(new_photo_dicts)} new photos on page {pageno}")
         else:
-            print(f"  Warning: Could not find page element with pagenr={cewe_pagenr}")
+            print(f"  ✅ Replaced all photos with {len(new_photo_dicts)} new photos on page {pageno}")
         
-        # Update the in-memory page data and layout manager
-        page_info['photos'] = new_photos
-        texts = page_info.get('texts', [])
-        self.layout_mgr.set_original(pageno, new_photos, texts)
-        
-        # Set preferred size for each new photo (default to 1.0)
-        for photo in new_photos:
-            base_fn = os.path.splitext(os.path.basename(photo.get('filename', '')))[0]
-            self.layout_mgr.set_size(pageno, base_fn, 1.0)
-        
-        # Clear modified pages since we just saved
-        if pageno in self.modified_pages:
-            self.modified_pages.remove(pageno)
-        self._update_modified_pages_display()
-        
-        print(f"✅ Rebuilt page {pageno} with {len(new_photos)} photos")
+        print(f"  Page {pageno} marked as modified - will be saved when you click 'Save Modified'")
     
     def _update_modified_pages_display(self):
         """Update the modified pages label in Controls window."""

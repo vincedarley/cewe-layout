@@ -196,3 +196,70 @@ class LayoutManager:
             self.new_photos[pageno].clear()
         if pageno in self.deleted_photos:
             self.deleted_photos[pageno].clear()
+    
+    def replace_photos_with_new(self, pageno, photos_to_remove_indices, new_photos, new_photo_filenames, preferred_sizes=None):
+        """Replace specific photos with new photos and update tracking.
+        
+        This is a high-level API for operations like segmentation that replace existing photos
+        with new ones. It handles:
+        - Removing old photos from the layout
+        - Adding new photos to the layout
+        - Marking old photos as deleted
+        - Marking new photos as new
+        - Setting preferred sizes for new photos
+        
+        Args:
+            pageno: Page number
+            photos_to_remove_indices: List of indices of photos to remove, or None/empty to remove all
+            new_photos: List of new photo dicts to add
+            new_photo_filenames: List of filenames for the new photos (for tracking)
+            preferred_sizes: Optional dict of filename -> size for new photos (default 1.0)
+            
+        Returns:
+            True if successful, False if page has no current layout
+        """
+        # Get current layout
+        current = self.get_current(pageno)
+        if not current:
+            return False
+        
+        current_photos = list(current.photos)
+        current_texts = list(current.texts)
+        
+        # Mark removed photos as deleted
+        if photos_to_remove_indices:
+            for idx in photos_to_remove_indices:
+                if idx < len(current_photos):
+                    old_filename = current_photos[idx].get('filename')
+                    if old_filename:
+                        self.mark_photo_as_deleted(pageno, old_filename)
+        else:
+            # Remove all photos
+            for photo in current_photos:
+                old_filename = photo.get('filename')
+                if old_filename:
+                    self.mark_photo_as_deleted(pageno, old_filename)
+        
+        # Build new photos list
+        if photos_to_remove_indices:
+            # Keep photos not in the removal list
+            updated_photos = [p for i, p in enumerate(current_photos) if i not in photos_to_remove_indices]
+        else:
+            # Remove all photos
+            updated_photos = []
+        
+        # Add new photos
+        updated_photos.extend(new_photos)
+        
+        # Push updated layout
+        self.push_layout(pageno, updated_photos, current_texts)
+        
+        # Mark new photos and set preferred sizes
+        for filename in new_photo_filenames:
+            self.mark_photo_as_new(pageno, filename)
+            if preferred_sizes and filename in preferred_sizes:
+                self.set_size(pageno, filename, preferred_sizes[filename])
+            else:
+                self.set_size(pageno, filename, 1.0)
+        
+        return True

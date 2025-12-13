@@ -142,6 +142,8 @@ def create_mcf_xml(pdf_content: Dict[str, Any], output_dir: Path, verbose: bool 
     
     # Add content pages (pagenr 1..N-2)
     # PDF pages 2..N-1 map to CEWE pagenr 1..(N-2)
+    # CRITICAL: In CEWE photobook format, areas for a spread go in the LEFT (even) page's XML
+    # So we only create page elements for EVEN page numbers, containing areas for both pages
     for i in range(1, len(pdf_content['pages']) - 1):
         page_data = pdf_content['pages'][i]
         cewe_pagenr = i  # PDF page 2 -> CEWE pagenr 1, PDF page 3 -> CEWE pagenr 2, etc.
@@ -158,9 +160,37 @@ def create_mcf_xml(pdf_content: Dict[str, Any], output_dir: Path, verbose: bool 
             empty_page_1.set('pagenr', '1')
             empty_page_1.set('type', 'normalpage')
             fotobook.append(empty_page_1)
-        else:
+        elif cewe_pagenr % 2 == 0:
+            # Even page (left page of spread) - create page element with areas
+            # This will contain areas for both this page and the next odd page
             page_elem = create_page_element(page_data, output_dir, cewe_pagenr, 'normalpage', False, verbose)
             fotobook.append(page_elem)
+            
+            # If there's a next odd page, add its areas to this same page element
+            next_i = i + 1
+            if next_i < len(pdf_content['pages']) - 1:
+                next_page_data = pdf_content['pages'][next_i]
+                # Add the next page's areas to this page element
+                z_position = 1000 + len(page_data.get('images', [])) + len(page_data.get('text_blocks', []))
+                for img in next_page_data.get('images', []):
+                    img['page_num'] = next_page_data['page_num']
+                    area = create_image_area(img, output_dir, z_position, verbose)
+                    page_elem.append(area)
+                    z_position += 1
+                for text_block in next_page_data.get('text_blocks', []):
+                    area = create_text_area(text_block, z_position, verbose)
+                    page_elem.append(area)
+                    z_position += 1
+                
+                # Also create an empty page element for the odd (right) page
+                # This has no areas, just bundlesize and background
+                odd_page_elem = create_empty_content_page(page_width * pt_to_mcf, page_height * pt_to_mcf, cewe_pagenr + 1)
+                fotobook.append(odd_page_elem)
+        else:
+            # Odd page without a preceding even page (shouldn't happen normally)
+            # Create empty page element
+            odd_page_elem = create_empty_content_page(page_width * pt_to_mcf, page_height * pt_to_mcf, cewe_pagenr)
+            fotobook.append(odd_page_elem)
     
     # Add inside back cover (empty page, pagenr=0)
     inside_back = create_empty_page(page_width * pt_to_mcf, page_height * pt_to_mcf)
@@ -306,6 +336,43 @@ def create_empty_page(page_width_mcf: float, page_height_mcf: float) -> ET.Eleme
     bundlesize = ET.SubElement(page, 'bundlesize')
     bundlesize.set('width', f"{spread_width_mcf:.0f}")
     bundlesize.set('height', f"{page_height_mcf:.0f}")
+    
+    return page
+
+
+def create_empty_content_page(page_width_mcf: float, page_height_mcf: float, pagenr: int) -> ET.Element:
+    """Create an empty content page element (for odd pages with no areas).
+    
+    Odd pages (right pages) in CEWE photobooks have their areas stored in the preceding
+    even page's XML. The odd page elements themselves are mostly empty, containing only
+    bundlesize and background information.
+    
+    Args:
+        page_width_mcf: Single page width in MCF units
+        page_height_mcf: Page height in MCF units
+        pagenr: Page number (should be odd)
+        
+    Returns:
+        Empty content page XML element
+    """
+    page = ET.Element('page')
+    page.set('pagenr', str(pagenr))
+    page.set('type', 'normalpage')
+    page.set('rotation', '0')
+    
+    # Spread width is double the single page width
+    spread_width_mcf = page_width_mcf * 2
+    
+    bundlesize = ET.SubElement(page, 'bundlesize')
+    bundlesize.set('width', f"{spread_width_mcf:.0f}")
+    bundlesize.set('height', f"{page_height_mcf:.0f}")
+    
+    # Add basic background (212 is a common background ID for black/default)
+    background = ET.SubElement(page, 'background')
+    background.set('alignment', '4')
+    background.set('designElementId', '212')
+    background.set('rotation', '0')
+    background.set('type', '1')
     
     return page
 
