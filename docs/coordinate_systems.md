@@ -2,21 +2,33 @@
 
 This document describes the coordinate transformations used in cewe-layout.
 
-## 1. PDF Points (from PDF file)
+## 1. PDF Points (from PDF file) - INTERNAL ONLY
 - **Unit**: PDF points (72 points = 1 inch = 25.4mm)
-- **Origin**: Top-left of PDF page
-- **Usage**: Raw coordinates from PyMuPDF when extracting PDF content
+- **Origin**: Top-left of PDF page  
+- **Usage**: Internal to pdf_extractor.py only - converted immediately to MCF
+- **⚠️ NOT EXPOSED**: pdf_extractor API only returns MCF coordinates
 
-## 2. MCF Units (in data.mcf file)
+## 2. MCF Spread Coordinates (Universal for all code except pdf_extractor internals)
 - **Unit**: 0.1mm (10 MCF units = 1mm)
-- **Conversion from PDF points**: `mcf_value = pdf_points * 3.52778`
-- **Calculation**: 
-  - 1 point = 25.4mm / 72 = 0.352778mm
-  - 0.352778mm = 3.52778 × 0.1mm = 3.52778 MCF units
 - **Origin**: Top-left of the **spread** (two pages side-by-side)
-- **X-offset**: 
-  - Right pages: `x_mcf = pdf_x * 3.52778 + page_width_mcf`
-  - Left pages: `x_mcf = pdf_x * 3.52778 + 0`
+- **Range**: 
+  - Left pages: x ∈ [0, page_width_mcf]
+  - Right pages: x ∈ [page_width_mcf, 2×page_width_mcf]
+  - Both pages: y ∈ [0, page_height_mcf]
+
+**⚠️ CRITICAL**: ALL coordinates outside of pdf_extractor.py are in MCF spread units:
+- Photos from MCF files: spread coordinates
+- PDF segments from pdf_extractor: spread coordinates (converted internally)
+- Composite images from pdf_extractor: spread coordinates (converted internally)
+- Segmentation algorithms: operate on MCF spread coordinates
+- GUI business logic: works with MCF spread coordinates
+
+**Conversion (done internally in pdf_extractor.py only)**:
+```python
+PT_TO_MCF = 3.52778  # 1 PDF point = 0.352778mm = 3.52778 × 0.1mm
+is_right_page = (pdf_page_num % 2 == 0)  # Pages 0, 2, 4... are right
+x_mcf_spread = pdf_x * PT_TO_MCF + (page_width_mcf if is_right_page else 0)
+```
 
 ### MCF Spread Layout
 ```
@@ -27,21 +39,33 @@ This document describes the coordinate transformations used in cewe-layout.
       spread_width = page_width * 2
 ```
 
-## 3. Canvas Pixels (on-screen rendering)
+## 3. Canvas Pixels (on-screen rendering in page_gui.py only)
 - **Unit**: Screen pixels
-- **Conversion from MCF**:
+- **Input**: MCF spread coordinates from all sources
+- **Conversion**:
   ```python
-  # Calculate scale to fit spread + margins in canvas
+  # When rendering single page view, subtract origin_left to show just that page
+  # origin_left = 0 for left pages, page_width_mcf for right pages
+  
+  # Calculate scale to fit page + margins in canvas
   total_w_mcf = page_width + 2 * margin_mcf
   total_h_mcf = page_height + 2 * margin_mcf
   scale = min(canvas_w / total_w_mcf, canvas_h / total_h_mcf)
   
-  # Convert MCF to pixels
-  x_pixels = (margin_mcf + x_mcf - origin_left) * scale
-  y_pixels = (margin_mcf + y_mcf) * scale
+  # Convert MCF spread coordinates to canvas pixels (single page view)
+  x_page_relative = x_mcf_spread - origin_left  # Extract just this page
+  x_pixels = (margin_mcf + x_page_relative) * scale
+  y_pixels = (margin_mcf + y_mcf_spread) * scale
+  
+  # When using pre-calculated frame_x (which already includes margin):
+  x_page_relative = x_mcf_spread - origin_left
+  x_pixels = frame_x + x_page_relative * scale
   ```
 - **Origin**: Top-left of canvas
-- **origin_left**: Offset for right pages (= page_width for right pages, 0 for left pages)
+- **Page Renderer Responsibility**: 
+  - Receives MCF spread coordinates from all sources
+  - Converts to canvas pixels for display
+  - ONLY code that handles canvas pixels
 
 ### Canvas Layout
 ```
@@ -54,67 +78,49 @@ This document describes the coordinate transformations used in cewe-layout.
 +--------------------------------------------------+
 ```
 
-## Overlay Rectangle Coordinate Flow
+## Coordinate Flow Example
 
-For PDF-to-screen overlay rectangles:
+**From PDF extraction to screen rendering:**
 
-1. **Extract from PDF**: Coordinates in PDF points, relative to PDF page origin
+1. **PDF Extraction** (pdf_extractor.py):
    ```python
-   seg_left_pdf = 426.3  # points from top-left of PDF page
-   seg_width_pdf = 142.5 # points
+   # PDF page 2 (right page), image at (100, 50) PDF points
+   pdf_x, pdf_y = 100, 50  # PDF points, page-relative
+   
+   # Convert to MCF spread coordinates (done internally)
+   PT_TO_MCF = 3.52778
+   is_right = (2 % 2 == 0)  # True
+   page_width_mcf = 5400
+   x_mcf_spread = 100 * 3.52778 + 5400 = 5752.78  # MCF spread coordinate
    ```
 
-2. **Convert to MCF**: Multiply by `pt_to_mcf` factor (3.52778)
+2. **Algorithm Processing** (segmenters, GUI logic):
    ```python
-   pt_to_mcf = 3.52778  # 25.4mm/inch ÷ 72 points/inch × 10 units/mm
-   seg_left_mcf = seg_left_pdf * pt_to_mcf   # MCF units from top-left of PDF page
-   seg_width_mcf = seg_width_pdf * pt_to_mcf  # MCF units
+   # Work directly with MCF spread coordinates
+   segment_left = 5752.78  # MCF spread units
+   # All comparisons, calculations in MCF spread coordinates
    ```
 
-3. **Convert to screen pixels**: Apply margin, origin_left, and scale
+3. **Screen Rendering** (page_gui.py):
    ```python
-   scale = min(canvas_w / total_w_mcf, canvas_h / total_h_mcf)
-   x_pixels = (margin_mcf + seg_left_mcf - origin_left) * scale
-   width_pixels = seg_width_mcf * scale
+   # Convert MCF spread to canvas pixels
+   origin_left = 5400  # For right page
+   x_page = 5752.78 - 5400 = 352.78  # Page-relative MCF
+   x_canvas = frame_x + 352.78 * scale  # Canvas pixels
    ```
-   Note: `origin_left` is subtracted to position right-page overlays correctly (it's 0 for left pages, page_width for right pages)
 
-## Implementation Details
+## Summary
 
-### Segment Extraction (in image_segmenter.py)
-Segments start as **image pixels** (relative to the composite image):
-```python
-segments = segment_composite_image(img)  # Returns [{'left': x, 'top': y, 'width': w, 'height': h}]
-```
+**Three clear layers with strict separation of concerns:**
 
-### Scaling to PDF Points (in pdf_extractor.py)
-Convert from image pixels to PDF points using scale factors:
-```python
-scale_x = composite_rect.width / img_width_pixels
-scale_y = composite_rect.height / img_height_pixels
+1. **pdf_extractor.py**: PDF points → MCF spread coordinates (only place that knows about PDF points)
+2. **All business logic**: Works exclusively with MCF spread coordinates (algorithms, GUI, segmenters)
+3. **page_gui.py**: MCF spread coordinates → Canvas pixels (only place that converts to pixels)
 
-segment_pdf = {
-    'left': composite_rect.x0 + seg['left'] * scale_x,  # Absolute position on PDF page
-    'top': composite_rect.y0 + seg['top'] * scale_y,
-    'width': seg['width'] * scale_x,
-    'height': seg['height'] * scale_y
-}
-```
-
-### Rendering Overlay (in page_gui.py)
-Convert from PDF points to canvas pixels:
-```python
-pt_to_mcf = 3.52778
-seg_left_mcf = seg['left'] * pt_to_mcf
-seg_width_mcf = seg['width'] * pt_to_mcf
-
-x1 = int((margin_mcf + seg_left_mcf - origin_left) * scale)
-width_canvas = int(seg_width_mcf * scale)
-```
-
-### Why origin_left Matters for Overlays
-Even though overlays show where photos are in the PDF (not in the MCF spread), we still need `origin_left` because:
-- The renderer positions everything relative to the visible page frame
-- For right pages: origin_left = page_width_mcf, so we subtract it to show the page starting at 0
-- For left pages: origin_left = 0, so no adjustment needed
+**Key Rules:**
+- ✅ pdf_extractor returns MCF spread coordinates for all content (composite, segments, images, text)
+- ✅ All code outside pdf_extractor works with MCF spread coordinates
+- ✅ page_gui.py subtracts origin_left to show single page view (converts spread → page-relative for display)
+- ❌ No PT_TO_MCF conversions outside pdf_extractor.py
+- ❌ No canvas pixel calculations outside page_gui.py
 

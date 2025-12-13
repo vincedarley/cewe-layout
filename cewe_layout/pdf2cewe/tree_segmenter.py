@@ -41,7 +41,7 @@ class TreeSegmenter(ImageSegmenter):
         result = segment_tree_priority_queue(
             image_data, image_format,
             target_count=target_count,
-            min_separator_width=5,
+            min_separator_width=3,
             separator_threshold=240,
             min_region_size=50000,  # Minimum 50k pixels per region
             verbose=verbose
@@ -125,7 +125,7 @@ def segment_tree_priority_queue(image_data: bytes, image_format: str,
     # Track final leaf regions (no good separator)
     leaf_regions = []
     
-    # Continue splitting until we have enough regions or no more good separators
+    # PHASE 1: Growth phase - continue splitting until we have enough regions
     iteration = 0
     while priority_queue and (len(leaf_regions) + len(priority_queue)) < target_count:
         iteration += 1
@@ -136,7 +136,7 @@ def segment_tree_priority_queue(image_data: bytes, image_format: str,
         if verbose:
             axis, pos = region.best_separator
             h, w = region.img.shape[:2]
-            print(f"    Iteration {iteration}: Splitting {w}x{h} region at {region.offset_x},{region.offset_y} "
+            print(f"    [Growth] Iteration {iteration}: Splitting {w}x{h} region at {region.offset_x},{region.offset_y} "
                   f"({axis} @ {pos}, score={region.score:.3f})")
         
         # Split this region
@@ -149,11 +149,18 @@ def segment_tree_priority_queue(image_data: bytes, image_format: str,
                                                separator_threshold, min_region_size, verbose)
             
             if separator is None:
-                # No good separator - this is a leaf region
-                leaf_regions.append((sub_img, sub_x, sub_y))
-                if verbose:
-                    sh, sw = sub_img.shape[:2]
-                    print(f"      Sub-region at {sub_x},{sub_y} ({sw}x{sh}) has no good separator, adding to leaves")
+                # No good separator found - check if it's background before adding as leaf
+                if is_background_region(sub_img, max_std_dev=10.0, verbose=False):
+                    # Background region - discard it
+                    if verbose:
+                        sh, sw = sub_img.shape[:2]
+                        print(f"      Sub-region at {sub_x},{sub_y} ({sw}x{sh}) is background, discarding")
+                else:
+                    # Not background - this is a real leaf region
+                    leaf_regions.append((sub_img, sub_x, sub_y))
+                    if verbose:
+                        sh, sw = sub_img.shape[:2]
+                        print(f"      Sub-region at {sub_x},{sub_y} ({sw}x{sh}) has no good separator, adding to leaves")
             else:
                 # Has a good separator - add to priority queue for potential future split
                 sub_region = Region(sub_img, sub_x, sub_y, separator, score)
@@ -164,6 +171,94 @@ def segment_tree_priority_queue(image_data: bytes, image_format: str,
                     print(f"      Sub-region at {sub_x},{sub_y} ({sw}x{sh}) has separator "
                           f"({sep_axis} @ {sep_pos}, score={score:.3f}), adding to queue")
     
+    # PHASE 2: Refinement phase - trim white borders from remaining regions
+    # Continue splitting regions that have white background on one side
+    ENABLE_REFINEMENT = False  # DISABLED: Growth phase already produces well-trimmed regions
+    
+    if ENABLE_REFINEMENT and verbose and priority_queue:
+        print(f"    [Refinement] Reached target count ({len(leaf_regions)} leaves, {len(priority_queue)} in queue)")
+        print(f"    [Refinement] Trimming white borders from remaining regions...")
+        
+        # Save pre-refinement regions for debugging
+        print(f"    [Refinement] Saving pre-refinement regions to /tmp...")
+        for idx, region in enumerate(priority_queue):
+            h, w = region.img.shape[:2]
+            pre_refine_path = f"/tmp/tree_pre_refine_{idx}_at_{region.offset_x}_{region.offset_y}_{w}x{h}.png"
+            cv2.imwrite(pre_refine_path, region.img)
+            print(f"      Pre-refinement region {idx}: {w}x{h} at ({region.offset_x},{region.offset_y}) -> {pre_refine_path}")
+    
+    if verbose and priority_queue and not ENABLE_REFINEMENT:
+        print(f"    [Refinement] DISABLED - Reached target count ({len(leaf_regions)} leaves, {len(priority_queue)} in queue)")
+        print(f"    [Refinement] Skipping refinement phase - growth phase already trimmed borders")
+    
+    refinement_iteration = 0
+    while ENABLE_REFINEMENT and priority_queue:
+        refinement_iteration += 1
+        
+        # Pop the region with the best separator score
+        region = heapq.heappop(priority_queue)
+        
+        if verbose:
+            axis, pos = region.best_separator
+            h, w = region.img.shape[:2]
+            print(f"    [Refinement] Iteration {refinement_iteration}: Checking {w}x{h} region at {region.offset_x},{region.offset_y} "
+                  f"({axis} @ {pos}, score={region.score:.3f})")
+        
+        # Split this region
+        sub_regions = _split_region(region, min_separator_width, separator_threshold, 
+                                    min_region_size, verbose)
+        
+        # Evaluate children and check if any are background
+        children_info = []
+        has_background_child = False
+        
+        for sub_img, sub_x, sub_y in sub_regions:
+            is_bg = is_background_region(sub_img, max_std_dev=10.0, verbose=False)
+            if is_bg:
+                has_background_child = True
+            
+            score, separator = _evaluate_region(sub_img, min_separator_width, 
+                                               separator_threshold, min_region_size, verbose)
+            
+            children_info.append((sub_img, sub_x, sub_y, is_bg, score, separator))
+        
+        if has_background_child:
+            # At least one child is background - this split trims white borders
+            # Process non-background children
+            if verbose:
+                print(f"      Split removes white border - continuing refinement")
+            
+            for sub_img, sub_x, sub_y, is_bg, score, separator in children_info:
+                if is_bg:
+                    # Discard background
+                    if verbose:
+                        sh, sw = sub_img.shape[:2]
+                        print(f"      Sub-region at {sub_x},{sub_y} ({sw}x{sh}) is background, discarding")
+                elif separator is None:
+                    # Not background and no separator - final leaf
+                    leaf_regions.append((sub_img, sub_x, sub_y))
+                    if verbose:
+                        sh, sw = sub_img.shape[:2]
+                        print(f"      Sub-region at {sub_x},{sub_y} ({sw}x{sh}) has no separator, adding to leaves")
+                else:
+                    # Not background and has separator - add back to queue
+                    sub_region = Region(sub_img, sub_x, sub_y, separator, score)
+                    heapq.heappush(priority_queue, sub_region)
+                    if verbose:
+                        sh, sw = sub_img.shape[:2]
+                        sep_axis, sep_pos = separator
+                        print(f"      Sub-region at {sub_x},{sub_y} ({sw}x{sh}) has separator "
+                              f"({sep_axis} @ {sep_pos}, score={score:.3f}), adding to queue")
+        else:
+            # Both children are real photos - splitting would increase photo count
+            # Keep this region unsplit as a final leaf
+            leaf_regions.append((region.img, region.offset_x, region.offset_y))
+            if verbose:
+                h, w = region.img.shape[:2]
+                print(f"      Both children are photos - keeping {w}x{h} region unsplit")
+            # Stop refinement - remaining queue regions are also final
+            break
+    
     # Collect all final regions: leaf regions + remaining queue regions
     final_regions = list(leaf_regions)
     while priority_queue:
@@ -173,6 +268,18 @@ def segment_tree_priority_queue(image_data: bytes, image_format: str,
     if verbose:
         print(f"    Priority queue segmentation completed: {len(final_regions)} regions "
               f"(target was {target_count})")
+        print(f"    Analyzing final regions:")
+        for i, (region_img, x, y) in enumerate(final_regions):
+            gray = cv2.cvtColor(region_img, cv2.COLOR_BGR2GRAY)
+            h, w = region_img.shape[:2]
+            mean_val = np.mean(gray)
+            std_dev = np.std(gray)
+            print(f"      Region {i} at ({x},{y}): {w}x{h}, mean={mean_val:.1f}, std_dev={std_dev:.2f}")
+            
+            # Save region to /tmp for investigation
+            debug_path = f"/tmp/tree_region_{i}_at_{x}_{y}_{w}x{h}.png"
+            cv2.imwrite(debug_path, region_img)
+            print(f"        Saved to: {debug_path}")
     
     # Convert regions to segment format
     return _convert_regions_to_segments(final_regions, image_format, verbose)
@@ -193,13 +300,20 @@ def _evaluate_region(img: np.ndarray, min_separator_width: int,
     if area < min_region_size:
         return (0.0, None)
     
-    # Check if region is uniform background
-    if is_background_region(img, max_std_dev=10.0, verbose=False):
+    # Check if region is uniform background - with diagnostic output
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    std_dev = np.std(gray)
+    mean_val = np.mean(gray)
+    is_bg = is_background_region(img, max_std_dev=10.0, verbose=False)
+    
+    if verbose:
+        print(f"      Region {w}x{h}: mean={mean_val:.1f}, std_dev={std_dev:.2f}, is_background={is_bg}")
+    
+    if is_bg:
         return (0.0, None)
     
-    # Find best separator
-    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    best_sep = find_best_separator(gray, min_separator_width, separator_threshold, verbose=False)
+    # Find best separator (pass through verbose flag to see diagnostics)
+    best_sep = find_best_separator(gray, min_separator_width, separator_threshold, verbose=verbose)
     
     if best_sep is None:
         return (0.0, None)
@@ -210,43 +324,16 @@ def _evaluate_region(img: np.ndarray, min_separator_width: int,
     
     return (score, best_sep)
 
-
-def _calculate_separator_score(gray: np.ndarray, axis: str, position: int,
-                               min_width: int) -> float:
-    """Calculate score for a separator.
-    
-    This is the same scoring logic as find_best_separator, extracted for reuse.
-    """
-    h, w = gray.shape
-    
-    if axis == 'horizontal':
-        # Check the separator line brightness
-        start = max(0, position - min_width // 2)
-        end = min(h, position + min_width // 2)
-        separator_strip = gray[start:end, :]
-        avg_brightness = np.mean(separator_strip)
-        width = end - start
-        centeredness = 1.0 - abs((position / h) - 0.5)
-    else:  # vertical
-        start = max(0, position - min_width // 2)
-        end = min(w, position + min_width // 2)
-        separator_strip = gray[:, start:end]
-        avg_brightness = np.mean(separator_strip)
-        width = end - start
-        centeredness = 1.0 - abs((position / w) - 0.5)
-    
-    score = (avg_brightness / 255.0) * (1 + width / 10.0) * (0.5 + 0.5 * centeredness)
-    return score
-
-
 def _split_region(region: Region, min_separator_width: int, 
                  separator_threshold: int, min_region_size: int,
                  verbose: bool) -> List[Tuple[np.ndarray, int, int]]:
-    """Split a region along its best separator.
+    """Split a region along its best separator and crop white margins from sub-regions.
     
     Returns:
-        List of (sub_img, offset_x, offset_y) tuples
+        List of (sub_img, offset_x, offset_y) tuples with tight bounding boxes
     """
+    from .image_segmenter import crop_white_margins, crop_edges
+    
     if region.best_separator is None:
         return [(region.img, region.offset_x, region.offset_y)]
     
@@ -255,17 +342,48 @@ def _split_region(region: Region, min_separator_width: int,
     if axis == 'horizontal':
         top_half = region.img[:position, :]
         bottom_half = region.img[position:, :]
-        return [
+        sub_regions = [
             (top_half, region.offset_x, region.offset_y),
             (bottom_half, region.offset_x, region.offset_y + position)
         ]
     else:  # vertical
         left_half = region.img[:, :position]
         right_half = region.img[:, position:]
-        return [
+        sub_regions = [
             (left_half, region.offset_x, region.offset_y),
             (right_half, region.offset_x + position, region.offset_y)
         ]
+    
+    # Crop white margins from each sub-region and adjust coordinates
+    result = []
+    for sub_img, offset_x, offset_y in sub_regions:
+        # Find bounds of non-white content
+        gray = cv2.cvtColor(sub_img, cv2.COLOR_BGR2GRAY)
+        non_white = gray < 240
+        rows = np.any(non_white, axis=1)
+        cols = np.any(non_white, axis=0)
+        
+        if np.any(rows) and np.any(cols):
+            row_indices = np.where(rows)[0]
+            col_indices = np.where(cols)[0]
+            crop_top = row_indices[0]
+            crop_left = col_indices[0]
+            crop_bottom = row_indices[-1] + 1
+            crop_right = col_indices[-1] + 1
+            
+            # Crop to content bounds
+            cropped = sub_img[crop_top:crop_bottom, crop_left:crop_right]
+            
+            # Adjust offset coordinates
+            adjusted_offset_x = offset_x + crop_left
+            adjusted_offset_y = offset_y + crop_top
+            
+            result.append((cropped, adjusted_offset_x, adjusted_offset_y))
+        else:
+            # All white - keep original (shouldn't happen in practice)
+            result.append((sub_img, offset_x, offset_y))
+    
+    return result
 
 
 def _convert_regions_to_segments(regions: List[Tuple[np.ndarray, int, int]], 
@@ -274,19 +392,20 @@ def _convert_regions_to_segments(regions: List[Tuple[np.ndarray, int, int]],
     """Convert region tuples to segment dictionaries.
     
     Args:
-        regions: List of (region_img, offset_x, offset_y) tuples
+        regions: List of (region_img, offset_x, offset_y) tuples with tight bounding boxes
         image_format: Image format for output
         verbose: Print debug info
         
     Returns:
         List of segment dictionaries
     """
+    from .image_segmenter import crop_edges
+    
     segments = []
     for i, (region_img, left, top) in enumerate(regions):
-        # Crop white margins from the region
-        from .image_segmenter import crop_white_margins, crop_edges
-        cropped = crop_white_margins(region_img, threshold=240)
-        cropped = crop_edges(cropped, pixels=2)
+        # Regions already have tight bounding boxes from splitting process
+        # Just apply final edge trimming
+        cropped = crop_edges(region_img, pixels=2)
         
         # Convert back to RGB for PIL
         region_rgb = cv2.cvtColor(cropped, cv2.COLOR_BGR2RGB)
@@ -340,18 +459,20 @@ def find_best_separator(gray: np.ndarray, min_width: int, threshold: int,
     # Find vertical separators
     v_seps = find_separator_candidates(gray, 'vertical', min_width, threshold)
     
-    if verbose and (h_seps or v_seps):
+    if verbose:
         print(f"        Found {len(h_seps)} horizontal candidates, {len(v_seps)} vertical candidates")
     
     # Score each separator by how "clean" it is (high average brightness, consistent across the line)
     best_score = 0
     best_sep = None
+    all_scores = []  # For diagnostics
     
     for position, width, avg_brightness in h_seps:
         # Score based on: brightness, width, and how centered it is
         # Prefer separators that are bright, wide, and roughly in the middle
         centeredness = 1.0 - abs((position / h) - 0.5)  # 1.0 at center, less toward edges
         score = (avg_brightness / 255.0) * (1 + width / 10.0) * (0.5 + 0.5 * centeredness)
+        all_scores.append(('horizontal', position, width, avg_brightness, centeredness, score))
         
         if score > best_score:
             best_score = score
@@ -360,20 +481,58 @@ def find_best_separator(gray: np.ndarray, min_width: int, threshold: int,
     for position, width, avg_brightness in v_seps:
         centeredness = 1.0 - abs((position / w) - 0.5)
         score = (avg_brightness / 255.0) * (1 + width / 10.0) * (0.5 + 0.5 * centeredness)
+        all_scores.append(('vertical', position, width, avg_brightness, centeredness, score))
         
         if score > best_score:
             best_score = score
             best_sep = ('vertical', position)
     
+    # Diagnostic output when verbose
+    if verbose and all_scores:
+        # Sort by score descending
+        all_scores.sort(key=lambda x: x[5], reverse=True)
+        print(f"        Top separator candidates:")
+        for axis, pos, width, brightness, cent, score in all_scores[:5]:
+            print(f"          {axis:10s} @ {pos:4d}: width={width:3d}, brightness={brightness:5.1f}, centeredness={cent:.3f}, score={score:.3f}")
+    
     # Only accept separators with a reasonable score
     if best_score < 0.8:  # Threshold for "good enough" separator
+        if verbose and best_score > 0:
+            print(f"        Best score {best_score:.3f} is below threshold 0.8 - rejecting")
         return None
     
     if verbose and best_sep:
         axis, pos = best_sep
-        print(f"        Best separator: {axis} at {pos} (score: {best_score:.2f})")
+        print(f"        Accepted separator: {axis} at {pos} (score: {best_score:.3f})")
     
     return best_sep
+
+def _calculate_separator_score(gray: np.ndarray, axis: str, position: int,
+                               min_width: int) -> float:
+    """Calculate score for a separator.
+    
+    This is the same scoring logic as find_best_separator, extracted for reuse.
+    """
+    h, w = gray.shape
+    
+    if axis == 'horizontal':
+        # Check the separator line brightness
+        start = max(0, position - min_width // 2)
+        end = min(h, position + min_width // 2)
+        separator_strip = gray[start:end, :]
+        avg_brightness = np.mean(separator_strip)
+        width = end - start
+        centeredness = 1.0 - abs((position / h) - 0.5)
+    else:  # vertical
+        start = max(0, position - min_width // 2)
+        end = min(w, position + min_width // 2)
+        separator_strip = gray[:, start:end]
+        avg_brightness = np.mean(separator_strip)
+        width = end - start
+        centeredness = 1.0 - abs((position / w) - 0.5)
+    
+    score = (avg_brightness / 255.0) * (1 + width / 10.0) * (0.5 + 0.5 * centeredness)
+    return score
 
 
 def find_separator_candidates(gray: np.ndarray, axis: str, min_width: int,
@@ -395,6 +554,13 @@ def find_separator_candidates(gray: np.ndarray, axis: str, min_width: int,
     else:
         # Average brightness across each column
         profile = np.mean(gray, axis=0)
+    
+    # DEBUG: Check profile statistics
+    profile_max = np.max(profile)
+    profile_min = np.min(profile)
+    num_above_threshold = np.sum(profile > threshold)
+    print(f"          DEBUG {axis}: profile range=[{profile_min:.1f}, {profile_max:.1f}], "
+       f"{num_above_threshold}/{len(profile)} above threshold {threshold}")
     
     # Find runs of bright pixels
     is_bright = profile > threshold

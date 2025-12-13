@@ -3,7 +3,7 @@
 import xml.etree.ElementTree as ET
 from xml.dom import minidom
 from pathlib import Path
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 import hashlib
 
 
@@ -108,15 +108,37 @@ def create_mcf_xml(pdf_content: Dict[str, Any], output_dir: Path, verbose: bool 
     if metadata.get('title'):
         fotobook.set('title', metadata['title'])
     
-    # Add cover pages (pagenr=0)
-    # PDF page 1 = front cover (right side of cover spread)
-    if len(pdf_content['pages']) > 0:
-        front_cover = create_page_element(pdf_content['pages'][0], output_dir, pt_to_mcf, 0, 'fullcover', True, verbose)
-        fotobook.append(front_cover)
+    # Add cover pages (THREE pagenr=0 pages required before content):
+    # 1. Back+Front cover spread (type=fullcover, contains images from both halves)
+    # 2. Spine (type=spine, typically empty)
+    # 3. Front cover duplicate (type=fullcover, typically empty structure)
     
-    # Add inside front cover (empty page, pagenr=0)
-    inside_front = create_empty_page(page_width * pt_to_mcf, page_height * pt_to_mcf)
-    fotobook.append(inside_front)
+    if len(pdf_content['pages']) > 1:
+        # Create combined back+front cover spread with images from both
+        cover_page = create_cover_spread_element(
+            pdf_content['pages'][0],   # Front cover (right half)
+            pdf_content['pages'][-1],  # Back cover (left half)
+            output_dir, page_width * pt_to_mcf, page_height * pt_to_mcf, verbose
+        )
+        fotobook.append(cover_page)
+    elif len(pdf_content['pages']) == 1:
+        # Only one page - use it as front cover
+        cover_page = create_cover_spread_element(
+            pdf_content['pages'][0], None,
+            output_dir, page_width * pt_to_mcf, page_height * pt_to_mcf, verbose
+        )
+        fotobook.append(cover_page)
+    
+    # Add spine page (required structure)
+    spine_page = create_spine_page(page_width * pt_to_mcf, page_height * pt_to_mcf)
+    fotobook.append(spine_page)
+    
+    # Add empty front cover fullcover page (required structure)
+    front_cover_empty = create_empty_cover_page(page_width * pt_to_mcf, page_height * pt_to_mcf)
+    fotobook.append(front_cover_empty)
+    
+    # Note: Inside front cover (4th pagenr=0 emptypage) will be added as dummy page 0
+    # when processing first content page below
     
     # Add content pages (pagenr 1..N-2)
     # PDF pages 2..N-1 map to CEWE pagenr 1..(N-2)
@@ -128,7 +150,7 @@ def create_mcf_xml(pdf_content: Dict[str, Any], output_dir: Path, verbose: bool 
         # CEWE uses a dummy page 0 with content, followed by empty page 1
         if cewe_pagenr == 1:
             # Create dummy page 0 with the content (positioned on right side of spread)
-            dummy_page = create_page_element(page_data, output_dir, pt_to_mcf, 0, 'emptypage', False, verbose, is_first_content_dummy=True)
+            dummy_page = create_page_element(page_data, output_dir, 0, 'emptypage', False, verbose, is_first_content_dummy=True)
             fotobook.append(dummy_page)
             
             # Create empty page 1
@@ -137,7 +159,7 @@ def create_mcf_xml(pdf_content: Dict[str, Any], output_dir: Path, verbose: bool 
             empty_page_1.set('type', 'normalpage')
             fotobook.append(empty_page_1)
         else:
-            page_elem = create_page_element(page_data, output_dir, pt_to_mcf, cewe_pagenr, 'normalpage', False, verbose)
+            page_elem = create_page_element(page_data, output_dir, cewe_pagenr, 'normalpage', False, verbose)
             fotobook.append(page_elem)
     
     # Add inside back cover (empty page, pagenr=0)
@@ -145,6 +167,122 @@ def create_mcf_xml(pdf_content: Dict[str, Any], output_dir: Path, verbose: bool 
     fotobook.append(inside_back)
     
     return mcf
+
+
+def create_spine_page(page_width_mcf: float, page_height_mcf: float) -> ET.Element:
+    """Create a spine page element (required structure between back and front cover).
+    
+    Args:
+        page_width_mcf: Single page width in MCF units
+        page_height_mcf: Page height in MCF units
+        
+    Returns:
+        Spine page XML element
+    """
+    page = ET.Element('page')
+    page.set('pagenr', '0')
+    page.set('type', 'spine')
+    page.set('rotation', '0')
+    
+    # Spread width is double the single page width
+    spread_width_mcf = page_width_mcf * 2
+    
+    bundlesize = ET.SubElement(page, 'bundlesize')
+    bundlesize.set('width', f"{spread_width_mcf:.0f}")
+    bundlesize.set('height', f"{page_height_mcf:.0f}")
+    
+    return page
+
+
+def create_empty_cover_page(page_width_mcf: float, page_height_mcf: float) -> ET.Element:
+    """Create an empty front cover page element (required structure).
+    
+    This is the third pagenr=0 page, typically empty but required by CEWE structure.
+    
+    Args:
+        page_width_mcf: Single page width in MCF units
+        page_height_mcf: Page height in MCF units
+        
+    Returns:
+        Empty cover page XML element
+    """
+    page = ET.Element('page')
+    page.set('pagenr', '0')
+    page.set('type', 'fullcover')
+    page.set('rotation', '0')
+    
+    # Spread width is double the single page width
+    spread_width_mcf = page_width_mcf * 2
+    
+    bundlesize = ET.SubElement(page, 'bundlesize')
+    bundlesize.set('width', f"{spread_width_mcf:.0f}")
+    bundlesize.set('height', f"{page_height_mcf:.0f}")
+    
+    return page
+
+
+def create_cover_spread_element(front_page_data: Dict[str, Any], back_page_data: Optional[Dict[str, Any]],
+                                output_dir: Path, page_width_mcf: float, page_height_mcf: float, 
+                                verbose: bool = False) -> ET.Element:
+    """Create a cover spread element with both front and back covers.
+    
+    The cover spread is a single page element with pagenr=0 and type=fullcover.
+    - Back cover images: left half of spread (x < page_width_mcf)
+    - Front cover images: right half of spread (x >= page_width_mcf)
+    
+    Args:
+        front_page_data: Front cover page content (positioned on right half)
+        back_page_data: Back cover page content (positioned on left half), or None if no back cover
+        output_dir: Directory to save image files
+        page_width_mcf: Single page width in MCF units
+        page_height_mcf: Page height in MCF units
+        verbose: Print detailed info
+        
+    Returns:
+        Cover page XML element
+    """
+    page = ET.Element('page')
+    page.set('pagenr', '0')
+    page.set('type', 'fullcover')
+    page.set('rotation', '0')
+    
+    # Cover spread is double width
+    spread_width_mcf = page_width_mcf * 2
+    
+    bundlesize = ET.SubElement(page, 'bundlesize')
+    bundlesize.set('width', f"{spread_width_mcf:.0f}")
+    bundlesize.set('height', f"{page_height_mcf:.0f}")
+    
+    z_position = 1000
+    
+    # Add back cover images (left half of spread)
+    # PDF extractor now correctly positions back cover on left side
+    if back_page_data:
+        for img in back_page_data.get('images', []):
+            img['page_num'] = back_page_data['page_num']
+            area = create_image_area(img, output_dir, z_position, verbose)
+            page.append(area)
+            z_position += 1
+        
+        for text_block in back_page_data.get('text_blocks', []):
+            area = create_text_area(text_block, z_position, verbose)
+            page.append(area)
+            z_position += 1
+    
+    # Add front cover images (right half of spread)
+    # Front cover images from PDF already have x in [page_width, 2*page_width) since they're right pages
+    for img in front_page_data.get('images', []):
+        img['page_num'] = front_page_data['page_num']
+        area = create_image_area(img, output_dir, z_position, verbose)
+        page.append(area)
+        z_position += 1
+    
+    for text_block in front_page_data.get('text_blocks', []):
+        area = create_text_area(text_block, z_position, verbose)
+        page.append(area)
+        z_position += 1
+    
+    return page
 
 
 def create_empty_page(page_width_mcf: float, page_height_mcf: float) -> ET.Element:
@@ -172,15 +310,14 @@ def create_empty_page(page_width_mcf: float, page_height_mcf: float) -> ET.Eleme
     return page
 
 
-def create_page_element(page_data: Dict[str, Any], output_dir: Path, pt_to_mcf: float, 
+def create_page_element(page_data: Dict[str, Any], output_dir: Path,
                        cewe_pagenr: int, page_type: str, is_cover: bool, verbose: bool = False,
                        is_first_content_dummy: bool = False) -> ET.Element:
     """Create a page element with images and text.
     
     Args:
-        page_data: Page content dictionary
+        page_data: Page content dictionary with coordinates in MCF spread units
         output_dir: Directory to save image files
-        pt_to_mcf: Conversion factor from PDF points to MCF units
         cewe_pagenr: CEWE page number (0 for covers, 1+ for content)
         page_type: CEWE page type ('fullcover', 'normalpage', etc.)
         is_cover: True if this is a cover page
@@ -198,8 +335,9 @@ def create_page_element(page_data: Dict[str, Any], output_dir: Path, pt_to_mcf: 
     # CEWE photobooks use two-page spreads
     # bundlesize = width of spread (2 pages side-by-side) × height of one page
     # Each PDF page becomes one side of a spread
-    page_width_mcf = page_data['width'] * pt_to_mcf
-    page_height_mcf = page_data['height'] * pt_to_mcf
+    # Coordinates are already in MCF units from PDF extractor
+    page_width_mcf = page_data['width']
+    page_height_mcf = page_data['height']
     
     # Spread width is double the single page width
     spread_width_mcf = page_width_mcf * 2
@@ -208,51 +346,34 @@ def create_page_element(page_data: Dict[str, Any], output_dir: Path, pt_to_mcf: 
     bundlesize.set('width', f"{spread_width_mcf:.0f}")
     bundlesize.set('height', f"{page_height_mcf:.0f}")
     
-    # Calculate x-offset for positioning content within spread
-    # Cover pages: front cover on right side of spread
-    # First content page dummy (pagenr=0, emptypage): content on right side
-    # Other content pages: odd (1,3,5...) on right, even (2,4,6...) on left
-    if is_cover:
-        # Front cover on right side of spread
-        x_offset = page_width_mcf
-    elif is_first_content_dummy:
-        # First content page dummy: content on right side of spread
-        x_offset = page_width_mcf
-    elif cewe_pagenr % 2 == 1:
-        # Odd numbered pages on right side of spread
-        x_offset = page_width_mcf
-    else:
-        # Even pages on left side of spread
-        x_offset = 0
+    # Coordinates are already in MCF spread units from PDF extractor
+    # No x_offset calculation needed - positioning already handled
     
     z_position = 1000  # Starting z-position
     
     # Add image areas
     for img in page_data['images']:
-        # Add page number and x_offset to image data
+        # Add page number for filename generation
         img['page_num'] = page_data['page_num']
-        img['x_offset'] = x_offset
-        area = create_image_area(img, output_dir, pt_to_mcf, z_position, verbose)
+        area = create_image_area(img, output_dir, z_position, verbose)
         page.append(area)
         z_position += 1
     
     # Add text areas
     for text_block in page_data['text_blocks']:
-        text_block['x_offset'] = x_offset
-        area = create_text_area(text_block, pt_to_mcf, z_position, verbose)
+        area = create_text_area(text_block, z_position, verbose)
         page.append(area)
         z_position += 1
     
     return page
 
 
-def create_image_area(img: Dict[str, Any], output_dir: Path, pt_to_mcf: float, z_position: int, verbose: bool = False) -> ET.Element:
+def create_image_area(img: Dict[str, Any], output_dir: Path, z_position: int, verbose: bool = False) -> ET.Element:
     """Create an image area element.
     
     Args:
-        img: Image data dictionary
+        img: Image data dictionary with coordinates in MCF spread units
         output_dir: Directory to save image file
-        pt_to_mcf: Conversion factor
         z_position: Z-position for layering
         verbose: Print detailed info
         
@@ -276,13 +397,13 @@ def create_image_area(img: Dict[str, Any], output_dir: Path, pt_to_mcf: float, z
     area = ET.Element('area')
     area.set('areatype', 'imagearea')
     
-    # Position element (convert PDF coordinates to MCF and add x_offset for spread positioning)
-    x_offset = img.get('x_offset', 0)
+    # Position element - coordinates are already in MCF spread units from PDF extractor
+    # No conversion needed, pt_to_mcf and x_offset are for legacy compatibility only
     position = ET.SubElement(area, 'position')
-    position.set('left', f"{img['left'] * pt_to_mcf + x_offset:.2f}")
-    position.set('top', f"{img['top'] * pt_to_mcf:.2f}")
-    position.set('width', f"{img['width'] * pt_to_mcf:.2f}")
-    position.set('height', f"{img['height'] * pt_to_mcf:.2f}")
+    position.set('left', f"{img['left']:.2f}")
+    position.set('top', f"{img['top']:.2f}")
+    position.set('width', f"{img['width']:.2f}")
+    position.set('height', f"{img['height']:.2f}")
     position.set('rotation', '0')
     position.set('zposition', str(z_position))
     
@@ -303,12 +424,11 @@ def create_image_area(img: Dict[str, Any], output_dir: Path, pt_to_mcf: float, z
     return area
 
 
-def create_text_area(text_block: Dict[str, Any], pt_to_mcf: float, z_position: int, verbose: bool = False) -> ET.Element:
+def create_text_area(text_block: Dict[str, Any], z_position: int, verbose: bool = False) -> ET.Element:
     """Create a text area element.
     
     Args:
-        text_block: Text block data dictionary
-        pt_to_mcf: Conversion factor
+        text_block: Text block data dictionary with coordinates in MCF spread units
         z_position: Z-position for layering
         verbose: Print detailed info
         
@@ -318,13 +438,12 @@ def create_text_area(text_block: Dict[str, Any], pt_to_mcf: float, z_position: i
     area = ET.Element('area')
     area.set('areatype', 'textarea')
     
-    # Position element (add x_offset for spread positioning)
-    x_offset = text_block.get('x_offset', 0)
+    # Position element - coordinates are already in MCF spread units from PDF extractor
     position = ET.SubElement(area, 'position')
-    position.set('left', f"{text_block['left'] * pt_to_mcf + x_offset:.2f}")
-    position.set('top', f"{text_block['top'] * pt_to_mcf:.2f}")
-    position.set('width', f"{text_block['width'] * pt_to_mcf:.2f}")
-    position.set('height', f"{text_block['height'] * pt_to_mcf:.2f}")
+    position.set('left', f"{text_block['left']:.2f}")
+    position.set('top', f"{text_block['top']:.2f}")
+    position.set('width', f"{text_block['width']:.2f}")
+    position.set('height', f"{text_block['height']:.2f}")
     position.set('rotation', '0')
     position.set('zposition', str(z_position))
     

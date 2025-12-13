@@ -56,6 +56,7 @@ class PageRenderData:
     page_height: float
     origin_left: float
     background_id: str  # '212' for black, '201' for white
+    composite_image: dict = None  # Optional PDF composite image data: {'data', 'format', 'left', 'top', 'width', 'height'}
 
 
 class PageRenderer:
@@ -103,7 +104,8 @@ class PageRenderer:
                     canvas_h: int,
                     margin_mcf: float,
                     is_canvas: bool,
-                    delete_callback) -> None:
+                    delete_callback,
+                    show_pdf_composite: bool = False) -> None:
         """Render one or more pages to the display.
         
         Args:
@@ -146,6 +148,15 @@ class PageRenderer:
             total_w_mcf = page_w + 2 * margin_mcf
         total_h_mcf = page_h + 2 * margin_mcf
         scale = min(canvas_w / total_w_mcf, canvas_h / total_h_mcf)
+        
+        # Draw PDF composite backgrounds FIRST (before any other rendering)
+        if show_pdf_composite:
+            for page_offset, page_data in enumerate(page_data_list):
+                if page_data.composite_image:
+                    page_x_offset = page_offset * page_w if len(page_data_list) == 2 else 0
+                    frame_x = margin_mcf * scale + page_x_offset * scale
+                    frame_y = margin_mcf * scale
+                    self._draw_single_pdf_composite(img, page_data, frame_x, frame_y, scale)
         
         # Store delete button info for later widget creation
         delete_button_info = []
@@ -212,6 +223,76 @@ class PageRenderer:
         self.full_image_cache.clear()
     
     # ========== Private rendering methods ==========
+    
+    def _draw_single_pdf_composite(self, img, page_data, frame_x, frame_y, scale):
+        """Draw PDF composite image as grayscale background for a single page.
+        
+        Args:
+            img: PIL Image to draw on
+            page_data: PageRenderData for this page
+            frame_x, frame_y: Frame position on canvas
+            scale: Scale factor from MCF to pixels
+        """
+        from io import BytesIO
+        from PIL import ImageOps
+                
+        if page_data.composite_image is None:
+            logger.error(f"Page {page_data.pageno}: composite_image is None!")
+            raise ValueError(f"Page {page_data.pageno}: No composite_image data provided")
+        
+        # Extract metadata without dumping binary data
+        comp_info = {k: v for k, v in page_data.composite_image.items() if k != 'data'}
+        comp_info['data_size'] = len(page_data.composite_image.get('data', b''))
+        
+        try:
+            # Load composite image
+            composite_data = page_data.composite_image.get('data')
+            
+            if not composite_data:
+                logger.error(f"Page {page_data.pageno}: composite_image.get('data') returned empty!")
+                raise ValueError(f"Page {page_data.pageno}: composite_image has no 'data' field")
+                
+            composite_pil = Image.open(BytesIO(composite_data))
+            
+            # Convert to grayscale
+            composite_gray = ImageOps.grayscale(composite_pil)
+            composite_gray = composite_gray.convert('RGB')  # Convert back to RGB for pasting
+            
+            # Calculate position on canvas
+            # Composite image coordinates are already in MCF spread units from PDF extraction
+            comp_left_mcf = page_data.composite_image.get('left', 0)
+            comp_top_mcf = page_data.composite_image.get('top', 0)
+            comp_width_mcf = page_data.composite_image.get('width', 0)
+            comp_height_mcf = page_data.composite_image.get('height', 0)
+            
+            # For rendering, we need page-relative coordinates
+            # Subtract origin_left to convert from spread coords to page coords
+            comp_left_page = comp_left_mcf - page_data.origin_left
+            comp_top_page = comp_top_mcf  # Top is the same
+            
+            # Transform to canvas coordinates
+            # frame_x already includes margin and page positioning
+            canvas_x = int(frame_x + comp_left_page * scale)
+            canvas_y = int(frame_y + comp_top_page * scale)
+            canvas_w = int(comp_width_mcf * scale)
+            canvas_h = int(comp_height_mcf * scale)
+            
+            # Resize composite to canvas scale
+            if canvas_w > 0 and canvas_h > 0:
+                composite_resized = composite_gray.resize((canvas_w, canvas_h), Image.Resampling.LANCZOS)
+                
+                # Paste onto canvas
+                img.paste(composite_resized, (canvas_x, canvas_y))
+                logger.debug(f"  ✅ Successfully pasted composite at ({canvas_x}, {canvas_y})")
+            else:
+                logger.error(f"Page {page_data.pageno}: Invalid canvas dimensions: {canvas_w}x{canvas_h}")
+                raise ValueError(f"Page {page_data.pageno}: Invalid canvas dimensions for composite")
+                
+        except Exception as e:
+            logger.error(f"Error drawing composite image for page {page_data.pageno}: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            raise  # Re-raise the exception instead of silently failing
     
     def _render_photos(self, img, draw, photos, frame_x, frame_y, scale, origin_left, 
                       start_number, pageno, delete_button_info, page_bg_color):
@@ -780,36 +861,27 @@ class PageRenderer:
         
         logger.info(f"Overlay calculation: canvas={canvas_w}x{canvas_h}, page={page_width}x{page_height} MCF, margin={margin_mcf}")
         
-        # Conversion factor: PDF points to MCF units
-        # 1 point = 25.4mm/72 = 0.352778mm = 3.52778 MCF units (0.1mm units)
-        pt_to_mcf = 3.52778
-        
         # Calculate scale factors (MCF to canvas pixels)
         total_w_mcf = page_width + 2 * margin_mcf
         total_h_mcf = page_height + 2 * margin_mcf
         scale = min(canvas_w / total_w_mcf, canvas_h / total_h_mcf)
         
-        logger.info(f"Scale factor: {scale} pixels/MCF, pt_to_mcf={pt_to_mcf}")
+        logger.info(f"Scale factor: {scale} pixels/MCF")
         
         rectangles = []
         for i, seg in enumerate(segments):
-            # Segment coordinates are in PDF points (from original PDF)
-            # Need to convert: PDF points -> MCF units -> canvas pixels
+            # Segment coordinates are already in MCF spread units from PDF extraction
+            seg_left_mcf = seg['left']
+            seg_top_mcf = seg['top']
+            seg_width_mcf = seg['width']
+            seg_height_mcf = seg['height']
             
-            logger.info(f"  Segment {i}: left={seg['left']:.2f} pt, top={seg['top']:.2f} pt, "
-                       f"width={seg['width']:.2f} pt, height={seg['height']:.2f} pt")
+            logger.info(f"  Segment {i} (MCF spread): left={seg_left_mcf:.1f}, top={seg_top_mcf:.1f}, "
+                       f"width={seg_width_mcf:.1f}, height={seg_height_mcf:.1f}")
+            logger.info(f"  origin_left={origin_left}")
             
-            # Convert PDF points to MCF units
-            seg_left_mcf = seg['left'] * pt_to_mcf
-            seg_top_mcf = seg['top'] * pt_to_mcf
-            seg_width_mcf = seg['width'] * pt_to_mcf
-            seg_height_mcf = seg['height'] * pt_to_mcf
-            
-            logger.info(f"  In MCF: left={seg_left_mcf:.2f}, top={seg_top_mcf:.2f}, "
-                       f"width={seg_width_mcf:.2f}, height={seg_height_mcf:.2f}")
-            
-            # Apply same transformation as photo rendering:
-            # Add margin offset, subtract origin_left, then scale to canvas pixels
+            # Convert from MCF spread coordinates to canvas pixels
+            # Subtract origin_left to make coordinates page-relative for single-page view
             x1 = int((margin_mcf + seg_left_mcf - origin_left) * scale)
             y1 = int((margin_mcf + seg_top_mcf) * scale)
             x2 = int((margin_mcf + seg_left_mcf - origin_left + seg_width_mcf) * scale)

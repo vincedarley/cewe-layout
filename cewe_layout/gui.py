@@ -319,7 +319,15 @@ class LayoutViewer:
         if self.pdf_content:
             pdf_frame = ttk.Frame(self.ctrlWin)
             pdf_frame.grid(row=2, column=0, columnspan=2, sticky='w', padx=4, pady=4)
+            
             ttk.Label(pdf_frame, text='PDF:').pack(side='left', padx=(0,4))
+            
+            # Checkbox for showing PDF composite background (checked by default)
+            self.show_pdf_composite_var = tk.BooleanVar(value=True)
+            pdf_check = ttk.Checkbutton(pdf_frame, variable=self.show_pdf_composite_var,
+                                       command=self.render_page)
+            pdf_check.pack(side='left', padx=(0,8))
+            
             ttk.Label(pdf_frame, text='Photo count:').pack(side='left', padx=(0,4))
             self.pdf_photo_count_var = tk.StringVar(value='0')
             self.pdf_photo_count_entry = ttk.Entry(pdf_frame, textvariable=self.pdf_photo_count_var, width=5)
@@ -763,6 +771,14 @@ class LayoutViewer:
             photos = current_layout.photos if current_layout else info.get('photos', [])
             texts = current_layout.texts if current_layout else info.get('texts', [])
             
+            # Get composite image from PDF content if available
+            composite_image = None
+            if self.pdf_content:
+                from .pdf2cewe.pdf_extractor import get_page_content
+                pdf_data = get_page_content(self.pdf_content, pageno)
+                if pdf_data:
+                    composite_image = pdf_data.get('composite_image')
+            
             page_data = PageRenderData(
                 pageno=pageno,
                 photos=photos,
@@ -770,7 +786,8 @@ class LayoutViewer:
                 page_width=info.get('page_width'),
                 page_height=info.get('page_height'),
                 origin_left=info.get('origin_left', 0.0),
-                background_id=info.get('background_id')
+                background_id=info.get('background_id'),
+                composite_image=composite_image
             )
             page_data_list.append(page_data)
         
@@ -974,13 +991,16 @@ class LayoutViewer:
         page_data_list = self._build_page_render_data(page_indices)
         
         # Delegate rendering to PageRenderer
+        show_composite = self.show_pdf_composite_var.get() if self.pdf_content else False
+        
         self.page_renderer.render_pages(
             page_data_list=page_data_list,
             canvas_w=canvas_w,
             canvas_h=canvas_h,
             margin_mcf=self.margin_mcf,
             is_canvas=self.is_canvas,
-            delete_callback=self._handle_delete_button_click
+            delete_callback=self._handle_delete_button_click,
+            show_pdf_composite=show_composite
         )
         
         # Update control widgets
@@ -2531,18 +2551,9 @@ class LayoutViewer:
         page_height = page_info.get('page_height')
         origin_left = page_info.get('origin_left', 0.0)
         
-        # Convert segments from page-relative to spread-relative coordinates
-        # For odd-numbered pages (right pages), we need to add origin_left
-        # Note: segments are in PDF points, origin_left is in MCF units
-        # We need to convert origin_left to points for the segment transformation
-        pt_to_mcf = 3.52778
-        origin_left_pt = origin_left / pt_to_mcf
-        
-        spread_relative_segments = []
-        for seg in segments:
-            spread_seg = seg.copy()
-            spread_seg['left'] = seg['left'] + origin_left_pt
-            spread_relative_segments.append(spread_seg)
+        # Segments are already in MCF spread coordinates from _makeScaledSegments()
+        # No conversion needed - just pass them through
+        spread_relative_segments = segments
         
         # Store data for accept/reject handlers (with original page-relative segments)
         self.pending_segmentation = {
@@ -2660,6 +2671,9 @@ class LayoutViewer:
         cewe_pagenr = page_info.get('cewe_pagenr', pageno)
         page_type = page_info.get('page_type', 'normalpage')
         is_cover = (cewe_pagenr == 0 and page_type in ('fullcover', 'calendarcoverfront'))
+        origin_left_mcf = page_info.get('origin_left', 0.0)
+        
+        print(f"  Page {pageno}: origin_left={origin_left_mcf} MCF, cewe_pagenr={cewe_pagenr}")
         
         if photos_to_keep:
             print(f"  Partial replacement: keeping {len(photos_to_keep)} photos, adding {len(segments)} new photos")
@@ -2707,19 +2721,22 @@ class LayoutViewer:
             z_position = max_z + 1
             
             # Add each segment as a new area
+            # Segments come from PDF in MCF spread coordinates, need to write as MCF spread coords
             for i, seg in enumerate(segments):
+                print(f"  Segment {i} (MCF spread): left={seg['left']:.1f}, top={seg['top']:.1f}, "
+                      f"width={seg['width']:.1f}, height={seg['height']:.1f}")
                 img_dict = {
                     'index': len(old_photos) + i,  # Continue numbering from existing photos
                     'data': seg['data'],
                     'format': seg['format'],
-                    'left': seg['left'],
+                    'left': seg['left'],  # MCF spread coordinate
                     'top': seg['top'],
                     'width': seg['width'],
                     'height': seg['height'],
-                    'page_num': pageno,
-                    'x_offset': page_info.get('origin_left', 0.0)
+                    'page_num': pageno
                 }
-                area = create_image_area(img_dict, mcf_dir, pt_to_mcf, z_position, verbose=True)
+                # Coordinates are already in MCF spread units
+                area = create_image_area(img_dict, mcf_dir, z_position, verbose=True)
                 page_element.append(area)
                 z_position += 1
             
@@ -2727,27 +2744,32 @@ class LayoutViewer:
             # Full page replacement - create entirely new page element
             print(f"  Full page replacement: {len(segments)} new photos")
             
+            # Segments are already in MCF spread coordinates
+            # page_width and page_height are also in MCF units
             page_data = {
                 'page_num': pageno,
-                'width': page_info.get('page_width') / pt_to_mcf,
-                'height': page_info.get('page_height') / pt_to_mcf,
+                'width': page_info.get('page_width'),  # Already in MCF
+                'height': page_info.get('page_height'),  # Already in MCF
                 'images': [],
                 'text_blocks': []
             }
             
             for i, seg in enumerate(segments):
+                # Segments are already in MCF spread coordinates
+                # create_page_element expects MCF spread coordinates
                 page_data['images'].append({
                     'index': i,
                     'data': seg['data'],
                     'format': seg['format'],
-                    'left': seg['left'],
+                    'left': seg['left'],  # MCF spread coordinate - no conversion needed
                     'top': seg['top'],
                     'width': seg['width'],
                     'height': seg['height']
                 })
             
+            # Coordinates are already in MCF units
             page_element = create_page_element(
-                page_data, mcf_dir, pt_to_mcf, 
+                page_data, mcf_dir,
                 cewe_pagenr, page_type, is_cover, 
                 verbose=True
             )

@@ -168,13 +168,16 @@ def extract_pages_info(fotobook_root):
         # (just like normal pages - only show full width in spread mode)
         page_w = spread_w / 2.0
         
+        # origin_left: back cover is left half (0.0), front cover is right half (page_w)
+        origin_left = page_w if is_front_cover else 0.0
+        
         # Initialize page entry
         pages_map[page_number] = {
             'photos': [],
             'texts': [],
             'page_width': page_w,
             'page_height': spread_h,
-            'origin_left': 0.0,
+            'origin_left': origin_left,
             'background_id': background_id,
             'is_canvas': False,
             'is_calendar': False,
@@ -216,9 +219,8 @@ def extract_pages_info(fotobook_root):
             if not is_front_cover and is_on_right_half:
                 continue  # Back cover: skip right half
             
-            # Offset x coordinate if this is the front cover (right half needs -spread_w/2 offset)
-            if is_front_cover:
-                area_left -= page_w
+            # Note: origin_left handles the page offset, so coordinates remain in spread units
+            # The renderer will subtract origin_left to make them page-relative
             
             areatype = area.get('areatype', 'imagearea')
             
@@ -274,7 +276,7 @@ def extract_pages_info(fotobook_root):
                 plain_text = html.unescape(plain_text)
                 plain_text = ' '.join(plain_text.split()).strip()
                 
-                logger.info(f"  Page {page_number} textarea: text='{plain_text[:50]}{'...' if len(plain_text) > 50 else ''}' font_size={font_size} h_align={h_align} v_align={v_align}")
+                logger.debug(f"  Page {page_number} textarea: text='{plain_text[:50]}{'...' if len(plain_text) > 50 else ''}' font_size={font_size} h_align={h_align} v_align={v_align}")
                 
                 text_info = {
                     'area_left': area_left,
@@ -607,7 +609,7 @@ def extract_pages_info(fotobook_root):
                 plain_text = html.unescape(plain_text)
                 plain_text = ' '.join(plain_text.split()).strip()
                 
-                logger.info(f"  Page {owner} textarea: text='{plain_text[:50]}{'...' if len(plain_text) > 50 else ''}' font_size={font_size} h_align={h_align} v_align={v_align}")
+                logger.debug(f"  Page {owner} textarea: text='{plain_text[:50]}{'...' if len(plain_text) > 50 else ''}' font_size={font_size} h_align={h_align} v_align={v_align}")
                 
                 text_info = {
                     'area_left': area_left,
@@ -658,13 +660,16 @@ def extract_pages_info(fotobook_root):
     # Normal pages start at 1, covers are at 0 and N+1
     pages = []
     
-    # Determine max normal page number to assign back cover
+    # Determine back cover page number
+    # The back cover should be placed at the highest normal page number (not +1)
+    # This is because pre-creation already adds the right-side page for even pagenr values
+    # Example: if MCF has pagenr=26 (even), pages_map has 26 and 27, back cover goes on 27
+    # Example: if MCF has pagenr=27 (odd), pages_map has 26 and 27, back cover goes on 27
     normal_page_nums = [k for k in pages_map.keys() if k >= 1]
-    max_normal_page = max(normal_page_nums) if normal_page_nums else 0
+    back_cover_page_num = max(normal_page_nums) if normal_page_nums else 1
     
-    # Process back cover (left half) as page N+1
+    # Process back cover (left half of cover spread shown as the final page)
     if cover_page is not None:
-        back_cover_page_num = max_normal_page + 1
         _process_cover_page(cover_page, back_cover_page_num, is_front_cover=False)
     
     # Build sorted pages list: page 0 (front cover), pages 1..N, page N+1 (back cover)

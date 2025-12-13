@@ -1,13 +1,64 @@
-"""Extract images and text content from PDF files using PyMuPDF."""
+"""PDF content extraction for photobook conversion.
+
+API Overview:
+=============
+
+This module provides two modes for working with PDF content:
+
+1. **Full Extraction Mode** (for initial conversion):
+   Use `extract_pdf_content()` to extract all pages upfront.
+   Returns dict with 'pages' list fully populated.
+
+2. **On-Demand Reader Mode** (for GUI with existing MCF):
+   Use `create_pdf_reader()` to create a lightweight reader.
+   Returns dict with empty 'pages' list and a 'reader' for on-demand access.
+
+Public API Functions:
+=====================
+
+- `extract_pdf_content(pdf_path, page_range=None, verbose=False, debug=False)`
+  Extract all PDF pages upfront. Use for initial PDF→MCF conversion.
+  Returns: Dict with 'pages', 'metadata', 'page_size', 'page_count'
+
+- `create_pdf_reader(pdf_path, verbose=False)`
+  Create lightweight on-demand reader. Use when MCF already exists.
+  Returns: Dict with 'reader', 'metadata', 'page_size', 'page_count', 'pages'=[]
+
+- `get_page_content(pdf_content, pageno)`
+  **Primary API for accessing pages** - works with both modes.
+  Returns: Page data dict or None on error (errors are logged).
+  Automatically caches extracted pages in the 'pages' list.
+
+Usage Examples:
+===============
+
+# Full extraction (initial conversion):
+pdf_content = extract_pdf_content(Path('album.pdf'))
+page_data = pdf_content['pages'][0]  # Direct access
+
+# On-demand mode (GUI with existing MCF):
+pdf_content = create_pdf_reader(Path('album.pdf'))
+page_data = get_page_content(pdf_content, 0)  # Unified API
+
+# The unified API works with both modes:
+for pageno in range(pdf_content['page_count']):
+    page_data = get_page_content(pdf_content, pageno)
+    if page_data:
+        composite = page_data.get('composite_image')
+        # ... use composite ...
+"""
 
 import fitz  # PyMuPDF
 from pathlib import Path
 from typing import Dict, List, Optional, Any
 from io import BytesIO
+import logging
 
 from PIL import Image
 
 from .image_segmenter import segment_composite_image, should_segment_image
+
+logger = logging.getLogger(__name__)
 
 
 class PDFReader:
@@ -82,7 +133,7 @@ class PDFReader:
             raise ValueError(f"Page {page_num + 1} does not exist")
         
         page = self._doc[page_num]
-        return extract_page_content(page, page_num, self.verbose, debug=False)
+        return extract_page_content(page, page_num, self._page_count, self.verbose, debug=False)
     
     def close(self):
         """Close the PDF document."""
@@ -115,7 +166,8 @@ def create_pdf_reader(pdf_path: Path, verbose: bool = False) -> Dict[str, Any]:
             - 'page_size': (width, height) in points
             - 'page_count': Number of pages
             - 'reader': PDFReader instance for on-demand page access
-            - 'pages': Empty list (pages loaded on-demand)
+            - 'pages': Empty list (pages loaded on-demand via get_page_content())
+            - 'pdf_path': Path to source PDF
     """
     reader = PDFReader(pdf_path, verbose)
     
@@ -124,9 +176,69 @@ def create_pdf_reader(pdf_path: Path, verbose: bool = False) -> Dict[str, Any]:
         'page_size': reader.page_size,
         'page_count': reader.page_count,
         'reader': reader,
-        'pages': [],  # Empty - pages loaded on-demand via reader
+        'pages': [],  # Empty - pages loaded on-demand via get_page_content()
         'pdf_path': str(pdf_path),  # Store path for full page rendering
     }
+
+
+def get_page_content(pdf_content: Dict[str, Any], pageno: int) -> Optional[Dict[str, Any]]:
+    """Get page content, abstracting on-demand vs pre-loaded modes.
+    
+    This is the primary API for accessing page data. It works with both:
+    - Full extraction mode (pages pre-loaded in 'pages' list)
+    - On-demand mode (pages extracted via 'reader' as needed)
+    
+    Extracted pages are cached in the 'pages' list for efficiency.
+    
+    Args:
+        pdf_content: Dict returned by extract_pdf_content() or create_pdf_reader()
+        pageno: Page number (0-indexed)
+        
+    Returns:
+        Page data dict with keys like 'composite_image', 'photos', 'texts', etc.
+        Returns None if page doesn't exist or extraction fails (errors logged).
+        
+    Example:
+        >>> pdf_content = create_pdf_reader(Path('album.pdf'))
+        >>> page_data = get_page_content(pdf_content, 0)
+        >>> if page_data:
+        ...     composite = page_data.get('composite_image')
+    """
+    if not pdf_content:
+        return None
+    
+    page_count = pdf_content.get('page_count', 0)
+    if pageno < 0 or pageno >= page_count:
+        logger.warning(f"Page {pageno} out of range (page_count={page_count})")
+        return None
+    
+    pages_list = pdf_content.get('pages', [])
+    
+    # Check if page already loaded (pre-loaded or cached from previous call)
+    if pageno < len(pages_list) and pages_list[pageno] is not None:
+        return pages_list[pageno]
+    
+    # On-demand mode: extract page now
+    reader = pdf_content.get('reader')
+    if reader:
+        try:
+            logger.debug(f"Extracting page {pageno} on-demand")
+            page_data = reader.extract_page(pageno)
+            
+            # Cache in pages list for future access
+            # Extend list if needed to accommodate this page number
+            while len(pages_list) <= pageno:
+                pages_list.append(None)
+            pages_list[pageno] = page_data
+            
+            return page_data
+        except Exception as e:
+            logger.error(f"Failed to extract page {pageno} on-demand: {e}")
+            return None
+    
+    # Neither pre-loaded nor on-demand reader available
+    logger.error(f"Cannot access page {pageno}: no pre-loaded data or reader")
+    return None
 
 
 def extract_pdf_content(pdf_path: Path, page_range: Optional[List[int]] = None, verbose: bool = False, debug: bool = False) -> Dict[str, Any]:
@@ -165,7 +277,7 @@ def extract_pdf_content(pdf_path: Path, page_range: Optional[List[int]] = None, 
             continue
             
         page = doc[page_num]
-        page_data = extract_page_content(page, page_num, verbose, debug)
+        page_data = extract_page_content(page, page_num, len(doc), verbose, debug)
         pages.append(page_data)
     
     # Get consistent page size from first page
@@ -177,11 +289,12 @@ def extract_pdf_content(pdf_path: Path, page_range: Optional[List[int]] = None, 
     return {
         'metadata': metadata,
         'page_size': page_size,
+        'page_count': len(pages),
         'pages': pages,
     }
 
 
-def extract_page_content(page: fitz.Page, page_num: int, verbose: bool = False, debug: bool = False) -> Dict[str, Any]:
+def extract_page_content(page: fitz.Page, page_num: int, total_pages: int, verbose: bool = False, debug: bool = False) -> Dict[str, Any]:
     """Extract content from a single PDF page.
     
     Args:
@@ -357,6 +470,12 @@ def extract_page_content(page: fitz.Page, page_num: int, verbose: bool = False, 
     if verbose:
         print(f"  Found {len(page_data['images'])} images and {len(page_data['text_blocks'])} text blocks (after merging)")
     
+    # Convert all coordinates from PDF points to MCF spread coordinates
+    # This is the ONLY place PDF points are converted - everything downstream uses MCF
+    page_rect = page.rect
+    page_width_pdf = page_rect.width
+    page_data = _convert_page_to_mcf_coordinates(page_data, page_num, total_pages, page_width_pdf)
+    
     return page_data
 
 
@@ -444,11 +563,121 @@ def merge_text_group(blocks: List[Dict[str, Any]]) -> Dict[str, Any]:
     
     return merged
 
+def _get_page_positioning(page_num: int, total_pages: int, page_width_mcf: float) -> tuple[bool, float]:
+    """Determine if a page is on the right side and calculate x-offset.
+    
+    Page positioning rules:
+    - Page 0 (front cover): RIGHT side of cover spread
+    - Last page (back cover): LEFT side of cover spread
+    - Other odd pages (1,3,5...): RIGHT side of content spreads
+    - Other even pages (2,4,6...): LEFT side of content spreads
+    
+    Args:
+        page_num: 0-indexed page number
+        total_pages: Total number of pages in PDF
+        page_width_mcf: Single page width in MCF units
+        
+    Returns:
+        (is_right_page, x_offset_mcf) tuple
+    """
+    # Check if this is the back cover (last page)
+    is_back_cover = (page_num == total_pages - 1) and (total_pages > 1)
+    
+    if is_back_cover:
+        # Back cover is on LEFT side
+        return False, 0.0
+    elif page_num == 0:
+        # Front cover is on RIGHT side
+        return True, page_width_mcf
+    else:
+        # Content pages: odd pages are RIGHT, even pages are LEFT
+        is_right_page = (page_num % 2 == 1)
+        x_offset_mcf = page_width_mcf if is_right_page else 0.0
+        return is_right_page, x_offset_mcf
+
+
+def _convert_page_to_mcf_coordinates(page_data: Dict[str, Any], page_num: int, total_pages: int, page_width_pdf: float) -> Dict[str, Any]:
+    """Convert all coordinates in page_data from PDF points to MCF spread coordinates.
+    
+    This is the single point of conversion from PDF coordinate space to MCF coordinate space.
+    After this conversion, all coordinates are in MCF units and positioned correctly
+    in the spread (with right pages offset by page_width_mcf).
+    
+    Args:
+        page_data: Page data dict with coordinates in PDF points
+        page_num: PDF page number (0-indexed)
+        page_width_pdf: Width of one page in PDF points
+        
+    Returns:
+        Modified page_data with all coordinates in MCF spread units
+        
+    """
+    PT_TO_MCF = 3.52778  # 1 PDF point = 25.4mm/72 = 0.352778mm = 3.52778 * 0.1mm
+
+    page_width_mcf = page_width_pdf * PT_TO_MCF
+    is_right_page, x_offset_mcf = _get_page_positioning(page_num, total_pages, page_width_mcf)
+
+    logger.info(f"Converting page {page_num} to MCF: is_right={is_right_page}, x_offset={x_offset_mcf:.1f} MCF")
+    
+    def convert_coords(item: Dict[str, Any]) -> None:
+        """Convert left/top/width/height from PDF points to MCF spread coordinates in-place."""
+        if 'left' in item:
+            item['left'] = item['left'] * PT_TO_MCF + x_offset_mcf
+        if 'top' in item:
+            item['top'] = item['top'] * PT_TO_MCF
+        if 'width' in item:
+            item['width'] = item['width'] * PT_TO_MCF
+        if 'height' in item:
+            item['height'] = item['height'] * PT_TO_MCF
+    
+    # Convert composite image coordinates
+    if 'composite_image' in page_data and page_data['composite_image']:
+        convert_coords(page_data['composite_image'])
+        logger.debug(f"  Composite: left={page_data['composite_image']['left']:.1f} MCF")
+    
+    # Convert all image coordinates
+    for img in page_data.get('images', []):
+        convert_coords(img)
+    
+    # Convert all text block coordinates  
+    for text in page_data.get('text_blocks', []):
+        convert_coords(text)
+    
+    # Convert page dimensions from PDF points to MCF units
+    if 'width' in page_data:
+        page_data['width'] = page_data['width'] * PT_TO_MCF
+    if 'height' in page_data:
+        page_data['height'] = page_data['height'] * PT_TO_MCF
+    
+    # Store the conversion info for reference
+    page_data['_coordinate_system'] = 'mcf_spread'
+    page_data['_mcf_x_offset'] = x_offset_mcf
+    page_data['_is_right_page'] = is_right_page
+    
+    return page_data
+
+
+    return is_right_page, x_offset_mcf
+
 
 def _makeScaledSegments(composite_image, current_pageno, image_data, image_format,
                         new_segments: list[dict[str, Any]]) -> list[Any]:
-    # Scale segments from image pixels to PDF points/MCF units
-    # The composite_image has width/height in PDF points (which equals MCF units for our purposes)
+    """Scale segments from image pixels to MCF spread coordinates.
+    
+    The composite_image dict already has coordinates in MCF spread units (converted by
+    _convert_page_to_mcf_coordinates). We scale the segments and position them within
+    the composite, producing segments in MCF spread coordinates.
+    
+    Args:
+        composite_image: Composite image dict with MCF spread coordinates
+        current_pageno: Page number for debugging
+        image_data: Raw image bytes
+        image_format: Image format (jpg, png, etc)
+        new_segments: List of segments with coordinates in image pixels
+        
+    Returns:
+        List of segments with coordinates in MCF spread units
+    """
     from PIL import Image as PILImage
     from io import BytesIO
     temp_img = PILImage.open(BytesIO(image_data))
@@ -461,42 +690,41 @@ def _makeScaledSegments(composite_image, current_pageno, image_data, image_forma
     print(f"  DEBUG: Saved composite image to {debug_path}")
 
     print(
-        f"  Composite image on PDF page: left={composite_image.get('left')}, top={composite_image.get('top')}, width={composite_image.get('width')}, height={composite_image.get('height')}")
+        f"  Composite image (MCF spread coords): left={composite_image.get('left'):.1f}, top={composite_image.get('top'):.1f}, "
+        f"width={composite_image.get('width'):.1f}, height={composite_image.get('height'):.1f}")
 
-    # Calculate scale factors
+    # Calculate scale factors (pixels to MCF units)
     scale_x = composite_image['width'] / img_width_pixels
     scale_y = composite_image['height'] / img_height_pixels
 
     print(
-        f"  Image: {img_width_pixels}x{img_height_pixels} pixels -> {composite_image['width']:.1f}x{composite_image['height']:.1f} points")
-    print(f"  Scale factors: x={scale_x:.4f}, y={scale_y:.4f}")
+        f"  Image: {img_width_pixels}x{img_height_pixels} pixels -> {composite_image['width']:.1f}x{composite_image['height']:.1f} MCF")
+    print(f"  Scale factors: x={scale_x:.4f}, y={scale_y:.4f} MCF/pixel")
 
-    # Scale segment coordinates from pixels to points
-    # Segments are image-relative (0,0 = top-left of image)
-    # We need to scale them and position them absolutely on the page
+    # Scale segment coordinates from image pixels to MCF spread coordinates
     scaled_segments = []
     for i, seg in enumerate(new_segments):
-        # Scale from image pixels to points
-        seg_left_points = seg['left'] * scale_x
-        seg_top_points = seg['top'] * scale_y
-        seg_width_points = seg['width'] * scale_x
-        seg_height_points = seg['height'] * scale_y
+        # Scale from image pixels to MCF units (same scale as composite)
+        seg_left_mcf = seg['left'] * scale_x
+        seg_top_mcf = seg['top'] * scale_y
+        seg_width_mcf = seg['width'] * scale_x
+        seg_height_mcf = seg['height'] * scale_y
 
-        # Add composite image position to make absolute page coordinates
-        abs_left = composite_image['left'] + seg_left_points
-        abs_top = composite_image['top'] + seg_top_points
+        # Add composite image position to make absolute MCF spread coordinates
+        abs_left_mcf = composite_image['left'] + seg_left_mcf
+        abs_top_mcf = composite_image['top'] + seg_top_mcf
 
         print(f"  Segment {i} in pixels: ({seg['left']}, {seg['top']}) {seg['width']}x{seg['height']}")
         print(
-            f"  Segment {i} in points (image-relative): ({seg_left_points:.1f}, {seg_top_points:.1f}) {seg_width_points:.1f}x{seg_height_points:.1f}")
+            f"  Segment {i} (image-relative MCF): ({seg_left_mcf:.1f}, {seg_top_mcf:.1f}) {seg_width_mcf:.1f}x{seg_height_mcf:.1f}")
         print(
-            f"  Segment {i} in points (page-absolute): ({abs_left:.1f}, {abs_top:.1f}) {seg_width_points:.1f}x{seg_height_points:.1f}")
+            f"  Segment {i} (MCF spread coords): ({abs_left_mcf:.1f}, {abs_top_mcf:.1f}) {seg_width_mcf:.1f}x{seg_height_mcf:.1f}")
 
         scaled_seg = {
-            'left': abs_left,
-            'top': abs_top,
-            'width': seg_width_points,
-            'height': seg_height_points,
+            'left': abs_left_mcf,
+            'top': abs_top_mcf,
+            'width': seg_width_mcf,
+            'height': seg_height_mcf,
             'data': seg['data'],
             'format': seg['format'],
         }
@@ -505,30 +733,28 @@ def _makeScaledSegments(composite_image, current_pageno, image_data, image_forma
 
 
 def _getPdfPage(pdf_content, current_pageno) -> Any:
-    pdf_page = None
-    # Check if we have pre-loaded pages or need to use on-demand reader
-    if 'reader' in pdf_content:
-        # On-demand reader mode
-        page_count = pdf_content.get('page_count', 0)
-        print(f"  PDF has {page_count} pages (on-demand mode)")
-
-        if current_pageno >= page_count:
-            print(f"Error: CEWE page {current_pageno} not found in PDF content (PDF has {page_count} pages)")
-            return None
-
-        # Extract page on-demand
-        print(f"  Extracting page {current_pageno} from PDF...")
-        pdf_page = pdf_content['reader'].extract_page(current_pageno)
-    else:
-        # Pre-loaded pages mode
-        page_count = len(pdf_content['pages'])
-        print(f"  PDF has {page_count} pages (pre-loaded mode)")
-
-        if current_pageno >= page_count:
-            print(f"Error: CEWE page {current_pageno} not found in PDF content (PDF has {page_count} pages)")
-            return None
-
-        pdf_page = pdf_content['pages'][current_pageno]
+    """Get PDF page data using the unified API.
+    
+    Args:
+        pdf_content: PDF content dict (from extract_pdf_content or create_pdf_reader)
+        current_pageno: Page number (0-indexed)
+        
+    Returns:
+        Page data dict or None if page doesn't exist
+    """
+    page_count = pdf_content.get('page_count', 0)
+    print(f"  PDF has {page_count} pages")
+    
+    if current_pageno >= page_count:
+        print(f"Error: CEWE page {current_pageno} not found in PDF content (PDF has {page_count} pages)")
+        return None
+    
+    # Use unified API - works for both on-demand and pre-loaded modes
+    pdf_page = get_page_content(pdf_content, current_pageno)
+    if not pdf_page:
+        print(f"Error: Failed to extract page {current_pageno}")
+        return None
+    
     return pdf_page
 
 
