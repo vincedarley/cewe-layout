@@ -333,12 +333,18 @@ class LayoutViewer:
             ttk.Label(pdf_frame, text='(empty = whole page)').pack(side='left', padx=(4,0))
             
             ttk.Label(pdf_frame, text='  Algorithm:').pack(side='left', padx=(10,4))
-            self.segmentation_algorithm_var = tk.StringVar(value='morphological')
+            
+            # Dynamically populate segmenters from registry
+            from .pdf2cewe.segmenter_base import list_segmenters
+            from .pdf2cewe import image_segmenter, grid_segmenter, tree_segmenter  # Ensure all segmenters are registered
+            available_segmenters = list_segmenters()
+            
+            self.segmentation_algorithm_var = tk.StringVar(value=available_segmenters[0] if available_segmenters else 'morphological')
             self.segmentation_algorithm_combo = ttk.Combobox(
                 pdf_frame, 
                 textvariable=self.segmentation_algorithm_var,
-                values=['morphological', 'grid'],
-                width=12,
+                values=available_segmenters,
+                width=15,
                 state='readonly'
             )
             self.segmentation_algorithm_combo.pack(side='left')
@@ -2487,7 +2493,6 @@ class LayoutViewer:
                 
         # Get selected algorithm and segmenter
         from .pdf2cewe.segmenter_base import get_segmenter
-        # Ensure segmenters are registered
 
         algorithm = self.segmentation_algorithm_var.get();
         segmenter = get_segmenter(algorithm)

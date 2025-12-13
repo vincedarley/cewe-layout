@@ -514,7 +514,7 @@ def _getPdfPage(pdf_content, current_pageno) -> Any:
 
         if current_pageno >= page_count:
             print(f"Error: CEWE page {current_pageno} not found in PDF content (PDF has {page_count} pages)")
-            pdf_page = None
+            return None
 
         # Extract page on-demand
         print(f"  Extracting page {current_pageno} from PDF...")
@@ -526,14 +526,14 @@ def _getPdfPage(pdf_content, current_pageno) -> Any:
 
         if current_pageno >= page_count:
             print(f"Error: CEWE page {current_pageno} not found in PDF content (PDF has {page_count} pages)")
-            pdf_page = None
+            return None
 
         pdf_page = pdf_content['pages'][current_pageno]
     return pdf_page
 
 
 def _getImageToSegment(pages, index, status_var, current_pageno, pdf_page, specific_photo_index: int | None) -> tuple[Any, list[int]]:
-    image_to_segment = None
+
     photos_to_replace = []  # Track which photos will be replaced
 
     if specific_photo_index is not None:
@@ -551,10 +551,10 @@ def _getImageToSegment(pages, index, status_var, current_pageno, pdf_page, speci
         # For now, use the image at the same index (this may need refinement)
         images_with_data = [img for img in pdf_page.get('images', []) if img.get('data')]
         if specific_photo_index < len(images_with_data):
-            composite_image = images_with_data[specific_photo_index]
+            image_to_segment = images_with_data[specific_photo_index]
             photos_to_replace = [specific_photo_index]
             print(
-                f"  Re-segmenting photo #{specific_photo_index + 1}: {composite_image.get('width'):.1f}x{composite_image.get('height'):.1f}")
+                f"  Re-segmenting photo #{specific_photo_index + 1}: {image_to_segment.get('width'):.1f}x{image_to_segment.get('height'):.1f}")
         else:
             print(f"Error: Cannot find PDF image for photo #{specific_photo_index + 1}")
             status_var.set(f'Error: Cannot find image for photo #{specific_photo_index + 1}')
@@ -565,9 +565,9 @@ def _getImageToSegment(pages, index, status_var, current_pageno, pdf_page, speci
         print(f"  Extracting embedded composite image from PDF page {current_pageno}...")
 
         # Get the explicitly marked composite image from PDF extraction
-        composite_image = pdf_page.get('composite_image')
+        image_to_segment = pdf_page.get('composite_image')
 
-        if not composite_image:
+        if not image_to_segment:
             print("Error: No composite image found in PDF page data")
             print(f"  Available images: {len(pdf_page.get('images', []))}")
             status_var.set('Error: No composite image in page data')
@@ -576,7 +576,7 @@ def _getImageToSegment(pages, index, status_var, current_pageno, pdf_page, speci
         # Get actual pixel dimensions
         from PIL import Image as PILImage
         from io import BytesIO
-        temp_img = PILImage.open(BytesIO(composite_image['data']))
+        temp_img = PILImage.open(BytesIO(image_to_segment['data']))
         pixel_width = temp_img.width
         pixel_height = temp_img.height
 
@@ -585,13 +585,13 @@ def _getImageToSegment(pages, index, status_var, current_pageno, pdf_page, speci
         photos = page_info.get('photos', [])
         photos_to_replace = list(range(len(photos)))
         print(
-            f"  Using embedded composite image: {pixel_width}x{pixel_height} pixels ({composite_image['width']:.1f}x{composite_image['height']:.1f} points)")
+            f"  Using embedded composite image: {pixel_width}x{pixel_height} pixels ({image_to_segment['width']:.1f}x{image_to_segment['height']:.1f} points)")
 
         # DEBUG: Save composite image for comparison
-        debug_path = f"/tmp/composite_page{current_pageno}.{composite_image.get('format', 'jpeg')}"
+        debug_path = f"/tmp/composite_page{current_pageno}.{image_to_segment.get('format', 'jpeg')}"
         temp_img.save(debug_path)
         print(f"  DEBUG: Saved composite image to {debug_path}")
-    return composite_image, photos_to_replace
+    return image_to_segment, photos_to_replace
 
 
 def _segmentPage(pdf_content, pages, index, status_var, current_pageno, segmenter: ImageSegmenter,
