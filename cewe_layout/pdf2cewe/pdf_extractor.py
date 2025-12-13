@@ -79,7 +79,7 @@ class PDFReader:
             raise ValueError(f"Page {page_num + 1} does not exist")
         
         page = self._doc[page_num]
-        return extract_page_content(page, page_num, self.verbose)
+        return extract_page_content(page, page_num, self.verbose, debug=False)
     
     def close(self):
         """Close the PDF document."""
@@ -122,10 +122,11 @@ def create_pdf_reader(pdf_path: Path, verbose: bool = False) -> Dict[str, Any]:
         'page_count': reader.page_count,
         'reader': reader,
         'pages': [],  # Empty - pages loaded on-demand via reader
+        'pdf_path': str(pdf_path),  # Store path for full page rendering
     }
 
 
-def extract_pdf_content(pdf_path: Path, page_range: Optional[List[int]] = None, verbose: bool = False) -> Dict[str, Any]:
+def extract_pdf_content(pdf_path: Path, page_range: Optional[List[int]] = None, verbose: bool = False, debug: bool = False) -> Dict[str, Any]:
     """Extract all images and text from a PDF file.
     
     Args:
@@ -161,7 +162,7 @@ def extract_pdf_content(pdf_path: Path, page_range: Optional[List[int]] = None, 
             continue
             
         page = doc[page_num]
-        page_data = extract_page_content(page, page_num, verbose)
+        page_data = extract_page_content(page, page_num, verbose, debug)
         pages.append(page_data)
     
     # Get consistent page size from first page
@@ -177,13 +178,15 @@ def extract_pdf_content(pdf_path: Path, page_range: Optional[List[int]] = None, 
     }
 
 
-def extract_page_content(page: fitz.Page, page_num: int, verbose: bool = False) -> Dict[str, Any]:
+def extract_page_content(page: fitz.Page, page_num: int, verbose: bool = False, debug: bool = False) -> Dict[str, Any]:
     """Extract content from a single PDF page.
     
     Args:
         page: PyMuPDF Page object
         page_num: Page number (0-indexed)
         verbose: Print detailed info
+        debug: Save composite images for debugging
+        debug: Save composite images for debugging
         
     Returns:
         Dictionary with 'images' and 'text_blocks' lists
@@ -227,12 +230,33 @@ def extract_page_content(page: fitz.Page, page_num: int, verbose: bool = False) 
                 if verbose:
                     print(f"  Image {img_index}: Large composite image, segmenting...")
                 
+                # Store the original composite image data for later GUI access
+                composite_data = {
+                    'index': img_index,
+                    'xref': xref,
+                    'left': rect.x0,
+                    'top': rect.y0,
+                    'width': rect.width,
+                    'height': rect.height,
+                    'data': image_bytes,
+                    'format': image_ext,
+                    'is_composite': True  # Mark as the original composite image
+                }
+                page_data['composite_image'] = composite_data
+                
                 # Segment the image
                 segments = segment_composite_image(image_bytes, image_ext, verbose=verbose)
                 
                 # Get the actual image dimensions
                 from PIL import Image as PILImage
+                from io import BytesIO
                 temp_img = PILImage.open(BytesIO(image_bytes))
+                
+                # Save composite image if debug mode enabled (after loading temp_img)
+                if debug:
+                    debug_path = f"/tmp/composite_build_page{page_num}.{image_ext}"
+                    temp_img.save(debug_path)
+                    print(f"  DEBUG: Saved composite image to {debug_path}")
                 img_width_pixels = temp_img.width
                 img_height_pixels = temp_img.height
                 

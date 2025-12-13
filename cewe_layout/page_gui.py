@@ -277,6 +277,12 @@ class PageRenderer:
                     thumb = self.get_thumbnail(img_path, int(x1-x0), int(y1-y0))
                     if thumb is not None:
                         # Draw grey background first
+                        # NOTE: Grey borders appear when the image is smaller than the slot because:
+                        # 1. PIL's thumbnail() preserves aspect ratio and never upscales
+                        # 2. If image pixels < slot pixels, the thumbnail stays at original size
+                        # 3. We center the smaller thumbnail, leaving grey borders visible
+                        # This commonly happens with segmented photos whose pixel dimensions
+                        # don't match the MCF area_width/area_height values.
                         draw.rectangle([x0, y0, x1, y1], fill='#cccccc')
                         
                         # Center the thumbnail in the slot

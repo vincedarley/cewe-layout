@@ -34,6 +34,8 @@ if __name__ == '__main__':
                        help='Restore the most recent backup')
     parser.add_argument('--renamephotos', nargs='+', metavar='ARG',
                        help='Rename photos: DIRECTORY PREFIX [PATTERN]. Pattern defaults to * (all files).')
+    parser.add_argument('--debug', action='store_true',
+                       help='Enable debug mode (saves composite images during segmentation)')
     
     args = parser.parse_args()
     
@@ -82,7 +84,7 @@ if __name__ == '__main__':
             else:
                 # Extract all PDF content for initial conversion
                 print(f"Extracting content from {pdf_path}...")
-                pdf_content = extract_pdf_content(pdf_path, page_range=None, verbose=True)
+                pdf_content = extract_pdf_content(pdf_path, page_range=None, verbose=True, debug=args.debug)
                 
                 print(f"Writing MCF project to {args.cewe}...")
                 write_mcf_project(pdf_content, args.cewe, verbose=True)

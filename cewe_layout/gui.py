@@ -327,6 +327,23 @@ class LayoutViewer:
             self.pdf_photo_count_entry = ttk.Entry(pdf_frame, textvariable=self.pdf_photo_count_var, width=5)
             self.pdf_photo_count_entry.pack(side='left')
             self.pdf_photo_count_entry.bind('<Return>', self._on_pdf_photo_count_change)
+            
+            ttk.Label(pdf_frame, text='  Re-segment photo:').pack(side='left', padx=(10,4))
+            self.pdf_photo_select_var = tk.StringVar(value='')
+            self.pdf_photo_select_entry = ttk.Entry(pdf_frame, textvariable=self.pdf_photo_select_var, width=5)
+            self.pdf_photo_select_entry.pack(side='left')
+            ttk.Label(pdf_frame, text='(empty = whole page)').pack(side='left', padx=(4,0))
+            
+            ttk.Label(pdf_frame, text='  Algorithm:').pack(side='left', padx=(10,4))
+            self.segmentation_algorithm_var = tk.StringVar(value='morphological')
+            self.segmentation_algorithm_combo = ttk.Combobox(
+                pdf_frame, 
+                textvariable=self.segmentation_algorithm_var,
+                values=['morphological', 'grid'],
+                width=12,
+                state='readonly'
+            )
+            self.segmentation_algorithm_combo.pack(side='left')
         
         # Row 3: Modified pages label (pack label and value tightly)
         modified_frame = ttk.Frame(self.ctrl)
@@ -514,9 +531,6 @@ class LayoutViewer:
         
         # Photo weight rows (will be populated dynamically)
         self.weight_widgets = []  # List of (item_label, desired_entry, actual_label) for photos and texts
-
-        # Enter key on page number entry goes to that page
-        self.ctrl.bind('<Return>', lambda e: self.goto_page())
 
         # Create page renderer (handles all visual rendering, no business logic)
         self.page_renderer = PageRenderer(
@@ -2453,10 +2467,26 @@ class LayoutViewer:
             print("Invalid photo count - must be an integer")
             return
         
+        # Check if user wants to re-segment a specific photo or the whole page
+        photo_select_str = self.pdf_photo_select_var.get().strip()
+        specific_photo_index = None
+        if photo_select_str:
+            try:
+                specific_photo_index = int(photo_select_str) - 1  # Convert to 0-based index
+                if specific_photo_index < 0:
+                    print("Invalid photo number - must be >= 1")
+                    return
+            except ValueError:
+                print("Invalid photo number - must be an integer or empty")
+                return
+        
         # Get current page number (CEWE numbering: 0=cover, 1=first page, etc.)
         current_pageno = self.pages[self.index][0]
         
-        print(f"Re-analyzing CEWE page {current_pageno} with target photo count: {target_count}")
+        if specific_photo_index is not None:
+            print(f"Re-segmenting photo #{specific_photo_index+1} on CEWE page {current_pageno} into {target_count} photos")
+        else:
+            print(f"Re-analyzing entire CEWE page {current_pageno} with target photo count: {target_count}")
         
         # Check if we have pre-loaded pages or need to use on-demand reader
         if 'reader' in self.pdf_content:
@@ -2483,38 +2513,89 @@ class LayoutViewer:
             pdf_page = self.pdf_content['pages'][current_pageno]
         print(f"  PDF page has {len(pdf_page.get('images', []))} images")
         
-        # Find the largest image on this page that we can re-segment
-        # Look for either segmented images or large single images
+        # Determine which image to re-segment
         composite_image = None
-        for i, img in enumerate(pdf_page.get('images', [])):
-            print(f"    Image {i}: has 'segments'={img.get('segments') is not None}, has 'data'={img.get('data') is not None}")
-            if img.get('segments'):
-                # This is a segmented composite image
-                composite_image = img
-                print(f"    → Found segmented image")
-                break
-            elif img.get('data'):
-                # Large single image that could be re-segmented
-                if composite_image is None or (img.get('width', 0) * img.get('height', 0) > 
-                                                composite_image.get('width', 0) * composite_image.get('height', 0)):
-                    composite_image = img
-                    print(f"    → Using as potential composite (largest so far)")
+        photos_to_replace = []  # Track which photos will be replaced
+        
+        if specific_photo_index is not None:
+            # Mode 2: Re-segment a specific photo
+            # Find the corresponding image in the PDF page
+            _, page_info = self.pages[self.index]
+            photos = page_info.get('photos', [])
+            
+            if specific_photo_index >= len(photos):
+                print(f"Error: Photo #{specific_photo_index+1} not found (page has {len(photos)} photos)")
+                self.status_var.set(f'Error: Photo #{specific_photo_index+1} not found')
+                return
+            
+            # Find the PDF image that corresponds to this photo
+            # For now, use the image at the same index (this may need refinement)
+            images_with_data = [img for img in pdf_page.get('images', []) if img.get('data')]
+            if specific_photo_index < len(images_with_data):
+                composite_image = images_with_data[specific_photo_index]
+                photos_to_replace = [specific_photo_index]
+                print(f"  Re-segmenting photo #{specific_photo_index+1}: {composite_image.get('width'):.1f}x{composite_image.get('height'):.1f}")
+            else:
+                print(f"Error: Cannot find PDF image for photo #{specific_photo_index+1}")
+                self.status_var.set(f'Error: Cannot find image for photo #{specific_photo_index+1}')
+                return
+        else:
+            # Mode 1: Re-segment entire page from full PDF page
+            # Extract the embedded composite image using explicit marker
+            print(f"  Extracting embedded composite image from PDF page {current_pageno}...")
+            
+            # Get the explicitly marked composite image from PDF extraction
+            composite_image = pdf_page.get('composite_image')
+            
+            if not composite_image:
+                print("Error: No composite image found in PDF page data")
+                print(f"  Available images: {len(pdf_page.get('images', []))}")
+                self.status_var.set('Error: No composite image in page data')
+                return
+            
+            # Get actual pixel dimensions
+            from PIL import Image as PILImage
+            from io import BytesIO
+            temp_img = PILImage.open(BytesIO(composite_image['data']))
+            pixel_width = temp_img.width
+            pixel_height = temp_img.height
+            
+            # All photos will be replaced
+            _, page_info = self.pages[self.index]
+            photos = page_info.get('photos', [])
+            photos_to_replace = list(range(len(photos)))
+            print(f"  Using embedded composite image: {pixel_width}x{pixel_height} pixels ({composite_image['width']:.1f}x{composite_image['height']:.1f} points)")
+            
+            # DEBUG: Save composite image for comparison
+            debug_path = f"/tmp/composite_page{current_pageno}.{composite_image.get('format', 'jpeg')}"
+            temp_img.save(debug_path)
+            print(f"  DEBUG: Saved composite image to {debug_path}")
         
         if not composite_image:
-            print(f"No image found to re-segment on CEWE page {current_pageno}")
-            self.status_var.set('No image to re-segment on this page')
+            print(f"No image found to re-segment")
+            self.status_var.set('No image to re-segment')
             return
         
         # Get the original image data
         image_data = composite_image['data']
         image_format = composite_image['format']
         
-        # Import segmentation function
-        from .pdf2cewe.image_segmenter import find_segmentation_for_count
+        # Get selected algorithm and segmenter
+        from .pdf2cewe.segmenter_base import get_segmenter
+        # Ensure segmenters are registered
+        from .pdf2cewe import image_segmenter, grid_segmenter
+        
+        algorithm = self.segmentation_algorithm_var.get() if hasattr(self, 'segmentation_algorithm_var') else 'morphological'
+        segmenter = get_segmenter(algorithm)
+        
+        if segmenter is None:
+            print(f"Unknown segmentation algorithm: {algorithm}")
+            self.status_var.set(f'❌ Unknown algorithm: {algorithm}')
+            return
         
         # Try to find segmentation with target count
-        print(f"Searching for segmentation with {target_count} photos...")
-        new_segments = find_segmentation_for_count(
+        print(f"Searching for segmentation with {target_count} photos using {segmenter.get_name()}...")
+        new_segments = segmenter.segment_for_count(
             image_data, image_format, target_count, verbose=True
         )
         
@@ -2532,6 +2613,11 @@ class LayoutViewer:
         temp_img = PILImage.open(BytesIO(image_data))
         img_width_pixels = temp_img.width
         img_height_pixels = temp_img.height
+        
+        # DEBUG: Save composite image to see what we're segmenting
+        debug_path = f"/tmp/composite_page{current_pageno}.{image_format}"
+        temp_img.save(debug_path)
+        print(f"  DEBUG: Saved composite image to {debug_path}")
         
         print(f"  Composite image on PDF page: left={composite_image.get('left')}, top={composite_image.get('top')}, width={composite_image.get('width')}, height={composite_image.get('height')}")
         
@@ -2572,37 +2658,53 @@ class LayoutViewer:
             scaled_segments.append(scaled_seg)
         
         # Show overlay with the new segmentation rectangles
-        self._show_segmentation_overlay(scaled_segments, current_pageno, composite_image, image_data, image_format)
+        self._show_segmentation_overlay(scaled_segments, current_pageno, composite_image, image_data, image_format, photos_to_replace)
     
-    def _show_segmentation_overlay(self, segments, pageno, composite_image, image_data, image_format):
+    def _show_segmentation_overlay(self, segments, pageno, composite_image, image_data, image_format, photos_to_replace):
         """Show overlay with segmentation rectangles and accept/reject buttons.
         
         Args:
-            segments: List of segment dicts from segmentation
+            segments: List of segment dicts from segmentation (in page-relative PDF coordinates)
             pageno: Page number being re-segmented
             composite_image: Original composite image dict from PDF
             image_data: Original image bytes
             image_format: Image format
+            photos_to_replace: List of photo indices to replace (empty = all photos)
         """
-        # Store data for accept/reject handlers
-        self.pending_segmentation = {
-            'segments': segments,
-            'pageno': pageno,
-            'composite_image': composite_image,
-            'image_data': image_data,
-            'image_format': image_format
-        }
-        
         # Get page info for rendering
         _, page_info = self.pages[self.index]
         page_width = page_info.get('page_width')
         page_height = page_info.get('page_height')
         origin_left = page_info.get('origin_left', 0.0)
         
-        # Use page renderer to show overlay
+        # Convert segments from page-relative to spread-relative coordinates
+        # For odd-numbered pages (right pages), we need to add origin_left
+        # Note: segments are in PDF points, origin_left is in MCF units
+        # We need to convert origin_left to points for the segment transformation
+        pt_to_mcf = 3.52778
+        origin_left_pt = origin_left / pt_to_mcf
+        
+        spread_relative_segments = []
+        for seg in segments:
+            spread_seg = seg.copy()
+            spread_seg['left'] = seg['left'] + origin_left_pt
+            spread_relative_segments.append(spread_seg)
+        
+        # Store data for accept/reject handlers (with original page-relative segments)
+        self.pending_segmentation = {
+            'segments': segments,
+            'pageno': pageno,
+            'composite_image': composite_image,
+            'image_data': image_data,
+            'image_format': image_format,
+            'photos_to_replace': photos_to_replace
+        }
+        
+        # Use page renderer to show overlay (with spread-relative segments in points)
+        # Pass origin_left in MCF units as expected by the overlay renderer
         canvas_w, canvas_h = self._get_canvas_dimensions()
         self.overlay_items, self.overlay_button_frame = self.page_renderer.show_segmentation_overlay(
-            self.canvas, segments, canvas_w, canvas_h, page_width, page_height,
+            self.canvas, spread_relative_segments, canvas_w, canvas_h, page_width, page_height,
             self.margin_mcf, origin_left,
             self._accept_segmentation, self._reject_segmentation, self.ctrl
         )
@@ -2633,11 +2735,15 @@ class LayoutViewer:
         segments = seg_data['segments']
         image_data = seg_data['image_data']
         image_format = seg_data['image_format']
+        photos_to_replace = seg_data.get('photos_to_replace', [])
         
-        print(f"Accepting new segmentation for page {pageno} with {len(segments)} photos")
+        if photos_to_replace:
+            print(f"Accepting new segmentation for page {pageno} with {len(segments)} photos (replacing photos: {[i+1 for i in photos_to_replace]})")
+        else:
+            print(f"Accepting new segmentation for page {pageno} with {len(segments)} photos (replacing all photos)")
         
         # Rebuild the MCF page with new segmentation
-        self._rebuild_mcf_page(pageno, segments, image_data, image_format)
+        self._rebuild_mcf_page(pageno, segments, image_data, image_format, photos_to_replace)
         
         # Clear overlay
         self._clear_overlay()
@@ -2656,7 +2762,7 @@ class LayoutViewer:
         
         self.status_var.set('Segmentation rejected')
     
-    def _rebuild_mcf_page(self, pageno, segments, image_data, image_format):
+    def _rebuild_mcf_page(self, pageno, segments, image_data, image_format, photos_to_replace=None):
         """Rebuild a single MCF page with new segmentation.
         
         Args:
@@ -2664,6 +2770,7 @@ class LayoutViewer:
             segments: New segment list
             image_data: Original composite image data
             image_format: Image format
+            photos_to_replace: List of photo indices to replace (None = replace all photos)
         """
         # Import MCF writer functions
         from .pdf2cewe.mcf_writer import create_page_element
@@ -2673,10 +2780,20 @@ class LayoutViewer:
         # Get output directory (the .xmcf directory)
         mcf_dir = Path(self.mcf_file_path).parent
         
-        # Delete old photos from this page
+        # Delete only the specified photos
         _, page_info = self.pages[self.index]
         old_photos = page_info.get('photos', [])
-        for photo in old_photos:
+        
+        if photos_to_replace is None or not photos_to_replace:
+            # Replace all photos
+            photos_to_delete = old_photos
+            photos_to_keep = []
+        else:
+            # Replace only specified photos
+            photos_to_delete = [old_photos[i] for i in photos_to_replace if i < len(old_photos)]
+            photos_to_keep = [p for i, p in enumerate(old_photos) if i not in photos_to_replace]
+        
+        for photo in photos_to_delete:
             filename = photo.get('filename', '')
             if filename:
                 photo_path = mcf_dir / filename
@@ -2684,42 +2801,102 @@ class LayoutViewer:
                     photo_path.unlink()
                     print(f"  Deleted old photo: {filename}")
         
-        # Create new page data structure for MCF writer
-        # This mimics the structure from pdf_extractor
-        # Note: page_width/page_height in page_info are in MCF units, need to convert to PDF points
+        # Handle partial photo replacement
         pt_to_mcf = 3.52778
-        page_data = {
-            'page_num': pageno,  # mcf_writer expects 'page_num' not 'page_number'
-            'width': page_info.get('page_width') / pt_to_mcf,  # Convert MCF units to PDF points
-            'height': page_info.get('page_height') / pt_to_mcf,
-            'images': [],
-            'text_blocks': []  # mcf_writer expects this field
-        }
-        
-        # Add each segment as an image
-        for i, seg in enumerate(segments):
-            page_data['images'].append({
-                'index': i,  # Unique index for this image on the page
-                'data': seg['data'],
-                'format': seg['format'],
-                'left': seg['left'],
-                'top': seg['top'],
-                'width': seg['width'],
-                'height': seg['height']
-            })
-        
-        # Use MCF writer to create the page element with new photos
-        # Note: This creates the XML and writes the photos to disk
-        # Get MCF page metadata
         cewe_pagenr = page_info.get('cewe_pagenr', pageno)
         page_type = page_info.get('page_type', 'normalpage')
         is_cover = (cewe_pagenr == 0 and page_type in ('fullcover', 'calendarcoverfront'))
         
-        page_element = create_page_element(
-            page_data, mcf_dir, pt_to_mcf, 
-            cewe_pagenr, page_type, is_cover, 
-            verbose=True
-        )
+        if photos_to_keep:
+            print(f"  Partial replacement: keeping {len(photos_to_keep)} photos, adding {len(segments)} new photos")
+            
+            # Load the existing page XML
+            tree = ET.parse(self.mcf_file_path)
+            root = tree.getroot()
+            
+            # Find the existing page element
+            page_element = None
+            for page in root.findall('.//page'):
+                if page.get('pagenr') == str(cewe_pagenr):
+                    page_element = page
+                    break
+            
+            if page_element is None:
+                print(f"Error: Could not find page element for pagenr={cewe_pagenr}")
+                return
+            
+            # Remove the old photo areas (the ones being replaced)
+            areas_to_remove = []
+            for area in page_element.findall('.//area'):
+                if area.get('areatype') == 'imagearea':
+                    # Check if this is one of the photos to delete
+                    img = area.find('image')
+                    if img is not None:
+                        filename = img.get('filename', '')
+                        if any(filename == p.get('filename', '') for p in photos_to_delete):
+                            areas_to_remove.append(area)
+            
+            for area in areas_to_remove:
+                page_element.remove(area)
+            
+            # Add new image areas for the segments
+            from .pdf2cewe.mcf_writer import create_image_area
+            
+            # Find the highest z-position in existing areas
+            max_z = 1000
+            for area in page_element.findall('.//area'):
+                pos = area.find('position')
+                if pos is not None:
+                    z = int(pos.get('zposition', 1000))
+                    max_z = max(max_z, z)
+            
+            z_position = max_z + 1
+            
+            # Add each segment as a new area
+            for i, seg in enumerate(segments):
+                img_dict = {
+                    'index': len(old_photos) + i,  # Continue numbering from existing photos
+                    'data': seg['data'],
+                    'format': seg['format'],
+                    'left': seg['left'],
+                    'top': seg['top'],
+                    'width': seg['width'],
+                    'height': seg['height'],
+                    'page_num': pageno,
+                    'x_offset': page_info.get('origin_left', 0.0)
+                }
+                area = create_image_area(img_dict, mcf_dir, pt_to_mcf, z_position, verbose=True)
+                page_element.append(area)
+                z_position += 1
+            
+        else:
+            # Full page replacement - create entirely new page element
+            print(f"  Full page replacement: {len(segments)} new photos")
+            
+            page_data = {
+                'page_num': pageno,
+                'width': page_info.get('page_width') / pt_to_mcf,
+                'height': page_info.get('page_height') / pt_to_mcf,
+                'images': [],
+                'text_blocks': []
+            }
+            
+            for i, seg in enumerate(segments):
+                page_data['images'].append({
+                    'index': i,
+                    'data': seg['data'],
+                    'format': seg['format'],
+                    'left': seg['left'],
+                    'top': seg['top'],
+                    'width': seg['width'],
+                    'height': seg['height']
+                })
+            
+            page_element = create_page_element(
+                page_data, mcf_dir, pt_to_mcf, 
+                cewe_pagenr, page_type, is_cover, 
+                verbose=True
+            )
         
         # Update the in-memory page data
         # Extract the new photos from the generated XML

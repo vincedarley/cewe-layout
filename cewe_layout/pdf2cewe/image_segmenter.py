@@ -8,6 +8,7 @@ import numpy as np
 from typing import List, Dict, Any, Tuple, Optional
 from io import BytesIO
 from PIL import Image
+from .segmenter_base import ImageSegmenter, register_segmenter
 
 
 def segment_composite_image(image_data: bytes, image_format: str, 
@@ -112,10 +113,6 @@ def segment_composite_image(image_data: bytes, image_format: str,
         if photo is None or photo.size == 0:
             continue
         
-        # Remove white margins and crop edges
-        photo = crop_white_margins(photo)
-        photo = crop_edges(photo, 5)
-        
         # Get bounding box in original image coordinates (remove padding offset)
         x, y, w, h = cv2.boundingRect(contour)
         x = max(0, x - pad_offset)
@@ -128,19 +125,27 @@ def segment_composite_image(image_data: bytes, image_format: str,
         # Convert cropped photo back to RGB
         photo_rgb = cv2.cvtColor(photo, cv2.COLOR_BGR2RGB)
         
-        # Convert to PIL Image and save to bytes
+        # Convert to PIL Image and save to bytes using original format
         photo_pil = Image.fromarray(photo_rgb)
         buffer = BytesIO()
-        photo_pil.save(buffer, format='JPEG', quality=95)
+        
+        # Use original image format; for JPEG use quality=99
+        save_format = image_format.upper()
+        if save_format == 'JPEG' or save_format == 'JPG':
+            photo_pil.save(buffer, format='JPEG', quality=99)
+        else:
+            photo_pil.save(buffer, format=save_format)
+        
         photo_bytes = buffer.getvalue()
         
+        # Use the actual cropped photo dimensions, not the contour bounding box
         result.append({
             'data': photo_bytes,
-            'format': 'jpeg',
+            'format': image_format.lower(),
             'left': x,
             'top': y,
-            'width': w,
-            'height': h,
+            'width': photo_pil.width,
+            'height': photo_pil.height,
         })
         
         photo_count += 1
@@ -320,96 +325,96 @@ def should_segment_image(image_width: int, image_height: int,
     return coverage >= threshold
 
 
-def find_segmentation_for_count(image_data: bytes, image_format: str,
-                                  target_count: int,
-                                  min_area: int = 50000,
-                                  max_attempts: int = 20,
-                                  verbose: bool = False) -> Optional[List[Dict[str, Any]]]:
-    """Find segmentation parameters that produce the target number of photos.
+class MorphologicalSegmenter(ImageSegmenter):
+    """Morphological segmentation using adaptive thresholding."""
     
-    Tries different combinations of kernel_size and iterations to find
-    a segmentation that produces exactly the target number of photos.
+    def __init__(self, min_area: int = 50000, max_attempts: int = 30):
+        self.min_area = min_area
+        self.max_attempts = max_attempts
     
-    Args:
-        image_data: Image bytes
-        image_format: Image format (jpeg, png, etc.)
-        target_count: Desired number of photos
-        min_area: Minimum contour area in pixels
-        max_attempts: Maximum number of parameter combinations to try
-        verbose: Print debug info
-        
-    Returns:
-        List of segmented photos if successful, None if target count not achieved
-    """
-    # Define parameter search space
-    # Smaller kernel and fewer iterations = more photos (more sensitive)
-    # Larger kernel and more iterations = fewer photos (less sensitive)
-    # Focus on kernel sizes 1-7 for better sensitivity
-    param_combinations = [
-        # (kernel_size, iterations)
-        # Very sensitive (many photos)
-        (1, 0),   # Extremely sensitive
-        (1, 1),
-        (1, 2),
-        (1, 3),
-        (3, 0),
-        (3, 1),
-        (3, 2),
-        (3, 3),
-        (3, 4),
-        (5, 0),
-        (5, 1),
-        (5, 2),   # Default
-        (5, 3),
-        (5, 4),
-        (5, 5),
-        (7, 0),
-        (7, 1),
-        (7, 2),
-        (7, 3),
-        (7, 4),
-        (7, 5),
-    ]
+    def get_name(self) -> str:
+        return "Morphological (adaptive thresholding)"
     
-    best_result = None
-    best_diff = float('inf')
-    
-    for kernel_size, iterations in param_combinations[:max_attempts]:
-        if verbose:
-            print(f"  Trying kernel_size={kernel_size}, iterations={iterations}")
+    def segment_for_count(self, image_data: bytes, image_format: str,
+                         target_count: int, verbose: bool = False) -> Optional[List[Dict[str, Any]]]:
+        """Find segmentation parameters that produce the target number of photos.
         
-        result = segment_composite_image(
-            image_data, image_format,
-            min_area=min_area,
-            kernel_size=kernel_size,
-            iterations=iterations,
-            verbose=False
-        )
+        Tries different combinations of kernel_size and iterations to find
+        a segmentation that produces exactly the target number of photos.
+        """
+        # Define parameter search space
+        # Smaller kernel and fewer iterations = more photos (more sensitive)
+        # Larger kernel and more iterations = fewer photos (less sensitive)
+        # Focus on kernel sizes 1-7 for better sensitivity
+        # Try default parameters FIRST to ensure consistency with original segmentation
+        param_combinations = [
+            # (kernel_size, iterations)
+            (5, 2),   # Default - try this first for consistency
+            # Very sensitive (many photos)
+            (1, 0),   # Extremely sensitive
+            (1, 1),
+            (1, 2),
+            (1, 3),
+            (3, 0),
+            (3, 1),
+            (3, 2),
+            (3, 3),
+            (3, 4),
+            (5, 0),
+            (5, 1),
+            (5, 3),
+            (5, 4),
+            (5, 5),
+            (7, 0),
+            (7, 1),
+            (7, 2),
+            (7, 3),
+            (7, 4),
+            (7, 5),
+        ]
         
-        photo_count = len(result)
-        diff = abs(photo_count - target_count)
+        best_result = None
+        best_diff = float('inf')
         
-        if verbose:
-            print(f"    Got {photo_count} photos (target={target_count}, diff={diff})")
-        
-        # Update best result
-        if diff < best_diff:
-            best_diff = diff
-            best_result = result
-        
-        # If we found exact match, return immediately
-        if photo_count == target_count:
+        for kernel_size, iterations in param_combinations[:self.max_attempts]:
             if verbose:
-                print(f"  ✅ Found exact match with kernel_size={kernel_size}, iterations={iterations}")
-            return result
-    
-    # Return best result if we got reasonably close (within 2 photos)
-    if best_diff <= 2 and best_result:
+                print(f"  Trying kernel_size={kernel_size}, iterations={iterations}")
+            
+            result = segment_composite_image(
+                image_data, image_format,
+                min_area=self.min_area,
+                kernel_size=kernel_size,
+                iterations=iterations,
+                verbose=False
+            )
+            
+            photo_count = len(result)
+            diff = abs(photo_count - target_count)
+            
+            if verbose:
+                print(f"    Got {photo_count} photos (target={target_count}, diff={diff})")
+            
+            # Update best result
+            if diff < best_diff:
+                best_diff = diff
+                best_result = result
+            
+            # If we found exact match, return immediately
+            if photo_count == target_count:
+                if verbose:
+                    print(f"  ✅ Found exact match with kernel_size={kernel_size}, iterations={iterations}")
+                return result
+        
+        # Return best result if we got reasonably close (within 1 photo)
+        if best_diff <= 1 and best_result:
+            if verbose:
+                print(f"  ⚠️ Returning closest match: {len(best_result)} photos (target={target_count}, diff={best_diff})")
+            return best_result
+            
         if verbose:
-            print(f"  ⚠️ Returning closest match: {len(best_result)} photos (target={target_count}, diff={best_diff})")
-        return best_result
-    
-    if verbose:
-        print(f"  ❌ Could not achieve target count {target_count} (best was {len(best_result) if best_result else 0}, diff={best_diff})")
-    
-    return None
+            print(f"  ❌ Could not achieve target count {target_count} (best was {len(best_result) if best_result else 0}, diff={best_diff})")    
+        return None
+
+
+# Register the morphological segmenter
+register_segmenter('morphological', MorphologicalSegmenter())
