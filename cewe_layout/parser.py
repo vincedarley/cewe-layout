@@ -471,7 +471,7 @@ def extract_pages_info(fotobook_root):
                 'texts': [],
                 'page_width': sample_page['page_width'],
                 'page_height': sample_page['page_height'],
-                'origin_left': 0.0,  # Left side
+                'origin_left': sample_page['page_width'],  # Right side (inside back is odd page number)
                 'background_id': None,
                 'is_canvas': False,
                 'is_calendar': False,

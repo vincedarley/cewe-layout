@@ -212,6 +212,22 @@ def create_mcf_xml(pdf_content: Dict[str, Any], output_dir: Path, verbose: bool 
         inside_front_page = create_page_element(inside_front_data, output_dir, 0, 'emptypage', False, verbose, ui_page=0)
         fotobook.append(inside_front_page)
         
+        # Add page 1's areas to page 0's element (page 1 is right side of the spread with page 0)
+        page1_pdf_idx = page_mapping.get(1)
+        if page1_pdf_idx is not None:
+            page1_data = pdf_content['pages'][page1_pdf_idx]
+            # Add page 1's areas to inside_front_page element
+            z_position = 1000 + len(inside_front_data.get('images', [])) + len(inside_front_data.get('text_blocks', []))
+            for img in page1_data.get('images', []):
+                img['ui_page'] = 1  # Page 1 for filename
+                area = create_image_area(img, output_dir, z_position, verbose)
+                inside_front_page.append(area)
+                z_position += 1
+            for text_block in page1_data.get('text_blocks', []):
+                area = create_text_area(text_block, z_position, verbose)
+                inside_front_page.append(area)
+                z_position += 1
+        
         # Create empty page 1 (RIGHT side of the same spread)
         empty_page_1 = create_empty_page(page_width_mcf, page_height_mcf)
         empty_page_1.set('pagenr', '1')
@@ -298,15 +314,11 @@ def create_mcf_xml(pdf_content: Dict[str, Any], output_dir: Path, verbose: bool 
                           f"content_pages={len(pdf_content['pages']) - 4 if insidecovers else len(pdf_content['pages']) - 2}")
     
     inside_back_pdf_idx = page_mapping.get(inside_back_ui_page)
-    if inside_back_pdf_idx is not None:
-        # Use content from PDF (inside back cover with content)
-        inside_back_data = pdf_content['pages'][inside_back_pdf_idx]
-        inside_back_page = create_page_element(inside_back_data, output_dir, 0, 'emptypage', False, verbose, ui_page=inside_back_ui_page)
-        fotobook.append(inside_back_page)
-    else:
-        # Empty inside back cover
-        inside_back_page = create_empty_page(page_width_mcf, page_height_mcf)
-        fotobook.append(inside_back_page)
+    # NOTE: Inside back cover page element is always EMPTY because we already added
+    # all its areas to page 60's element in the loop above (when next_ui_page == max_content_ui_page + 1)
+    # This empty page element is just the required CEWE structure placeholder
+    inside_back_page = create_empty_page(page_width_mcf, page_height_mcf)
+    fotobook.append(inside_back_page)
     
     return mcf
 
