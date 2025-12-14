@@ -265,8 +265,9 @@ class PageRenderer:
             comp_width_mcf = page_data.composite_image.get('width', 0)
             comp_height_mcf = page_data.composite_image.get('height', 0)
             
-            # For rendering, we need page-relative coordinates
-            # Subtract origin_left to convert from spread coords to page coords
+            # Composite coordinates are in MCF spread units - convert to page-relative for display
+            # For left pages: origin_left=0 → no change
+            # For right pages: origin_left=page_width → subtract to make page-relative
             comp_left_page = comp_left_mcf - page_data.origin_left
             comp_top_page = comp_top_mcf  # Top is the same
             
@@ -843,10 +844,19 @@ class PageRenderer:
         self.overlay_origin_left = origin_left
     
     def get_overlay_rectangles(self):
-        """Get overlay rectangle coordinates in canvas space.
+        """Get overlay rectangle coordinates in spread-relative canvas pixels.
+        
+        This function converts segment coordinates from MCF spread units to canvas pixels,
+        but keeps them in SPREAD-RELATIVE space. This means:
+        - Left pages (origin_left=0): rectangles have small x values (0 to page_width pixels)
+        - Right pages (origin_left=page_width): rectangles have LARGE x values (page_width to 2*page_width pixels)
+        
+        The actual drawing code (_draw_overlay_rectangles_on_canvas) is responsible for
+        converting these spread-relative coordinates to screen coordinates by subtracting
+        the x-offset for single-page display.
         
         Returns:
-            List of (x1, y1, x2, y2) tuples in canvas pixel coordinates
+            List of (x1, y1, x2, y2) tuples in spread-relative canvas pixel coordinates
         """
         if not hasattr(self, 'overlay_segments') or not self.overlay_segments:
             return []
@@ -861,14 +871,11 @@ class PageRenderer:
         
         logger.info(f"Overlay calculation: canvas={canvas_w}x{canvas_h}, page={page_width}x{page_height} MCF, margin={margin_mcf}")
         
-        # Calculate scale factors (MCF to canvas pixels)
-        total_w_mcf = page_width + 2 * margin_mcf
-        total_h_mcf = page_height + 2 * margin_mcf
-        scale = min(canvas_w / total_w_mcf, canvas_h / total_h_mcf)
-        
+        scale = self._getScale()
+
         logger.info(f"Scale factor: {scale} pixels/MCF")
         
-        rectangles = []
+        rectanglesSpreadRelative = []
         for i, seg in enumerate(segments):
             # Segment coordinates are already in MCF spread units from PDF extraction
             seg_left_mcf = seg['left']
@@ -881,17 +888,18 @@ class PageRenderer:
             logger.info(f"  origin_left={origin_left}")
             
             # Convert from MCF spread coordinates to canvas pixels
-            # Subtract origin_left to make coordinates page-relative for single-page view
-            x1 = int((margin_mcf + seg_left_mcf - origin_left) * scale)
+            # Keep coordinates in spread-relative space (large x values for right pages)
+            # The actual drawing code will adjust for single-page vs spread view
+            x1 = int((margin_mcf + seg_left_mcf) * scale)
             y1 = int((margin_mcf + seg_top_mcf) * scale)
-            x2 = int((margin_mcf + seg_left_mcf - origin_left + seg_width_mcf) * scale)
+            x2 = int((margin_mcf + seg_left_mcf + seg_width_mcf) * scale)
             y2 = int((margin_mcf + seg_top_mcf + seg_height_mcf) * scale)
             
             logger.info(f"  Canvas coords: ({x1}, {y1}) to ({x2}, {y2}), size={x2-x1}x{y2-y1}")
             
-            rectangles.append((x1, y1, x2, y2))
+            rectanglesSpreadRelative.append((x1, y1, x2, y2))
         
-        return rectangles
+        return rectanglesSpreadRelative
     
     def clear_overlay(self):
         """Clear the segmentation overlay."""
@@ -948,20 +956,37 @@ class PageRenderer:
         Returns:
             List of canvas item IDs for cleanup
         """
-        # Get rectangle coordinates
+        # Get rectangle coordinates (in spread-relative canvas pixels)
         rectangles = self.get_overlay_rectangles()
         
         logger.info(f"Drawing {len(rectangles)} overlay rectangles")
+        
+        # Calculate pixel offset for single-page display
+        # In spread view, this would be 0; in single-page view, we subtract the page offset
+        origin_left = self.overlay_origin_left
+        scale = self._getScale()
+
+        # Calculate the pixel offset to subtract for single-page view
+        # This is THE single point where spread-relative coordinates are converted to screen coordinates
+        x_offset_pixels = origin_left * scale
+        
+        logger.info(f"Drawing with origin_left={origin_left} MCF, x_offset={x_offset_pixels:.1f} pixels")
         
         overlay_items = []
         
         # Draw each rectangle as a green outline
         for i, (x1, y1, x2, y2) in enumerate(rectangles):
-            logger.info(f"  Drawing rectangle {i}: ({x1}, {y1}) to ({x2}, {y2}), size={x2-x1}x{y2-y1}")
+            # Adjust x coordinates for single-page display (subtract offset for right pages)
+            # For left pages: origin_left=0 → x_offset_pixels=0 → no change
+            # For right pages: origin_left=page_width → subtract page_width to make page-relative
+            display_x1 = x1 - x_offset_pixels
+            display_x2 = x2 - x_offset_pixels
+            
+            logger.info(f"  Drawing rectangle {i}: spread=({x1}, {y1})-({x2}, {y2}) → display=({display_x1:.0f}, {y1})-({display_x2:.0f}, {y2})")
             
             # Draw green outline only (no fill)
             rect_id = canvas.create_rectangle(
-                x1, y1, x2, y2,
+                display_x1, y1, display_x2, y2,
                 fill='',  # No fill
                 outline='#00ff00',  # Bright green outline
                 width=5,
@@ -975,7 +1000,19 @@ class PageRenderer:
         
         logger.info(f"Created {len(overlay_items)} overlay items")
         return overlay_items
-    
+
+    def _getScale(self) -> float:
+        margin_mcf = self.overlay_margin_mcf
+        canvas_w = self.overlay_canvas_w
+        canvas_h = self.overlay_canvas_h
+        page_width = self.overlay_page_width
+        page_height = self.overlay_page_height
+
+        total_w_mcf = page_width + 2 * margin_mcf
+        total_h_mcf = page_height + 2 * margin_mcf
+        scale = min(canvas_w / total_w_mcf, canvas_h / total_h_mcf)
+        return scale
+
     def _create_overlay_buttons(self, parent, accept_callback, reject_callback):
         """Create accept/reject buttons in the overlay.
         

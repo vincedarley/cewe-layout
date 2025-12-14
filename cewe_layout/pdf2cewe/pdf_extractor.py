@@ -64,15 +64,17 @@ logger = logging.getLogger(__name__)
 class PDFReader:
     """Lightweight PDF reader for on-demand page extraction."""
     
-    def __init__(self, pdf_path: Path, verbose: bool = False):
+    def __init__(self, pdf_path: Path, verbose: bool = False, page_to_ui: Optional[Dict[int, Any]] = None):
         """Initialize PDF reader.
         
         Args:
             pdf_path: Path to PDF file
             verbose: Print detailed extraction info
+            page_to_ui: Mapping from PDF page index to UI page identifier (required for correct coordinates)
         """
         self.pdf_path = pdf_path
         self.verbose = verbose
+        self._page_to_ui = page_to_ui or {}
         self._doc = None
         self._metadata = None
         self._page_size = None
@@ -126,14 +128,26 @@ class PDFReader:
             
         Returns:
             Page data dictionary
+            
+        Raises:
+            ValueError: If page doesn't exist or ui_page mapping not found
         """
         self._ensure_open()
         
         if page_num >= len(self._doc):
             raise ValueError(f"Page {page_num + 1} does not exist")
         
+        # Look up UI page identifier - this is REQUIRED for correct coordinate positioning
+        if page_num not in self._page_to_ui:
+            raise ValueError(
+                f"No UI page mapping found for PDF page {page_num}. "
+                f"PDFReader requires page_to_ui mapping for correct coordinate positioning. "
+                f"Available mappings: {list(self._page_to_ui.keys())}"
+            )
+        
+        ui_page = self._page_to_ui[page_num]
         page = self._doc[page_num]
-        return extract_page_content(page, page_num, self._page_count, self.verbose, debug=False)
+        return extract_page_content(page, page_num, self._page_count, self.verbose, debug=False, ui_page=ui_page)
     
     def close(self):
         """Close the PDF document."""
@@ -150,7 +164,7 @@ class PDFReader:
         self.close()
 
 
-def create_pdf_reader(pdf_path: Path, verbose: bool = False) -> Dict[str, Any]:
+def create_pdf_reader(pdf_path: Path, verbose: bool = False, page_to_ui: Optional[Dict[int, Any]] = None) -> Dict[str, Any]:
     """Create a lightweight PDF reader for on-demand page access.
     
     This is used when the MCF project already exists and we just need
@@ -159,6 +173,7 @@ def create_pdf_reader(pdf_path: Path, verbose: bool = False) -> Dict[str, Any]:
     Args:
         pdf_path: Path to PDF file
         verbose: Print detailed extraction info
+        page_to_ui: Mapping from PDF page index to UI page identifier (REQUIRED for coordinate positioning)
         
     Returns:
         Dictionary containing:
@@ -169,7 +184,13 @@ def create_pdf_reader(pdf_path: Path, verbose: bool = False) -> Dict[str, Any]:
             - 'pages': Empty list (pages loaded on-demand via get_page_content())
             - 'pdf_path': Path to source PDF
     """
-    reader = PDFReader(pdf_path, verbose)
+    if not page_to_ui:
+        raise ValueError(
+            "page_to_ui mapping is required for create_pdf_reader(). "
+            "On-demand extraction needs UI page context for correct coordinate positioning."
+        )
+    
+    reader = PDFReader(pdf_path, verbose, page_to_ui=page_to_ui)
     
     return {
         'metadata': reader.metadata,
@@ -306,15 +327,23 @@ def extract_page_content(page: fitz.Page, page_num: int, total_pages: int, verbo
         total_pages: Total number of pages in PDF
         verbose: Print detailed info
         debug: Save composite images for debugging
-        ui_page: UI page number/identifier for coordinate positioning ("F", "B", 0, 1, 2, ...)
+        ui_page: UI page number/identifier for coordinate positioning ("F", "B", 0, 1, 2, ...) - REQUIRED
         
     Returns:
         Dictionary with 'images' and 'text_blocks' lists
+        
+    Raises:
+        ValueError: If ui_page is None (required for correct coordinate positioning)
     """
-    # Use ui_page for display if provided, otherwise fall back to page_num
-    display_page = ui_page if ui_page is not None else page_num
+    if ui_page is None:
+        raise ValueError(
+            f"ui_page parameter is required for extract_page_content(). "
+            f"Cannot determine coordinate positioning without UI page context. "
+            f"PDF page {page_num} has no associated UI page identifier."
+        )
+    
     if verbose:
-        print(f"Processing PDF page index {page_num} (CEWE page {display_page})...")
+        print(f"Processing PDF page index {page_num} (CEWE page {ui_page})...")
     
     page_rect = page.rect
     page_data = {
@@ -376,7 +405,7 @@ def extract_page_content(page: fitz.Page, page_num: int, total_pages: int, verbo
                 
                 # Save composite image if debug mode enabled (after loading temp_img)
                 if debug:
-                    debug_path = f"/tmp/composite_build_page{page_num}.{image_ext}"
+                    debug_path = f"/tmp/composite_build_page{ui_page if ui_page is not None else page_num}.{image_ext}"
                     temp_img.save(debug_path)
                     print(f"  DEBUG: Saved composite image to {debug_path}")
                 img_width_pixels = temp_img.width
@@ -633,9 +662,10 @@ def _convert_page_to_mcf_coordinates(page_data: Dict[str, Any], page_num: int, t
     #   (b) Snap to one of CEWE's standard printable sizes (e.g., 21x28cm, 28x21cm)
     #       to ensure the resulting MCF can be physically printed
     page_width_mcf = round(page_width_pdf * PT_TO_MCF)
+    # page_num here is the UI page identifier (from ui_page parameter in extract_page_content)
     is_right_page, x_offset_mcf = _get_page_positioning(page_num, total_pages, page_width_mcf)
 
-    logger.info(f"Converting page {page_num} to MCF: is_right={is_right_page}, x_offset={x_offset_mcf:.1f} MCF")
+    logger.info(f"Converting UI page {page_num} to MCF: is_right={is_right_page}, x_offset={x_offset_mcf:.1f} MCF")
     
     def convert_coords(item: Dict[str, Any]) -> None:
         """Convert left/top/width/height from PDF points to MCF spread coordinates in-place."""
@@ -678,7 +708,7 @@ def _convert_page_to_mcf_coordinates(page_data: Dict[str, Any], page_num: int, t
     return is_right_page, x_offset_mcf
 
 
-def _makeScaledSegments(composite_image, current_pageno, image_data, image_format,
+def _makeScaledSegments(composite_image, ui_page, image_data, image_format,
                         new_segments: list[dict[str, Any]]) -> list[Any]:
     """Scale segments from image pixels to MCF spread coordinates.
     
@@ -688,7 +718,7 @@ def _makeScaledSegments(composite_image, current_pageno, image_data, image_forma
     
     Args:
         composite_image: Composite image dict with MCF spread coordinates
-        current_pageno: Page number for debugging
+        ui_page: UI page identifier ("F", "B", 0, 1, ...) for debugging
         image_data: Raw image bytes
         image_format: Image format (jpg, png, etc)
         new_segments: List of segments with coordinates in image pixels
@@ -703,7 +733,7 @@ def _makeScaledSegments(composite_image, current_pageno, image_data, image_forma
     img_height_pixels = temp_img.height
 
     # DEBUG: Save composite image to see what we're segmenting
-    debug_path = f"/tmp/composite_page{current_pageno}.{image_format}"
+    debug_path = f"/tmp/composite_page{ui_page}.{image_format}"
     temp_img.save(debug_path)
     print(f"  DEBUG: Saved composite image to {debug_path}")
 
@@ -825,14 +855,14 @@ def _getImageToSegment(pages, index, status_var, current_pageno, pdf_page, speci
         pixel_height = temp_img.height
 
         # All photos will be replaced
-        _, page_info = pages[index]
+        ui_pageno, page_info = pages[index]
         photos = page_info.get('photos', [])
         photos_to_replace = list(range(len(photos)))
         print(
             f"  Using embedded composite image: {pixel_width}x{pixel_height} pixels ({image_to_segment['width']:.1f}x{image_to_segment['height']:.1f} points)")
 
         # DEBUG: Save composite image for comparison
-        debug_path = f"/tmp/composite_page{current_pageno}.{image_to_segment.get('format', 'jpeg')}"
+        debug_path = f"/tmp/composite_page{ui_pageno}.{image_to_segment.get('format', 'jpeg')}"
         temp_img.save(debug_path)
         print(f"  DEBUG: Saved composite image to {debug_path}")
     return image_to_segment, photos_to_replace
@@ -881,7 +911,9 @@ tuple[list[int], list[Any], Any, list[dict[str, Any]] | None, Any]:
     if new_segments:
         print(f"✅ Found segmentation with {len(new_segments)} photos")
 
-        scaled_segments = _makeScaledSegments(image_to_segment, current_pageno, image_data, image_format,
+        # Get UI page identifier for debug filenames
+        ui_pageno = pages[index][0]
+        scaled_segments = _makeScaledSegments(image_to_segment, ui_pageno, image_data, image_format,
                                           new_segments)
         return scaled_segments, image_data, image_format, image_to_segment, photos_to_replace
     else:

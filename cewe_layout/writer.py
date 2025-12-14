@@ -9,7 +9,7 @@ import os
 from typing import List, Dict, Any
 import re
 import logging
-from .page_utils import determine_page_owner
+from .page_utils import determine_page_owner_of_area
 from .parser import is_canvas_format, is_calendar_format
 
 logger = logging.getLogger(__name__)
@@ -100,6 +100,138 @@ def _next_backup_name(path: str) -> str:
     raise RuntimeError('Unable to find backup name')
 
 
+def _getXmlPageForUiPage(root, uiPage: Any, single_page_mode: bool):
+    """Find the XML <page> element for a given UI page identifier.
+    
+    CRITICAL: In photobook mode (spreads), there are TWO XML <page> elements per spread:
+    1. PRIMARY element (left page's pagenr): Contains ALL <area> elements for both left 
+       and right logical pages of the spread. This is the element returned by this function.
+    2. SECONDARY element (right page's pagenr): Mostly empty, but contains page-level 
+       metadata like background color. NOT returned by this function.
+    
+    This function ALWAYS returns the PRIMARY element (labeled with the left page's pagenr)
+    regardless of whether you request the left or right logical page. The areas within 
+    this element are distinguished by their x-coordinates:
+    - Areas with x < (spread_width / 2) belong to the left logical page
+    - Areas with x >= (spread_width / 2) belong to the right logical page
+    
+    The determine_page_owner_of_area() function uses left_owner/right_owner to identify
+    which logical page each area belongs to based on its x-coordinate.
+    
+    Args:
+        root: XML root element
+        uiPage: UI page identifier ('F', 'B', or integer)
+        single_page_mode: Whether this is Canvas/Calendar mode (no spreads)
+    
+    Returns:
+        Tuple of (page_elem, is_page_on_right, left_owner, right_owner) where:
+        - page_elem: The PRIMARY XML <page> element (with left page's pagenr) containing 
+                     ALL areas for both left and right pages
+        - is_page_on_right: True if uiPage is the right page of the spread
+        - left_owner: UI page identifier for the left side of this spread
+        - right_owner: UI page identifier for the right side of this spread
+    
+    Raises:
+        ValueError: If page not found
+    """
+    page_elem = None
+    is_page_on_right = False
+    left_owner = None
+    right_owner = None
+    
+    # Special handling for cover pages 
+    # According to PHOTOBOOK_STRUCTURE.md:
+    # - First pagenr="0" type="fullcover" = Back cover (left side)
+    # - pagenr="0" type="spine" = Spine
+    # - Second pagenr="0" type="fullcover" = Front cover (right side)
+    # CRITICAL: For spread pages, BOTH left and right content goes into the LEFT page's XML element
+    # The first fullcover element contains areas for BOTH back cover (left) and front cover (right)
+    if uiPage == 'F' or uiPage == 'B':
+        # Find all fullcover pages with pagenr="0" in document order
+        fullcover_pages = []
+        for page in root.findall('.//page'):
+            if page.get('pagenr') == '0' and page.get('type') == 'fullcover':
+                fullcover_pages.append(page)
+        
+        if len(fullcover_pages) >= 1:
+            # BOTH back and front covers use the FIRST fullcover element (the spread)
+            page_elem = fullcover_pages[0]
+            is_page_on_right = (uiPage == 'F')
+            
+            # Covers share same spread: back cover (left) | front cover (right)
+            left_owner = 'B'
+            right_owner = 'F'
+        else:
+            logger.error(f"No fullcover pages found for cover {uiPage}")
+    
+    # Special handling for page 1 in photobooks: find the LAST pagenr="0" type="emptypage" before pagenr="1"
+    if page_elem is None and uiPage == 1 and not single_page_mode:
+        all_pages = root.findall('.//page')
+        page1_index = None
+        
+        # Find the index of pagenr="1"
+        for i, page in enumerate(all_pages):
+            if page.get('pagenr') == '1':
+                page1_index = i
+                break
+        
+        if page1_index is not None:
+            # Search backwards from pagenr="1" to find the closest pagenr="0" type="emptypage"
+            for i in range(page1_index - 1, -1, -1):
+                page = all_pages[i]
+                if page.get('pagenr') == '0' and page.get('type') == 'emptypage':
+                    page_elem = page
+                    is_page_on_right = True  # Page 1 is on the right side of the spread
+                    # Page 0 (inside front cover) is on left, page 1 is on right
+                    left_owner = 0
+                    right_owner = 1
+                    break
+    
+    # Standard page finding logic for all other pages
+    if page_elem is None:
+        for page in root.findall('.//page'):
+            try:
+                page_nr = int(page.get('pagenr', '0'))
+            except ValueError:
+                continue
+            
+            if single_page_mode:
+                # Canvas/Calendar: direct page number match, no splitting
+                if page_nr == uiPage:
+                    page_elem = page
+                    is_page_on_right = False
+                    # Single page owns entire spread
+                    left_owner = uiPage
+                    right_owner = uiPage
+                    break
+            else:
+                # Photobook: ONLY even pagenr elements are PRIMARY (contain all areas)
+                # Odd pagenr elements are SECONDARY (mostly empty, just metadata)
+                # We must ALWAYS return the PRIMARY (even pagenr) element
+                if page_nr % 2 != 0:
+                    # Skip odd pagenr (SECONDARY elements) - they don't contain areas
+                    continue
+                
+                # This is a PRIMARY element (even pagenr) - it contains areas for both pages
+                candidate_left = page_nr
+                candidate_right = page_nr + 1
+                
+                if uiPage == candidate_left:
+                    page_elem = page
+                    is_page_on_right = False
+                    left_owner = candidate_left
+                    right_owner = candidate_right
+                    break
+                elif uiPage == candidate_right:
+                    page_elem = page
+                    is_page_on_right = True
+                    left_owner = candidate_left
+                    right_owner = candidate_right
+                    break
+    
+    return page_elem, is_page_on_right, left_owner, right_owner
+
+
 def restore_mcf_backup(path: str) -> dict:
     """Restore the most recent backup for `path` (e.g. data-1.mcf -> data.mcf).
 
@@ -173,91 +305,19 @@ def _validate_saved_page(path: str, pageno: int, expected_photos: List[Dict[str,
     calendar_mode = is_calendar_format(root)
     single_page_mode = canvas_mode or calendar_mode
     
-    # Find the page element and count photos/texts using same logic as save
-    page_elem = None
-    left_owner = None
-    right_owner = None
+    # Find the page element using the shared helper function
+    page_elem, _, left_owner, right_owner = _getXmlPageForUiPage(root, pageno, single_page_mode)
+    
     photo_count = 0
     photo_filenames = []
     text_count = 0
     
-    # Special handling for cover pages (pagenr="0" type="fullcover")
-    if pageno == 0:
-        # Front cover
-        for page in root.findall('.//page'):
-            if page.get('pagenr') == '0' and page.get('type') == 'fullcover':
-                template_name = page.get('designStyleTemplateName', '')
-                if 'front' in template_name.lower():
-                    page_elem = page
-                    left_owner = 0
-                    right_owner = 0
-                    break
-    elif pageno > 1:
-        # Could be back cover - check if it's the max page number
-        all_pages = root.findall('.//page')
-        for page in all_pages:
-            page_nr_str = page.get('pagenr', '0')
-            if page_nr_str == '0' and page.get('type') == 'fullcover':
-                template_name = page.get('designStyleTemplateName', '')
-                if 'back' in template_name.lower():
-                    # This is back cover, check if pageno matches
-                    # Back cover is assigned page N+1 where N is max normal page
-                    # We'll validate this during the standard logic below
-                    pass
-    
-    # Special handling for page 1 in photobooks: find the LAST pagenr="0" type="emptypage" before pagenr="1"
-    if page_elem is None and pageno == 1 and not single_page_mode:
-        all_pages = root.findall('.//page')
-        page1_index = None
-        
-        # Find the index of pagenr="1"
-        for i, page in enumerate(all_pages):
-            if page.get('pagenr') == '1':
-                page1_index = i
-                break
-        
-        if page1_index is not None:
-            # Search backwards from pagenr="1" to find the closest pagenr="0" type="emptypage"
-            for i in range(page1_index - 1, -1, -1):
-                page = all_pages[i]
-                if page.get('pagenr') == '0' and page.get('type') == 'emptypage':
-                    page_elem = page
-                    # For page 0, the owners are 0 (left) and 1 (right)
-                    left_owner = 0
-                    right_owner = 1
-                    break
-    
-    # Standard page finding logic for all other pages
-    if page_elem is None:
-        for page in root.findall('.//page'):
-            page_nr = int(page.get('pagenr', '0'))
-            
-            if single_page_mode:
-                # Canvas/Calendar: direct page number match
-                if page_nr != pageno:
-                    continue
-                left_owner = page_nr
-                right_owner = page_nr
-            elif page_nr % 2 == 0:
-                left_owner = page_nr
-                right_owner = page_nr + 1
-            else:
-                left_owner = max(1, page_nr - 1)
-                right_owner = page_nr
-            
-            # Check if this is the page we're validating
-            if single_page_mode:
-                # For single page mode, we already matched above
-                page_elem = page
-                break
-            elif pageno not in (left_owner, right_owner):
-                continue
-            else:
-                page_elem = page
-                break
-    
     if page_elem is None:
         return [f"Page {pageno} not found in saved XML"]
+    
+    # Verify that left_owner and right_owner were set
+    if left_owner is None or right_owner is None:
+        return [f"BUG: left_owner/right_owner not set for pageno={pageno}"]
     
     # Count photos and texts on this page using same logic as save
     for area in page_elem.findall('.//area'):
@@ -267,8 +327,8 @@ def _validate_saved_page(path: str, pageno: int, expected_photos: List[Dict[str,
         
         current_left = float(pos.get('left', '0').replace(',', '.'))
         
-        # Use determine_page_owner to check if area belongs to our page
-        area_owner = determine_page_owner(current_left, half_width, left_owner, right_owner)
+        # Use determine_page_owner_of_area to check if area belongs to our page
+        area_owner = determine_page_owner_of_area(current_left, half_width, left_owner, right_owner)
         if area_owner != pageno:
             continue
         
@@ -310,7 +370,7 @@ def _validate_saved_page(path: str, pageno: int, expected_photos: List[Dict[str,
     return errors
 
 
-def update_page_layout(path: str, pageno: int, photos: List[Dict[str, Any]], 
+def update_page_layout(path: str, uiPage: Any, photos: List[Dict[str, Any]], 
                        texts: List[Dict[str, Any]], make_backup: bool = True,
                        new_photos: List[str] = None, deleted_photos: List[str] = None,
                        rename_map: Dict[str, str] = None, validate_files: bool = True) -> dict:
@@ -323,7 +383,7 @@ def update_page_layout(path: str, pageno: int, photos: List[Dict[str, Any]],
     
     Args:
         path: Path to the .mcf file
-        pageno: Logical page number to update (1-indexed)
+        uiPage: F, 0 (inside front cover), 1....N-2 (main pages), N-1 (inside back cover), B
         photos: List of photo dicts with keys: filename, area_left, area_top, area_width, area_height
         texts: List of text dicts with keys: area_left, area_top, area_width, area_height
         make_backup: If True, rename original file to path-N.mcf before writing
@@ -369,93 +429,15 @@ def update_page_layout(path: str, pageno: int, photos: List[Dict[str, Any]],
     calendar_mode = is_calendar_format(root)
     single_page_mode = canvas_mode or calendar_mode
     
-    # Find the <page> element that contains this logical page
-    # Canvas mode: single page, no left/right splitting
-    # Cover pages: pagenr="0" type="fullcover" (front or back)
-    # Photobook mode: A <page> with pagenr=N can contain logical pages based on even/odd:
-    # - Even N: contains logical pages N (left) and N+1 (right)
-    # - Odd N: contains logical pages N-1 (left) and N (right)
-    # - Special case: Page 1 is stored in pagenr="0" type="emptypage" that comes just before pagenr="1"
-    page_elem = None
-    is_right_page = False
-    
-    # Special handling for cover pages (pagenr="0" type="fullcover")
-    if pageno == 0:
-        # Front cover
-        for page in root.findall('.//page'):
-            if page.get('pagenr') == '0' and page.get('type') == 'fullcover':
-                template_name = page.get('designStyleTemplateName', '')
-                if 'front' in template_name.lower():
-                    page_elem = page
-                    is_right_page = False
-                    break
-    elif pageno > 1 and not single_page_mode:
-        # Check if this could be back cover
-        for page in root.findall('.//page'):
-            if page.get('pagenr') == '0' and page.get('type') == 'fullcover':
-                template_name = page.get('designStyleTemplateName', '')
-                if 'back' in template_name.lower():
-                    # Back cover found - this matches any pageno > normal pages
-                    page_elem = page
-                    is_right_page = False
-                    break
-    
-    # Special handling for page 1 in photobooks: find the LAST pagenr="0" type="emptypage" before pagenr="1"
-    if page_elem is None and pageno == 1 and not single_page_mode:
-        all_pages = root.findall('.//page')
-        page1_index = None
-        
-        # Find the index of pagenr="1"
-        for i, page in enumerate(all_pages):
-            if page.get('pagenr') == '1':
-                page1_index = i
-                break
-        
-        if page1_index is not None:
-            # Search backwards from pagenr="1" to find the closest pagenr="0" type="emptypage"
-            for i in range(page1_index - 1, -1, -1):
-                page = all_pages[i]
-                if page.get('pagenr') == '0' and page.get('type') == 'emptypage':
-                    page_elem = page
-                    is_right_page = True  # Page 1 is on the right side of the spread
-                    break
-    
-    # Standard page finding logic for all other pages
-    if page_elem is None:
-        for page in root.findall('.//page'):
-            try:
-                page_nr = int(page.get('pagenr', '0'))
-            except ValueError:
-                continue
-            
-            if single_page_mode:
-                # Canvas/Calendar: direct page number match, no splitting
-                if page_nr == pageno:
-                    page_elem = page
-                    is_right_page = False
-                    break
-            else:
-                # Photobook: determine which logical pages this <page> element contains
-                if page_nr % 2 == 0:
-                    # Even pagenr: left=page_nr, right=page_nr+1
-                    left_owner = page_nr
-                    right_owner = page_nr + 1
-                else:
-                    # Odd pagenr: left=page_nr-1, right=page_nr
-                    left_owner = max(1, page_nr - 1)
-                    right_owner = page_nr
-                
-                if pageno == left_owner:
-                    page_elem = page
-                    is_right_page = False
-                    break
-                elif pageno == right_owner:
-                    page_elem = page
-                    is_right_page = True
-                    break
+    # Find the <page> element for this UI page
+    page_elem, is_page_on_right, left_owner, right_owner = _getXmlPageForUiPage(root, uiPage, single_page_mode)
     
     if page_elem is None:
-        raise ValueError(f'Logical page {pageno} not found in {path}')
+        raise ValueError(f'Logical page {uiPage} not found in {path}')
+    
+    # Verify that left_owner and right_owner were set
+    if left_owner is None or right_owner is None:
+        raise ValueError(f'BUG: left_owner/right_owner not set for uiPage={uiPage}')
     
     # Get page rotation (for portrait Canvases)
     page_rotation = page_elem.get('rotation', '0')
@@ -517,19 +499,8 @@ def update_page_layout(path: str, pageno: int, photos: List[Dict[str, Any]],
     else:
         half_width = spread_width / 2.0
     
-    # Determine left and right page owners for this spread
-    # (Already computed in the loop above, but extract for clarity)
-    page_nr = int(page_elem.get('pagenr', '0'))
-    if single_page_mode:
-        # Canvas/Calendar: single page owns all areas
-        left_owner = page_nr
-        right_owner = page_nr
-    elif page_nr % 2 == 0:
-        left_owner = page_nr
-        right_owner = page_nr + 1
-    else:
-        left_owner = max(1, page_nr - 1)
-        right_owner = page_nr
+    # left_owner and right_owner were already set above when finding page_elem
+    # They represent uiPage identifiers (not pagenr) for the left and right sides of this spread
     
     # Track statistics
     modified_photos = 0
@@ -550,9 +521,9 @@ def update_page_layout(path: str, pageno: int, photos: List[Dict[str, Any]],
         
         current_left = float(pos.get('left', '0').replace(',', '.'))
         
-        # Use determine_page_owner to check if area belongs to our page
-        area_owner = determine_page_owner(current_left, half_width, left_owner, right_owner)
-        if area_owner != pageno:
+        # Use determine_page_owner_of_area to check if area belongs to our page
+        area_owner = determine_page_owner_of_area(current_left, half_width, left_owner, right_owner)
+        if area_owner != uiPage:
             continue  # This area is on the other page of the spread
         
         # Find image element
@@ -598,7 +569,7 @@ def update_page_layout(path: str, pageno: int, photos: List[Dict[str, Any]],
             # Mark it for deletion
             areas_to_remove.append(area)
             deleted_photos_count += 1
-            logger.info(f"Page {pageno}: Removing photo '{filename}' (not in current layout)")
+            logger.info(f"Page {uiPage}: Removing photo '{filename}' (not in current layout)")
             continue
         
         # Track that we've matched this photo (so we don't add it again)
@@ -696,7 +667,7 @@ def update_page_layout(path: str, pageno: int, photos: List[Dict[str, Any]],
     for photo in photos:
         filename = photo.get('filename', '')
         if not filename:
-            raise ValueError(f"Page {pageno}: Photo has no filename - this is a bug in the calling code")
+            raise ValueError(f"Page {uiPage}: Photo has no filename - this is a bug in the calling code")
         
         # Skip photos that were already updated in the first pass
         if filename in matched_photos:
@@ -705,7 +676,7 @@ def update_page_layout(path: str, pageno: int, photos: List[Dict[str, Any]],
         # This photo wasn't in the XML - it must be new
         if filename not in new_photos_set:
             raise ValueError(
-                f"Page {pageno}: Photo '{filename}' not in new_photos list.\n"
+                f"Page {uiPage}: Photo '{filename}' not in new_photos list.\n"
                 f"This is a bug - photo wasn't in XML and isn't tracked as new.\n"
                 f"Expected filenames (first 5): {sorted(list(new_photos_set)[:5])}"
             )
@@ -797,9 +768,9 @@ def update_page_layout(path: str, pageno: int, photos: List[Dict[str, Any]],
         except Exception:
             continue
         
-        # Use determine_page_owner to check if area belongs to our page
-        area_owner = determine_page_owner(current_left, half_width, left_owner, right_owner)
-        if area_owner != pageno:
+        # Use determine_page_owner_of_area to check if area belongs to our page
+        area_owner = determine_page_owner_of_area(current_left, half_width, left_owner, right_owner)
+        if area_owner != uiPage:
             continue
         
         text_areas.append(area)
@@ -938,16 +909,16 @@ def update_page_layout(path: str, pageno: int, photos: List[Dict[str, Any]],
         raise RuntimeError(f"Failed to write MCF file: {e}") from e
     
     # Validate the saved XML matches expectations
-    validation_errors = _validate_saved_page(path, pageno, photos, texts, is_right_page, half_width, spread_width, validate_files)
+    validation_errors = _validate_saved_page(path, uiPage, photos, texts, is_page_on_right, half_width, spread_width, validate_files)
     if validation_errors:
         for error in validation_errors:
             warnings.append(f"VALIDATION ERROR: {error}")
-            logger.error(f"Page {pageno} VALIDATION: {error}")
+            logger.error(f"Page {uiPage} VALIDATION: {error}")
     else:
         if validate_files:
-            logger.info(f"Page {pageno}: Validated save - {len(photos)} photos, {len(texts)} texts (all files exist)")
+            logger.info(f"Page {uiPage}: Validated save - {len(photos)} photos, {len(texts)} texts (all files exist)")
         else:
-            logger.info(f"Page {pageno}: Validated save - {len(photos)} photos, {len(texts)} texts (file existence not checked)")
+            logger.info(f"Page {uiPage}: Validated save - {len(photos)} photos, {len(texts)} texts (file existence not checked)")
     
     result = {
         'path': path,

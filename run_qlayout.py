@@ -81,8 +81,20 @@ if __name__ == '__main__':
             if output_path.exists():
                 print(f"✅ Output already exists: {args.cewe}")
                 print(f"   Creating on-demand PDF reader for GUI")
-                # Create lightweight reader for on-demand page access
-                pdf_content = create_pdf_reader(pdf_path, verbose=True)
+                
+                # Get PDF page count to create mapping
+                import fitz
+                doc = fitz.open(pdf_path)
+                pdf_page_count = len(doc)
+                doc.close()
+                
+                # Create page mapping for coordinate positioning
+                from cewe_layout.pdf2cewe.mcf_writer import _create_page_mapping
+                ui_to_pdf = _create_page_mapping(pdf_page_count, args.insidecovers)
+                pdf_to_ui = {v: k for k, v in ui_to_pdf.items() if v is not None}
+                
+                # Create lightweight reader for on-demand page access WITH mapping
+                pdf_content = create_pdf_reader(pdf_path, verbose=True, page_to_ui=pdf_to_ui)
             else:
                 # Extract all PDF content for initial conversion
                 print(f"Extracting content from {pdf_path}...")

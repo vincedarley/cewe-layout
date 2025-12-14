@@ -26,7 +26,7 @@ from .algorithms.gridify import GridifyAlgorithm
 from .algorithms.gap_perfecter import GapPerfecterAlgorithm
 from .photos import get_image_dimensions, get_photo_preferred_size
 from .writer import update_page_layout
-from .page_utils import determine_page_owner
+from .page_utils import determine_page_owner_of_area, page_sort_key
 from .gap_utils import (
     analyze_gaps,
     analyze_gap_details,
@@ -2648,10 +2648,17 @@ class LayoutViewer:
         # Get current page number (CEWE numbering: 0=cover, 1=first page, etc.)
         current_pageno = self.pages[self.index][0]
         
+        # Map UI page to PDF page index
+        pdf_page_index = self._ui_page_to_pdf_page(current_pageno)
+        if pdf_page_index is None:
+            print(f"Error: CEWE page {current_pageno} has no corresponding PDF page")
+            self.status_var.set(f'Error: Page {current_pageno} has no PDF content')
+            return
+        
         if specific_photo_index is not None:
-            print(f"Re-segmenting photo #{specific_photo_index+1} on CEWE page {current_pageno} into {target_count} photos")
+            print(f"Re-segmenting photo #{specific_photo_index+1} on CEWE page {current_pageno} (PDF page {pdf_page_index}) into {target_count} photos")
         else:
-            print(f"Re-analyzing entire CEWE page {current_pageno} with target photo count: {target_count}")
+            print(f"Re-analyzing entire CEWE page {current_pageno} (PDF page {pdf_page_index}) with target photo count: {target_count}")
                 
         # Get selected algorithm and segmenter
         from .pdf2cewe.segmenter_base import get_segmenter
@@ -2667,7 +2674,7 @@ class LayoutViewer:
         scaled_segments, image_data, image_format, image_to_segment, photos_to_replace = performSegmentationOnPage(self.pdf_content,
                                                                                                  self.pages, self.index,
                                                                                                  self.status_var,
-                                                                                                 current_pageno,
+                                                                                                 pdf_page_index,
                                                                                                  segmenter,
                                                                                                  specific_photo_index,
                                                                                                  target_count)
@@ -2807,7 +2814,11 @@ class LayoutViewer:
         
         for i, seg in enumerate(segments):
             # Generate filename with metadata
-            base_name = f"seg_p{pageno:03d}_{i:04d}"
+            # Handle string page identifiers (F, B) and integer page numbers
+            if isinstance(pageno, str):
+                base_name = f"seg_p{pageno}_{i:02d}"
+            else:
+                base_name = f"seg_p{pageno:03d}_{i:02d}"
             ext = 'jpg' if image_format.upper() in ['JPEG', 'JPG'] else image_format.lower()
             # Encode metadata in filename (size=1.0, page=pageno)
             filename_with_meta = encode_metadata_in_filename(f"{base_name}.{ext}", 1.0, pageno)
@@ -2879,8 +2890,8 @@ class LayoutViewer:
             self.modified_pages_var.set('(none)')
             self.modified_pages_label.config(foreground='blue')
         else:
-            # Sort page numbers and display as comma-separated list
-            sorted_pages = sorted(self.modified_pages)
+            # Sort page numbers, handling mixed string ("F", "B") and integer types
+            sorted_pages = sorted(self.modified_pages, key=page_sort_key)
             page_str = ', '.join(str(p) for p in sorted_pages)
             self.modified_pages_var.set(page_str)
             self.modified_pages_label.config(foreground='red')
@@ -3249,7 +3260,7 @@ class LayoutViewer:
                     
                     updated_photo = updated_by_filename[filename]
                     area_left = updated_photo.get('area_left', 0)
-                    owner = determine_page_owner(area_left, page_w, pageno0, pageno1)
+                    owner = determine_page_owner_of_area(area_left, page_w, pageno0, pageno1)
                     
                     if owner == pageno0:
                         photos_page0.append(updated_photo)
@@ -3279,7 +3290,7 @@ class LayoutViewer:
                     if text_idx in updated_texts_by_idx:
                         updated_text = updated_texts_by_idx[text_idx]
                         area_left = updated_text.get('area_left', 0)
-                        owner = determine_page_owner(area_left, page_w, pageno0, pageno1)
+                        owner = determine_page_owner_of_area(area_left, page_w, pageno0, pageno1)
                         if owner == pageno0:
                             texts_page0.append(updated_text)
                     text_idx += 1
@@ -3288,7 +3299,7 @@ class LayoutViewer:
                     if text_idx in updated_texts_by_idx:
                         updated_text = updated_texts_by_idx[text_idx]
                         area_left = updated_text.get('area_left', 0)
-                        owner = determine_page_owner(area_left, page_w, pageno0, pageno1)
+                        owner = determine_page_owner_of_area(area_left, page_w, pageno0, pageno1)
                         if owner == pageno1:
                             text_copy = dict(updated_text)
                             text_copy['area_left'] = (area_left - page_w) + origin_left_1
@@ -3612,8 +3623,8 @@ class LayoutViewer:
             self.show_status('No modified pages to save', error=False)
             return
         
-        # Process all modified pages
-        pages_to_save = sorted(self.modified_pages)
+        # Process all modified pages (sorted by page_sort_key to handle mixed types)
+        pages_to_save = sorted(self.modified_pages, key=page_sort_key)
         total_saved = 0
         total_warnings = 0
         

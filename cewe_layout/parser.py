@@ -3,7 +3,7 @@ from lxml import etree
 import os
 import glob
 import logging
-from .page_utils import determine_page_owner
+from .page_utils import determine_page_owner_of_area, page_sort_key
 
 logger = logging.getLogger(__name__)
 
@@ -604,7 +604,7 @@ def extract_pages_info(fotobook_root):
                 
                 logger.debug(f"  Page {pagenr}: pagenr%2={pagenr%2}, left_owner={left_owner}, right_owner={right_owner}, half={half}")
 
-                owner = determine_page_owner(area_left, half, left_owner, right_owner)
+                owner = determine_page_owner_of_area(area_left, half, left_owner, right_owner)
                 logger.debug(f"  Page {pagenr}: area at left={area_left} assigned to owner={owner}")
 
             # Page should already exist in pages_map (pre-created above)
@@ -741,14 +741,6 @@ def extract_pages_info(fotobook_root):
     pages = []
     
     # Sort with "F" first, then numeric pages in order, then "B" last
-    def page_sort_key(page_num):
-        if page_num == "F":
-            return (0, 0)  # Front cover comes first
-        elif page_num == "B":
-            return (2, 0)  # Back cover comes last
-        else:
-            return (1, page_num)  # Numeric pages in between
-    
     for k in sorted(pages_map.keys(), key=page_sort_key):
         entry = pages_map[k]
         pages.append((k, entry))

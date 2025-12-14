@@ -22,8 +22,11 @@ A typical CEWE photobook has the following structure:
 | Last-1 | N-2 | `normalpage` | Last content page | **PDF Page N-1** |
 | Last | 0 | `emptypage` or `EMPTY` | Inside back cover (blank page) | **Not in PDF** | Page N-1
 
-**Note**: The back cover fullcover page (1st in list) contains both back cover AND front cover areas positioned on the same spread.  And the 4th "0" empty page is where the contents of page 1 actually goes
-in xml, using the usual x-offset aspect applied to the contents of any odd-numbered page (and the front cover). Finally since pages have two sides (!), the last page N-1 here must be an odd number. Our spreads are 0 & 1, 2 & 3, ...., N-2 & N-1. 
+**Notes**: 
+- The back cover fullcover page (1st in list) contains both back cover AND front cover areas positioned on the SAME spread. The backcover is the left side of the spread and the front cover is the right side of the same spread.
+- The 4th "0" empty page (just before page 1) is where the contents of page 1 actually goes
+- In xml, using the usual x-offset is applied to the contents of any odd-numbered pagenr (and the front cover) - i.e. to all of the right-side pages - this is what makes that contents appear on the right side - simply the fact that their x-coordinates are >= half the size of the spread.
+- Finally since pages have two sides (!), the last page N-1 (inside back cover) here MUST be an odd number. Our spreads are 0 & 1, 2 & 3, ...., N-2 & N-1. However pagenr="N-1" will not appear in the XML, since pagenr="0" is used for that last right hand side of the spread.
 
 ### Key Points
 
