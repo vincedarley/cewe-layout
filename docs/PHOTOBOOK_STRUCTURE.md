@@ -10,20 +10,20 @@ CEWE photobooks use a **two-page spread** layout system where pages are not indi
 
 A typical CEWE photobook has the following structure:
 
-| MCF Order | pagenr | type | Description | PDF Mapping |
+| MCF Order | pagenr | type | Description | PDF Mapping | UI Code
 |-----------|--------|------|-------------|-------------|
-| 1st | 0 | `fullcover` or `FULLCOVER` | Back cover (left side of spread) | N/A (part of cover spread) |
+| 1st | 0 | `fullcover` or `FULLCOVER` | Back cover (left side of spread) | N/A (part of cover spread) | Page "B"
 | 2nd | 0 | `spine` | Spine of book | N/A (part of cover spread) |
-| 3rd | 0 | `fullcover` or `FULLCOVER` | Front cover (right side of spread) | **PDF Page 1** |
-| 4th | 0 | `emptypage` or `EMPTY` | Inside front cover (blank page) | **Not in PDF** |
-| 5th | 1 | `normalpage` | First content page (right side) | **PDF Page 2** |
+| 3rd | 0 | `fullcover` or `FULLCOVER` | Front cover (right side of spread) | **PDF Page 1** | Page "F"
+| 4th | 0 | `emptypage` or `EMPTY` | Inside front cover (blank page) | **Not in PDF** | Page 0
+| 5th | 1 | `normalpage` | First content page (right side) | **PDF Page 2** | Page 1...
 | 6th | 2 | `normalpage` | Second content page (left side) | **PDF Page 3** |
 | ... | ... | `normalpage` | Content pages | **PDF Pages 4...N-1** |
 | Last-1 | N-2 | `normalpage` | Last content page | **PDF Page N-1** |
-| Last | 0 | `emptypage` or `EMPTY` | Inside back cover (blank page) | **Not in PDF** |
+| Last | 0 | `emptypage` or `EMPTY` | Inside back cover (blank page) | **Not in PDF** | Page N-1
 
 **Note**: The back cover fullcover page (1st in list) contains both back cover AND front cover areas positioned on the same spread.  And the 4th "0" empty page is where the contents of page 1 actually goes
-in xml, using the usual x-offset aspect applied to the contents of any odd-numbered page.
+in xml, using the usual x-offset aspect applied to the contents of any odd-numbered page (and the front cover). Finally since pages have two sides (!), the last page N-1 here must be an odd number. Our spreads are 0 & 1, 2 & 3, ...., N-2 & N-1. 
 
 ### Key Points
 

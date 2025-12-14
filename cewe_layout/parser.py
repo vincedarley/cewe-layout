@@ -314,40 +314,64 @@ def extract_pages_info(fotobook_root):
                     
                     pages_map[page_number]['photos'].append(info)
     
-    # For photobooks: identify which pagenr="0" belongs to page 1 (the one just before pagenr="1" with type="emptypage")
-    page0_for_page1 = None
+    # For photobooks: identify the two pagenr="0" type="emptypage" elements
+    # First one (before pagenr="1") is inside front cover (page 0)
+    # Last one (after last numbered page) is inside back cover (page N+1)
+    inside_front_cover_page = None
+    inside_back_cover_page = None
+    max_normal_pagenr = None
     if not single_page_mode:
-        # Find pagenr="1" index
-        page1_index = None
+        # Find all pagenr="0" type="emptypage" elements
+        empty_pages = []
         for i, page in enumerate(all_pages):
-            if page.get('pagenr') == '1':
-                page1_index = i
-                break
+            if page.get('pagenr') == '0' and page.get('type') == 'emptypage':
+                empty_pages.append((i, page))
         
-        if page1_index is not None:
-            # Search backwards from pagenr="1" to find the closest pagenr="0" type="emptypage"
-            for i in range(page1_index - 1, -1, -1):
-                page = all_pages[i]
-                if page.get('pagenr') == '0' and page.get('type') == 'emptypage':
-                    page0_for_page1 = page
-                    logger.debug(f"extract_pages_info: Found pagenr='0' type='emptypage' for page 1 at index {i}")
-                    break
+        if len(empty_pages) >= 1:
+            # First one is inside front cover
+            inside_front_cover_page = empty_pages[0][1]
+            logger.debug(f"extract_pages_info: Found inside front cover at index {empty_pages[0][0]}")
+        
+        if len(empty_pages) >= 2:
+            # Last one is inside back cover
+            inside_back_cover_page = empty_pages[-1][1]
+            logger.debug(f"extract_pages_info: Found inside back cover at index {empty_pages[-1][0]}")
+            
+            # Find the maximum normal page number to prevent creating page beyond it
+            for page in all_pages:
+                if _is_normal_page(page):
+                    try:
+                        pagenr = int(page.get('pagenr'))
+                        if max_normal_pagenr is None or pagenr > max_normal_pagenr:
+                            max_normal_pagenr = pagenr
+                    except (TypeError, ValueError):
+                        pass
+            logger.debug(f"extract_pages_info: Max normal pagenr={max_normal_pagenr}")
 
     # Pre-create entries for all normal pages (even if empty)
     # This ensures empty pages don't get lost
+    # Also handle inside cover pages (pagenr="0" type="emptypage")
     for page in all_pages:
         pagenr_str = page.get('pagenr')
         page_type = page.get('type')
         is_normal = _is_normal_page(page)
-        is_page0_for_page1 = (page is page0_for_page1)
+        is_inside_front_cover = (page is inside_front_cover_page)
+        is_inside_back_cover = (page is inside_back_cover_page)
         
-        if not is_normal and not is_page0_for_page1:
+        if not is_normal and not is_inside_front_cover and not is_inside_back_cover:
             continue
-            
-        try:
-            pagenr = int(pagenr_str)
-        except (TypeError, ValueError):
+        
+        # Handle inside cover pages specially
+        if is_inside_front_cover:
+            pagenr = 0
+        elif is_inside_back_cover:
+            # We'll determine the page number later (max + 1), skip for now
             continue
+        else:
+            try:
+                pagenr = int(pagenr_str)
+            except (TypeError, ValueError):
+                continue
         
         # Get bundlesize for this page
         bundlesize = page.find('./bundlesize')
@@ -394,15 +418,27 @@ def extract_pages_info(fotobook_root):
         else:
             if (pagenr % 2) == 0:
                 # Even pagenr -> left page is pagenr, right is pagenr+1
-                owners = [pagenr, pagenr + 1]
-                origin_lefts = [0.0, half]
+                # BUT: if this is the last normal page and there's an inside back cover,
+                # don't create pagenr+1 (it will be the inside back cover)
+                if inside_back_cover_page is not None and pagenr == max_normal_pagenr:
+                    owners = [pagenr]
+                    origin_lefts = [0.0]
+                    page_widths = [half]
+                else:
+                    owners = [pagenr, pagenr + 1]
+                    origin_lefts = [0.0, half]
+                    page_widths = [half, half]
             else:
                 # Odd pagenr -> left page is pagenr-1 (or skip if would be < 1), right is pagenr
                 owners = [max(1, pagenr - 1), pagenr]
                 origin_lefts = [0.0, half]
-            page_widths = [half, half]
+                page_widths = [half, half]
         
         for owner, origin_left, page_width in zip(owners, origin_lefts, page_widths):
+            # DEBUG: Detect page 28 creation
+            if owner == 28:
+                raise RuntimeError(f"ERROR: Attempting to create page 28 from pagenr={pagenr}, is_inside_front_cover={is_inside_front_cover}, is_inside_back_cover={is_inside_back_cover}, owners={owners}")
+            
             if owner not in pages_map:
                 pages_map[owner] = {
                     'photos': [], 
@@ -421,22 +457,51 @@ def extract_pages_info(fotobook_root):
                     'page_type': page_type
                 }
     
+    # Now create inside back cover page (after we know max page number)
+    if inside_back_cover_page is not None and not single_page_mode:
+        numeric_pages = [k for k in pages_map.keys() if isinstance(k, int) and k > 0]
+        if numeric_pages:
+            inside_back_page_num = max(numeric_pages) + 1
+            
+            # DEBUG: Verify inside back cover number
+            logger.debug(f"extract_pages_info: Inside back cover calculated as page {inside_back_page_num}, numeric_pages max={max(numeric_pages)}")
+            if inside_back_page_num > 27:
+                raise RuntimeError(f"ERROR: Inside back cover calculated as page {inside_back_page_num}. numeric_pages={numeric_pages}, max={max(numeric_pages)}")
+            
+            # Get dimensions from a normal page
+            sample_page = pages_map[min(numeric_pages)]
+            pages_map[inside_back_page_num] = {
+                'photos': [],
+                'texts': [],
+                'page_width': sample_page['page_width'],
+                'page_height': sample_page['page_height'],
+                'origin_left': 0.0,  # Left side
+                'background_id': None,
+                'is_canvas': False,
+                'is_calendar': False,
+                'is_cover': False,
+                'is_front_cover': False,
+                'has_full_bleed': False,
+                'rotation': 0.0,
+                'physical_width': sample_page['page_width'] * 2,
+                'physical_height': sample_page['page_height'],
+                'calendar_edge_gaps': None
+            }
+            logger.debug(f"extract_pages_info: Created inside back cover as page {inside_back_page_num}")
+    
     # Now process areas and add them to the pre-created pages
     for page in all_pages:
         pagenr_str = page.get('pagenr')
         page_type = page.get('type')
         is_normal = _is_normal_page(page)
+        is_inside_front_cover = (page is inside_front_cover_page)
+        is_inside_back_cover = (page is inside_back_cover_page)
         
-        # Special handling: if this is the pagenr="0" that belongs to page 1, treat it as page 0
-        # but we'll process its areas and assign them to page 1
-        is_page0_for_page1 = (page is page0_for_page1)
+        logger.debug(f"extract_pages_info: Processing page pagenr='{pagenr_str}' type='{page_type}' is_normal={is_normal}")
         
-        logger.debug(f"extract_pages_info: Processing page pagenr='{pagenr_str}' type='{page_type}' is_normal={is_normal} is_page0_for_page1={is_page0_for_page1}")
-        
-        # Skip pages that are neither normal nor the special page 0 for page 1
-        # This ensures we don't read areas from the wrong pagenr="0" sections (covers, etc.)
-        if not is_normal and not is_page0_for_page1:
-            logger.debug(f"  Skipping page pagenr='{pagenr_str}' (not normal and not page 0 for page 1)")
+        # Skip pages that are not normal or inside covers
+        if not is_normal and not is_inside_front_cover and not is_inside_back_cover:
+            logger.debug(f"  Skipping page pagenr='{pagenr_str}' (not normal or inside cover)")
             continue
         
         # Process this page to extract areas
@@ -665,33 +730,34 @@ def extract_pages_info(fotobook_root):
 
     # Process cover page (if it exists)
     # The fullcover page contains BOTH covers - we process it twice:
-    # Once for front cover (right half, page 0) and once for back cover (left half, page N+1)
+    # Once for front cover (right half, page "F") and once for back cover (left half, page "B")
+    # NOTE: Using string page identifiers "F" and "B" to distinguish covers from numeric pages
     if cover_page is not None:
-        # Process front cover (right half) as page 0
-        _process_cover_page(cover_page, 0, is_front_cover=True)
-    
-    # Build final pages list, including covers
-    # Normal pages start at 1, covers are at 0 and N+1
-    pages = []
-    
-    # Determine back cover page number
-    # The back cover should be placed at the highest normal page number (not +1)
-    # This is because pre-creation already adds the right-side page for even pagenr values
-    # Example: if MCF has pagenr=26 (even), pages_map has 26 and 27, back cover goes on 27
-    # Example: if MCF has pagenr=27 (odd), pages_map has 26 and 27, back cover goes on 27
-    normal_page_nums = [k for k in pages_map.keys() if k >= 1]
-    back_cover_page_num = max(normal_page_nums) if normal_page_nums else 1
+        # Process front cover (right half) as page "F"
+        _process_cover_page(cover_page, "F", is_front_cover=True)
     
     # Process back cover (left half of cover spread shown as the final page)
     if cover_page is not None:
-        _process_cover_page(cover_page, back_cover_page_num, is_front_cover=False)
+        _process_cover_page(cover_page, "B", is_front_cover=False)
     
-    # Build sorted pages list: page 0 (front cover), pages 1..N, page N+1 (back cover)
-    for k in sorted(pages_map.keys()):
+    # Build sorted pages list: page "F" (front cover), page 0 (inside front), pages 1..N, 
+    # page N+1 (inside back), page "B" (back cover)
+    pages = []
+    
+    # Sort with "F" first, then numeric pages in order, then "B" last
+    def page_sort_key(page_num):
+        if page_num == "F":
+            return (0, 0)  # Front cover comes first
+        elif page_num == "B":
+            return (2, 0)  # Back cover comes last
+        else:
+            return (1, page_num)  # Numeric pages in between
+    
+    for k in sorted(pages_map.keys(), key=page_sort_key):
         entry = pages_map[k]
         pages.append((k, entry))
     
-    logger.debug(f"extract_pages_info: Final pages_map keys: {sorted(pages_map.keys())}")
+    logger.debug(f"extract_pages_info: Final pages_map keys: {sorted(pages_map.keys(), key=page_sort_key)}")
     logger.debug(f"extract_pages_info: Returning {len(pages)} pages")
     for page_num, page_data in pages:
         is_cover = page_data.get('is_cover', False)

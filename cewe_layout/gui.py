@@ -131,6 +131,17 @@ class LayoutViewer:
         # Cache photo dimensions: {filename: (width, height)} to avoid re-reading images
         self.photo_dimensions = {}
 
+        # Identify inside cover pages once (page 0 and last numeric page)
+        self.inside_front_cover_page = 0  # Page 0 is always inside front cover
+        self.inside_back_cover_page = None
+        numeric_pages = [(p, info) for p, info in self.pages if isinstance(p, int) and p > 0]
+        if numeric_pages:
+            last_page_num, last_page_info = numeric_pages[-1]
+            # Inside back cover is always the last numeric page, which must be odd (right side)
+            if last_page_num % 2 == 0:
+                raise RuntimeError(f"Inside back cover page {last_page_num} is even (left side). It should be odd (right side).")
+            self.inside_back_cover_page = last_page_num
+        
         # initialize layout manager with originals from file
         for pageno, info in self.pages:
             self.layout_mgr.set_original(pageno, info.get('photos', []), info.get('texts', []))
@@ -570,7 +581,13 @@ class LayoutViewer:
 
     def _pageToStartOn(self) -> int:
         # Find the first page that needs work (is completely empty or has empty rects)
+        # Skip inside cover pages (identified at initialization)
+        
         for idx, (pageno, info) in enumerate(self.pages):
+            # Skip inside cover pages
+            if pageno == self.inside_front_cover_page or pageno == self.inside_back_cover_page:
+                continue
+            
             photos = info.get('photos', [])
             texts = info.get('texts', [])
 
@@ -583,8 +600,19 @@ class LayoutViewer:
             if is_completely_empty or has_empty_rects:
                 return idx
 
-        # Start at page 0 if all pages are complete
-        return 0
+        # Start at front cover if all pages are complete
+        # Look for "F" (front cover) first, then first normal page (1)
+        for idx, (pageno, _) in enumerate(self.pages):
+            if pageno == "F":
+                return idx
+        
+        # If no front cover, start at first normal page (page 1)
+        for idx, (pageno, _) in enumerate(self.pages):
+            if pageno == 1:
+                return idx
+        
+        # This shouldn't happen - every photobook should have at least page 1
+        raise RuntimeError(f"Unable to find valid starting page. Pages: {[p for p, _ in self.pages]}")
 
     def _setup_keyboard_shortcuts(self):
         """Setup keyboard shortcuts for common actions."""
@@ -778,9 +806,12 @@ class LayoutViewer:
             composite_image = None
             if self.pdf_content:
                 from .pdf2cewe.pdf_extractor import get_page_content
-                pdf_data = get_page_content(self.pdf_content, pageno)
-                if pdf_data:
-                    composite_image = pdf_data.get('composite_image')
+                # Map UI page number to PDF page index
+                pdf_page_index = self._ui_page_to_pdf_page(pageno)
+                if pdf_page_index is not None:
+                    pdf_data = get_page_content(self.pdf_content, pdf_page_index)
+                    if pdf_data:
+                        composite_image = pdf_data.get('composite_image')
             
             page_data = PageRenderData(
                 pageno=pageno,
@@ -809,6 +840,45 @@ class LayoutViewer:
             self._delete_photo(page_index, pageno, identifier)
         else:  # 'text'
             self._delete_text(page_index, pageno)
+    
+    def _ui_page_to_pdf_page(self, ui_pageno):
+        """Map UI page number to PDF page index.
+        
+        Args:
+            ui_pageno: UI page number (can be "F", "B", 0, 1..N, N+1)
+        
+        Returns:
+            PDF page index (0-indexed) or None if no PDF page exists
+        """
+        if not self.pdf_content:
+            return None
+        
+        # Get total PDF page count
+        from .pdf2cewe.pdf_extractor import get_page_content
+        pdf_page_count = self.pdf_content.get('page_count', 0)
+        
+        # Map UI page to PDF index
+        if ui_pageno == "F":
+            # Front cover is PDF page 0
+            return 0
+        elif ui_pageno == "B":
+            # Back cover is PDF page N+1 (last page) if it exists
+            if pdf_page_count > 0:
+                return pdf_page_count - 1
+            return None
+        elif ui_pageno == self.inside_front_cover_page:
+            # Inside front cover - no PDF page (empty)
+            return None
+        elif isinstance(ui_pageno, int):
+            # Check if this is the inside back cover (identified at initialization)
+            if ui_pageno == self.inside_back_cover_page:
+                # Inside back cover - no PDF page (empty)
+                return None
+            
+            # Regular content pages: UI page N = PDF page N
+            return ui_pageno
+        
+        return None
     
     def render_page(self):
         """Orchestrate page rendering - control logic here, rendering delegated to PageRenderer."""
@@ -855,45 +925,44 @@ class LayoutViewer:
             is_current_cover = current_info.get('is_cover', False)
             
             # Find max normal page and covers
-            max_page = max(pn for pn, _ in self.pages)
-            
             if is_current_cover:
-                # Current page is a cover
-                if current_pageno == 0:
-                    # Front cover (page 0) - check if back cover exists for spread
+                # Current page is a cover ("F" or "B")
+                if current_pageno == "F":
+                    # Front cover (page "F") - check if back cover exists for spread
                     back_cover_idx = None
                     for i, (pn, info) in enumerate(self.pages):
-                        if pn == max_page and info.get('is_cover', False):
+                        if pn == "B" and info.get('is_cover', False):
                             back_cover_idx = i
                             break
                     
                     if back_cover_idx is not None:
                         # Show front and back cover as spread (back on left, front on right)
                         page_indices = [back_cover_idx, self.index]
-                        self.current_spread_pages = [max_page, 0]
+                        self.current_spread_pages = ["B", "F"]
                     else:
                         # Only front cover exists
                         page_indices = [self.index]
                         self.current_spread_pages = [current_pageno]
                 else:
-                    # Back cover (max page) - check if front cover exists for spread
+                    # Back cover (page "B") - check if front cover exists for spread
                     front_cover_idx = None
                     for i, (pn, info) in enumerate(self.pages):
-                        if pn == 0 and info.get('is_cover', False):
+                        if pn == "F" and info.get('is_cover', False):
                             front_cover_idx = i
                             break
                     
                     if front_cover_idx is not None:
                         # Show front and back cover as spread (back on left, front on right)
                         page_indices = [self.index, front_cover_idx]
-                        self.current_spread_pages = [max_page, 0]
+                        self.current_spread_pages = ["B", "F"]
                     else:
                         # Only back cover exists
                         page_indices = [self.index]
                         self.current_spread_pages = [current_pageno]
             else:
                 # Normal page spread logic (even on left, odd on right)
-                if current_pageno % 2 == 0:
+                # current_pageno should be an integer for normal pages
+                if isinstance(current_pageno, int) and current_pageno % 2 == 0:
                     # Current page is even - it goes on left, find next odd page for right
                     left_idx = self.index
                     # Find next page (should be odd if pages are consecutive)
@@ -913,7 +982,7 @@ class LayoutViewer:
                         # Even page is last page - show it alone
                         page_indices = [left_idx]
                         self.current_spread_pages = [self.pages[left_idx][0]]
-                else:
+                elif isinstance(current_pageno, int):
                     # Current page is odd - find previous even page for left
                     if self.index > 0:
                         left_pageno = self.pages[self.index - 1][0]
@@ -932,6 +1001,10 @@ class LayoutViewer:
                         # Odd page is first page - show it alone
                         page_indices = [self.index]
                         self.current_spread_pages = [self.pages[self.index][0]]
+                else:
+                    # Non-integer page number that's not a cover - shouldn't happen, show alone
+                    page_indices = [self.index]
+                    self.current_spread_pages = [current_pageno]
         else:
             # Single page mode
             page_indices = [self.index]
@@ -2294,7 +2367,7 @@ class LayoutViewer:
                 # Navigate from cover spread to last normal even page
                 for i in range(len(self.pages) - 1, -1, -1):
                     pageno, info = self.pages[i]
-                    if not info.get('is_cover', False) and pageno % 2 == 0:
+                    if not info.get('is_cover', False) and isinstance(pageno, int) and pageno % 2 == 0:
                         # Found last normal even page
                         self.index = i
                         self.show_status(f'Loading page {pageno}...')
@@ -2307,7 +2380,7 @@ class LayoutViewer:
             # Find previous even page (normal pages only)
             for i in range(self.index - 1, -1, -1):
                 pageno, info = self.pages[i]
-                if not info.get('is_cover', False) and pageno % 2 == 0:
+                if not info.get('is_cover', False) and isinstance(pageno, int) and pageno % 2 == 0:
                     self.index = i
                     self.show_status(f'Loading pages {pageno}-{pageno+1}...')
                     self.root.update_idletasks()
@@ -2317,7 +2390,7 @@ class LayoutViewer:
             # No more even pages before - check for front cover
             for i in range(len(self.pages)):
                 pageno, info = self.pages[i]
-                if pageno == 0 and info.get('is_cover', False):
+                if pageno == "F" and info.get('is_cover', False):
                     self.index = i
                     self.show_status('Loading covers...')
                     self.root.update_idletasks()
@@ -2327,6 +2400,7 @@ class LayoutViewer:
             # No even page found before current - stay where we are
             return
         else:
+            # Single page mode: move to previous page in list
             if self.index > 0:
                 self.index -= 1
                 pageno = self.pages[self.index][0]
@@ -2359,11 +2433,15 @@ class LayoutViewer:
                 return
             
             # Find next even page after current spread (normal pages only)
-            start_search = self.index + 2 if current_pageno % 2 == 0 else self.index + 1
+            if isinstance(current_pageno, int):
+                start_search = self.index + 2 if current_pageno % 2 == 0 else self.index + 1
+            else:
+                # Current is a cover, shouldn't reach here but handle it
+                start_search = self.index + 1
             
             for i in range(start_search, len(self.pages)):
                 pageno, info = self.pages[i]
-                if not info.get('is_cover', False) and pageno % 2 == 0:
+                if not info.get('is_cover', False) and isinstance(pageno, int) and pageno % 2 == 0:
                     self.index = i
                     # Check if there's an odd page following
                     if i < len(self.pages) - 1:
@@ -2382,7 +2460,7 @@ class LayoutViewer:
             # No more normal even pages - check for back cover
             for i in range(len(self.pages)):
                 pageno, info = self.pages[i]
-                if pageno > 1 and info.get('is_cover', False):
+                if pageno == "B" and info.get('is_cover', False):
                     self.index = i
                     self.show_status('Loading covers...')
                     self.root.update_idletasks()
@@ -2393,6 +2471,7 @@ class LayoutViewer:
             self.show_status('Last page of book')
             return
         else:
+            # Single page mode: move to next page in list
             if self.index < len(self.pages) - 1:
                 self.index += 1
                 pageno = self.pages[self.index][0]
@@ -2404,10 +2483,20 @@ class LayoutViewer:
                 return
 
     def goto_page(self):
-        try:
-            v = int(self.goto_var.get())
-        except Exception:
+        input_str = self.goto_var.get().strip().upper()
+        if not input_str:
             return
+        
+        # Handle cover page identifiers: "F" for front cover, "B" for back cover
+        if input_str in ["F", "B"]:
+            v = input_str
+        else:
+            # Try to parse as integer for normal pages
+            try:
+                v = int(input_str)
+            except Exception:
+                return
+        
         # find index for page number
         for i,(pn,_) in enumerate(self.pages):
             if pn == v:
@@ -2426,9 +2515,36 @@ class LayoutViewer:
             self.page_range_var.set('')
             return
         
-        min_page = min(pn for pn, _ in self.pages)
-        max_page = max(pn for pn, _ in self.pages)
-        self.page_range_var.set(f'Pages {min_page}-{max_page}')
+        # Find min/max numeric pages and check for covers
+        has_front_cover = any(pn == "F" for pn, _ in self.pages)
+        has_back_cover = any(pn == "B" for pn, _ in self.pages)
+        numeric_pages = [pn for pn, _ in self.pages if isinstance(pn, int)]
+        
+        if numeric_pages:
+            min_page = min(numeric_pages)
+            max_page = max(numeric_pages)
+            range_str = f'{min_page}-{max_page}'
+        else:
+            range_str = ''
+        
+        # Add cover indicators
+        if has_front_cover and has_back_cover:
+            if range_str:
+                self.page_range_var.set(f'Pages F, {range_str}, B')
+            else:
+                self.page_range_var.set('Pages F, B')
+        elif has_front_cover:
+            if range_str:
+                self.page_range_var.set(f'Pages F, {range_str}')
+            else:
+                self.page_range_var.set('Pages F')
+        elif has_back_cover:
+            if range_str:
+                self.page_range_var.set(f'Pages {range_str}, B')
+            else:
+                self.page_range_var.set('Pages B')
+        else:
+            self.page_range_var.set(f'Pages {range_str}' if range_str else '')
     
     def _on_window_resize(self, event):
         """Handle window resize events by redrawing the page at the new scale.
