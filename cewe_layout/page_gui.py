@@ -105,7 +105,8 @@ class PageRenderer:
                     margin_mcf: float,
                     is_canvas: bool,
                     delete_callback,
-                    show_pdf_composite: bool = False) -> None:
+                    show_pdf_composite: bool = False,
+                    protected_inside_covers: list = None) -> None:
         """Render one or more pages to the display.
         
         Args:
@@ -116,7 +117,10 @@ class PageRenderer:
             delete_callback: Function to call when delete button clicked
                            Signature: (item_type, page_index, pageno, identifier)
                            where item_type is 'photo' or 'text'
+            protected_inside_covers: List of page numbers that are protected (inside covers)
         """
+        if protected_inside_covers is None:
+            protected_inside_covers = []
         if not page_data_list:
             self.render_empty_page(canvas_w, canvas_h, "No page data")
             return
@@ -193,6 +197,17 @@ class PageRenderer:
         if len(page_data_list) == 2 and not is_canvas:
             crease_x = margin_mcf * scale + page_w * scale
             self._draw_crease_line(draw, crease_x, frame_y, frame_h, frame_color)
+        
+        # Draw overlay text for protected inside cover pages
+        if protected_inside_covers:
+            for page_offset, page_data in enumerate(page_data_list):
+                if page_data.pageno in protected_inside_covers:
+                    page_x_offset = page_offset * page_w if len(page_data_list) == 2 else 0
+                    frame_x = margin_mcf * scale + page_x_offset * scale
+                    frame_y = margin_mcf * scale
+                    frame_w = page_w * scale
+                    frame_h = page_h * scale
+                    self._draw_protected_overlay(draw, frame_x, frame_y, frame_w, frame_h)
         
         # Show image and create delete buttons
         self._show_image(img)
@@ -643,6 +658,48 @@ class PageRenderer:
             end_y = min(y_pos + dot_length, crease_y + crease_h)
             draw.line([(crease_x, y_pos), (crease_x, end_y)], fill=color, width=1)
             y_pos += dot_length + gap_length
+
+    def _draw_protected_overlay(self, draw, frame_x, frame_y, frame_w, frame_h):
+        """Draw grey overlay text for protected inside cover pages.
+        
+        Args:
+            draw: PIL ImageDraw object
+            frame_x, frame_y: Frame position on canvas
+            frame_w, frame_h: Frame dimensions in pixels
+        """
+        # Draw semi-transparent grey text in center of page
+        text = "inside cover page always blank"
+        
+        # Try to use a reasonable font size
+        try:
+            from PIL import ImageFont
+            # Try to find a system font - use smaller size for overlay
+            font_size = int(min(frame_w, frame_h) / 20)  # 1/20th of smaller dimension
+            try:
+                # Try to load a system font
+                font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", font_size)
+            except:
+                # Fall back to default font
+                font = ImageFont.load_default()
+        except:
+            font = None
+        
+        # Get text bounding box for centering
+        if font:
+            bbox = draw.textbbox((0, 0), text, font=font)
+            text_w = bbox[2] - bbox[0]
+            text_h = bbox[3] - bbox[1]
+        else:
+            # Rough estimate for default font
+            text_w = len(text) * 6
+            text_h = 10
+        
+        # Center text in frame
+        text_x = frame_x + (frame_w - text_w) / 2
+        text_y = frame_y + (frame_h - text_h) / 2
+        
+        # Draw text in grey
+        draw.text((text_x, text_y), text, fill='#888888', font=font)
 
     def _show_image(self, pil_img):
         """Display PIL image on the canvas."""

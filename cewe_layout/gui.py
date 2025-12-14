@@ -143,6 +143,14 @@ class LayoutViewer:
                 raise RuntimeError(f"Inside back cover page {last_page_num} is even (left side). It should be odd (right side).")
             self.inside_back_cover_page = last_page_num
         
+        # Track protected inside covers (pages that should be blank when --insidecovers not provided)
+        self.protected_inside_covers = set()
+        if not self.insidecovers:
+            # Without --insidecovers flag, inside cover pages are protected (blank)
+            self.protected_inside_covers.add(self.inside_front_cover_page)
+            if self.inside_back_cover_page is not None:
+                self.protected_inside_covers.add(self.inside_back_cover_page)
+        
         # initialize layout manager with originals from file
         for pageno, info in self.pages:
             self.layout_mgr.set_original(pageno, info.get('photos', []), info.get('texts', []))
@@ -1077,6 +1085,13 @@ class LayoutViewer:
         canvas_w, canvas_h = self._get_canvas_dimensions()
         page_data_list = self._build_page_render_data(page_indices)
         
+        # Check if any rendered pages are protected inside covers
+        protected_pages = []
+        for page_idx in page_indices:
+            pageno_i, _ = self.pages[page_idx]
+            if pageno_i in self.protected_inside_covers:
+                protected_pages.append(pageno_i)
+        
         # Delegate rendering to PageRenderer
         show_composite = self.show_pdf_composite_var.get() if self.pdf_content else False
         
@@ -1087,7 +1102,8 @@ class LayoutViewer:
             margin_mcf=self.margin_mcf,
             is_canvas=self.is_canvas,
             delete_callback=self._handle_delete_button_click,
-            show_pdf_composite=show_composite
+            show_pdf_composite=show_composite,
+            protected_inside_covers=protected_pages
         )
         
         # Update control widgets
@@ -1273,6 +1289,14 @@ class LayoutViewer:
             self.show_status('No pages available', error=True)
             return
         
+        pageno, info = self.pages[self.index]
+        
+        # Check if this is a protected inside cover page (when --insidecovers not provided)
+        if pageno in self.protected_inside_covers:
+            logger.warning(f"Attempted to add photos to protected inside cover page {pageno} (--insidecovers not provided)")
+            self.show_status(f'Inside cover page {pageno} is always blank (use --insidecovers flag to edit)', error=True)
+            return
+        
         # Filter for image files only
         image_exts = {'.jpg', '.jpeg', '.JPG', '.JPEG', '.png', '.PNG'}
         photo_files = [f for f in file_paths if Path(f).suffix in image_exts]
@@ -1284,8 +1308,6 @@ class LayoutViewer:
         # Show loading message
         self.show_status(f'Loading {len(photo_files)} photo(s)...')
         self.root.update_idletasks()  # Force UI update to show message
-        
-        pageno, info = self.pages[self.index]
         
         # Stage photos (don't move yet - only on save)
         new_photos = self._stage_photos(photo_files)
