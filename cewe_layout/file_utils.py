@@ -74,10 +74,15 @@ def extract_metadata_from_filename(filename: str) -> tuple:
     if size_match:
         size = safe_parse_number(size_match.group(1), 'size', filename)
     
-    # Look for -pgN pattern
-    page_match = re.search(r'-pg([0-9]+)', name_part)
+    # Look for -pgN or -pgF or -pgB pattern
+    page_match = re.search(r'-pg([0-9]+|F|B)', name_part)
     if page_match:
-        page_num = safe_parse_number(page_match.group(1), 'page number', filename)
+        page_str = page_match.group(1)
+        # Parse as number if numeric, otherwise keep as string
+        if page_str in ('F', 'B'):
+            page_num = page_str
+        else:
+            page_num = safe_parse_number(page_str, 'page number', filename)
     
     # Remove both patterns to get base name
     base_name = name_part
@@ -91,17 +96,17 @@ def extract_metadata_from_filename(filename: str) -> tuple:
     return base_filename, size, page_num
 
 
-def encode_metadata_in_filename(filename: str, preferred_size: float = None, page_number: int = None) -> str:
+def encode_metadata_in_filename(filename: str, preferred_size: float = None, page_number = None) -> str:
     """
     Encode both preferred size and page number into filename.
     
     Args:
         filename: Original filename (may already have -sz or -pg suffixes)
         preferred_size: Size value to encode (e.g., 3.45), or None to preserve existing
-        page_number: Page number to encode (e.g., 10), or None to preserve existing
+        page_number: Page number/identifier to encode (e.g., 10, "F", "B"), or None to preserve existing
     
     Returns:
-        Filename with metadata encoded like 'photo-sz3.45-pg10.jpg' or 'photo-sz2.0.png'
+        Filename with metadata encoded like 'photo-sz3.45-pg10.jpg', 'photo-sz2.0-pgF.png'
         Order is always: basename + -sz + -pg + extension
     """
     # Handle None or empty filename

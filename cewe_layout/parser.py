@@ -434,11 +434,7 @@ def extract_pages_info(fotobook_root):
                 origin_lefts = [0.0, half]
                 page_widths = [half, half]
         
-        for owner, origin_left, page_width in zip(owners, origin_lefts, page_widths):
-            # DEBUG: Detect page 28 creation
-            if owner == 28:
-                raise RuntimeError(f"ERROR: Attempting to create page 28 from pagenr={pagenr}, is_inside_front_cover={is_inside_front_cover}, is_inside_back_cover={is_inside_back_cover}, owners={owners}")
-            
+        for owner, origin_left, page_width in zip(owners, origin_lefts, page_widths):            
             if owner not in pages_map:
                 pages_map[owner] = {
                     'photos': [], 
@@ -465,8 +461,8 @@ def extract_pages_info(fotobook_root):
             
             # DEBUG: Verify inside back cover number
             logger.debug(f"extract_pages_info: Inside back cover calculated as page {inside_back_page_num}, numeric_pages max={max(numeric_pages)}")
-            if inside_back_page_num > 27:
-                raise RuntimeError(f"ERROR: Inside back cover calculated as page {inside_back_page_num}. numeric_pages={numeric_pages}, max={max(numeric_pages)}")
+            if inside_back_page_num % 2 == 0:
+                raise RuntimeError(f"ERROR: Inside back cover page {inside_back_page_num} is even (left side). It should be odd (right side).")
             
             # Get dimensions from a normal page
             sample_page = pages_map[min(numeric_pages)]

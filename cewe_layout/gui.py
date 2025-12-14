@@ -75,11 +75,12 @@ def get_modifier_symbol():
 
 
 class LayoutViewer:
-    def __init__(self, root, mcf_root, mcf_file_path, pdf_content=None):
+    def __init__(self, root, mcf_root, mcf_file_path, pdf_content=None, insidecovers=False):
         # mcf_root is the parsed XML root; mcf_file_path is the full path to the .mcf file
         self.pages = extract_pages_info(mcf_root)
         self.mcf_file_path = mcf_file_path
         self.pdf_content = pdf_content  # Store PDF content if provided
+        self.insidecovers = insidecovers  # Whether PDF includes inside cover pages
         # try to find the imagedir attribute on the root to locate images
         self.image_folder_attr = mcf_root.get('imagedir') or ''
         self.mcf_base_folder = '' if mcf_file_path is None else os.path.dirname(mcf_file_path)
@@ -581,12 +582,13 @@ class LayoutViewer:
 
     def _pageToStartOn(self) -> int:
         # Find the first page that needs work (is completely empty or has empty rects)
-        # Skip inside cover pages (identified at initialization)
+        # Skip inside cover pages UNLESS --insidecovers flag was given (then they have content)
         
         for idx, (pageno, info) in enumerate(self.pages):
-            # Skip inside cover pages
-            if pageno == self.inside_front_cover_page or pageno == self.inside_back_cover_page:
-                continue
+            # Skip inside cover pages only if they're empty (no --insidecovers flag)
+            if not self.insidecovers:
+                if pageno == self.inside_front_cover_page or pageno == self.inside_back_cover_page:
+                    continue
             
             photos = info.get('photos', [])
             texts = info.get('texts', [])
@@ -862,21 +864,30 @@ class LayoutViewer:
             # Front cover is PDF page 0
             return 0
         elif ui_pageno == "B":
-            # Back cover is PDF page N+1 (last page) if it exists
+            # Back cover is last PDF page if it exists
             if pdf_page_count > 0:
                 return pdf_page_count - 1
             return None
         elif ui_pageno == self.inside_front_cover_page:
-            # Inside front cover - no PDF page (empty)
+            # Inside front cover: PDF page 1 if --insidecovers, else None
+            if self.insidecovers:
+                return 1
             return None
         elif isinstance(ui_pageno, int):
-            # Check if this is the inside back cover (identified at initialization)
+            # Check if this is the inside back cover
             if ui_pageno == self.inside_back_cover_page:
-                # Inside back cover - no PDF page (empty)
+                # Inside back cover: PDF page N-2 (second-to-last) if --insidecovers, else None
+                if self.insidecovers and pdf_page_count >= 2:
+                    return pdf_page_count - 2
                 return None
             
-            # Regular content pages: UI page N = PDF page N
-            return ui_pageno
+            # Regular content pages
+            if self.insidecovers:
+                # With --insidecovers: UI page N maps to PDF page N+1 (shifted by inside front cover)
+                return ui_pageno + 1
+            else:
+                # Without --insidecovers: UI page N maps to PDF page N
+                return ui_pageno
         
         return None
     
@@ -3897,7 +3908,7 @@ class LayoutViewer:
         self.render_page()
 
 
-def launch_gui(mcf_path, pdf_content):
+def launch_gui(mcf_path, pdf_content, insidecovers=False):
     # Configure logging for the GUI
     import logging
     logging.basicConfig(
@@ -3916,5 +3927,5 @@ def launch_gui(mcf_path, pdf_content):
         # Fall back to regular Tk
         root = tk.Tk()
     
-    app = LayoutViewer(root, root_el, mcf_path, pdf_content=pdf_content)
+    app = LayoutViewer(root, root_el, mcf_path, pdf_content=pdf_content, insidecovers=insidecovers)
     root.mainloop()

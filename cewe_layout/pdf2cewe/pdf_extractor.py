@@ -56,7 +56,7 @@ import logging
 
 from PIL import Image
 
-from .image_segmenter import segment_composite_image, should_segment_image
+from .image_segmenter import segment_composite_image, should_segment_image, ImageSegmenter
 
 logger = logging.getLogger(__name__)
 
@@ -241,13 +241,14 @@ def get_page_content(pdf_content: Dict[str, Any], pageno: int) -> Optional[Dict[
     return None
 
 
-def extract_pdf_content(pdf_path: Path, page_range: Optional[List[int]] = None, verbose: bool = False, debug: bool = False) -> Dict[str, Any]:
+def extract_pdf_content(pdf_path: Path, page_range: Optional[List[int]] = None, verbose: bool = False, debug: bool = False, page_to_ui: Optional[Dict[int, Any]] = None) -> Dict[str, Any]:
     """Extract all images and text from a PDF file.
     
     Args:
         pdf_path: Path to PDF file
         page_range: Optional list of 0-indexed page numbers to process
         verbose: Print detailed extraction info
+        page_to_ui: Optional mapping from PDF page index to UI page number (for correct positioning)
         
     Returns:
         Dictionary containing:
@@ -277,7 +278,9 @@ def extract_pdf_content(pdf_path: Path, page_range: Optional[List[int]] = None, 
             continue
             
         page = doc[page_num]
-        page_data = extract_page_content(page, page_num, len(doc), verbose, debug)
+        # Get UI page number for this PDF page (for correct coordinate positioning)
+        ui_page = page_to_ui.get(page_num) if page_to_ui else page_num
+        page_data = extract_page_content(page, page_num, len(doc), verbose, debug, ui_page)
         pages.append(page_data)
     
     # Get consistent page size from first page
@@ -294,21 +297,24 @@ def extract_pdf_content(pdf_path: Path, page_range: Optional[List[int]] = None, 
     }
 
 
-def extract_page_content(page: fitz.Page, page_num: int, total_pages: int, verbose: bool = False, debug: bool = False) -> Dict[str, Any]:
+def extract_page_content(page: fitz.Page, page_num: int, total_pages: int, verbose: bool = False, debug: bool = False, ui_page: Any = None) -> Dict[str, Any]:
     """Extract content from a single PDF page.
     
     Args:
         page: PyMuPDF Page object
         page_num: Page number (0-indexed)
+        total_pages: Total number of pages in PDF
         verbose: Print detailed info
         debug: Save composite images for debugging
-        debug: Save composite images for debugging
+        ui_page: UI page number/identifier for coordinate positioning ("F", "B", 0, 1, 2, ...)
         
     Returns:
         Dictionary with 'images' and 'text_blocks' lists
     """
+    # Use ui_page for display if provided, otherwise fall back to page_num
+    display_page = ui_page if ui_page is not None else page_num
     if verbose:
-        print(f"Processing PDF page index {page_num} (CEWE page {page_num})...")
+        print(f"Processing PDF page index {page_num} (CEWE page {display_page})...")
     
     page_rect = page.rect
     page_data = {
@@ -474,7 +480,9 @@ def extract_page_content(page: fitz.Page, page_num: int, total_pages: int, verbo
     # This is the ONLY place PDF points are converted - everything downstream uses MCF
     page_rect = page.rect
     page_width_pdf = page_rect.width
-    page_data = _convert_page_to_mcf_coordinates(page_data, page_num, total_pages, page_width_pdf)
+    # Use ui_page for positioning if provided (determines LEFT/RIGHT side)
+    positioning_page = ui_page if ui_page is not None else page_num
+    page_data = _convert_page_to_mcf_coordinates(page_data, positioning_page, total_pages, page_width_pdf)
     
     return page_data
 
@@ -563,37 +571,39 @@ def merge_text_group(blocks: List[Dict[str, Any]]) -> Dict[str, Any]:
     
     return merged
 
-def _get_page_positioning(page_num: int, total_pages: int, page_width_mcf: float) -> tuple[bool, float]:
+def _get_page_positioning(page_num: Any, total_pages: int, page_width_mcf: float) -> tuple[bool, float]:
     """Determine if a page is on the right side and calculate x-offset.
     
-    Page positioning rules:
-    - Page 0 (front cover): RIGHT side of cover spread
-    - Last page (back cover): LEFT side of cover spread
-    - Other odd pages (1,3,5...): RIGHT side of content spreads
-    - Other even pages (2,4,6...): LEFT side of content spreads
+    Page positioning rules based on UI page number:
+    - "F" (front cover): RIGHT side of cover spread
+    - "B" (back cover): LEFT side of cover spread
+    - UI page 0 (inside front): LEFT side
+    - Other odd UI pages (1,3,5...): RIGHT side of content spreads
+    - Other even UI pages (2,4,6...): LEFT side of content spreads
     
     Args:
-        page_num: 0-indexed page number
+        page_num: UI page number (can be "F", "B", or integer 0, 1, 2, ...)
         total_pages: Total number of pages in PDF
         page_width_mcf: Single page width in MCF units
         
     Returns:
         (is_right_page, x_offset_mcf) tuple
     """
-    # Check if this is the back cover (last page)
-    is_back_cover = (page_num == total_pages - 1) and (total_pages > 1)
-    
-    if is_back_cover:
-        # Back cover is on LEFT side
-        return False, 0.0
-    elif page_num == 0:
+    # Handle string identifiers for covers
+    if page_num == "F":
         # Front cover is on RIGHT side
         return True, page_width_mcf
-    else:
-        # Content pages: odd pages are RIGHT, even pages are LEFT
-        is_right_page = (page_num % 2 == 1)
-        x_offset_mcf = page_width_mcf if is_right_page else 0.0
-        return is_right_page, x_offset_mcf
+    elif page_num == "B":
+        # Back cover is on LEFT side
+        return False, 0.0
+    
+    # Handle integer page numbers
+    # Page 0 (inside front) is LEFT (even)
+    # Odd pages (1,3,5...) are RIGHT
+    # Even pages (2,4,6...) are LEFT
+    is_right_page = (page_num % 2 == 1)
+    x_offset_mcf = page_width_mcf if is_right_page else 0.0
+    return is_right_page, x_offset_mcf
 
 
 def _convert_page_to_mcf_coordinates(page_data: Dict[str, Any], page_num: int, total_pages: int, page_width_pdf: float) -> Dict[str, Any]:

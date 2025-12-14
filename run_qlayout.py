@@ -36,6 +36,8 @@ if __name__ == '__main__':
                        help='Rename photos: DIRECTORY PREFIX [PATTERN]. Pattern defaults to * (all files).')
     parser.add_argument('--debug', action='store_true',
                        help='Enable debug mode (saves composite images during segmentation)')
+    parser.add_argument('--insidecovers', action='store_true',
+                       help='PDF includes inside cover pages (page 1 = inside front, page N-1 = inside back)')
     
     args = parser.parse_args()
     
@@ -84,14 +86,34 @@ if __name__ == '__main__':
             else:
                 # Extract all PDF content for initial conversion
                 print(f"Extracting content from {pdf_path}...")
-                pdf_content = extract_pdf_content(pdf_path, page_range=None, verbose=True, debug=args.debug)
+                
+                # Create inverse mapping: PDF index → UI page (for coordinate positioning)
+                # First get PDF page count by opening it
+                import fitz
+                doc = fitz.open(pdf_path)
+                pdf_page_count = len(doc)
+                doc.close()
+                
+                # Create UI-to-PDF mapping, then invert it
+                from cewe_layout.pdf2cewe.mcf_writer import _create_page_mapping
+                ui_to_pdf = _create_page_mapping(pdf_page_count, args.insidecovers)
+                pdf_to_ui = {v: k for k, v in ui_to_pdf.items() if v is not None}
+                
+                print(f"DEBUG: PDF-to-UI mapping (first 5 and last 5):")
+                sorted_keys = sorted([k for k in pdf_to_ui.keys() if isinstance(k, int)])
+                for pdf_idx in sorted_keys[:5]:
+                    print(f"  PDF page {pdf_idx} → UI page {pdf_to_ui[pdf_idx]}")
+                for pdf_idx in sorted_keys[-5:]:
+                    print(f"  PDF page {pdf_idx} → UI page {pdf_to_ui[pdf_idx]}")
+                
+                pdf_content = extract_pdf_content(pdf_path, page_range=None, verbose=True, debug=args.debug, page_to_ui=pdf_to_ui)
                 
                 print(f"Writing MCF project to {args.cewe}...")
-                write_mcf_project(pdf_content, args.cewe, verbose=True)
+                write_mcf_project(pdf_content, args.cewe, verbose=True, insidecovers=args.insidecovers)
                 
                 print(f"✅ Successfully converted {pdf_path.name} to {args.cewe}")
                 print(f"   Pages: {len(pdf_content['pages'])}")
 
         from cewe_layout.parser import resolve_mcf_path
         real = resolve_mcf_path(args.cewe)
-        launch_gui(real, pdf_content)
+        launch_gui(real, pdf_content, insidecovers=args.insidecovers)
