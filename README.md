@@ -33,15 +33,15 @@ python run_qlayout.py --cewe /path/to/Test-album.xmcf
 You have to work indepedently in QLayout vs in Cewe Creator.  In general you should only have one of the two applications open (with the same book.xmcf) at any one time.  So close one, work in the other, repeat until your book is done... In case you forget this "work independently" instruction, you should generally not worry about file corruption - but you should worry that important layout work you've done in one tool is going to be overwritten by the other.  So you will be wasting time and effort.
 
 Here's my current workflow:
-1) Select all my favourite photos in MacOS photos and _export_ copies of them to a directory. If it is easy for you to do so, before exporting tag the very best photos with either "4 star" or "5 star" as keywords. CEWE Creator and QLayout can handle jpeg and png, but not heif/heic (sadly).
+1) Select all my favourite photos in MacOS photos and _export_ _copies_ of them to a directory. If it is easy for you to do so, before exporting tag the very best photos with either "4 star" or "5 star" as keywords. CEWE Creator and QLayout can handle jpeg and png, but not heif/heic (sadly).
 2) Run QLayout with "-renamephotos" to name all of the photos according to date (and according to 4/5 star keywords).
 3) Use CEWE Creator to create a new book (of the size/style you want) with loads of empty pages. Save it in the xmcf or mcf format. Quit.
 4) If your photobook is called "MyBook.xmcf" then put the directory with all your photos next to it, and rename the directory to be called "MyBook-photos".
-5) Run QLayout with the "--gui" flag.  The first page of your book will open.  Ensure it is empty (or if your book is partially created already, move to the first empty page)
+5) Run QLayout. The first empty page of your book will open automatically.
 6) Examine your photos, in approximate date order, and drag and drop as many photos as you want onto that empty page.
 7) Run the "Fan-GA" algorithm.  Tweak slot aspect ratio and "preferred size" for any of the photos you want -- simplest is to give the very best 2-4 photos a preferred size of somewhere between 3.0 and 6.0.
 8) Re-run the "Fan-GA" algorithm. Sometimes you might wish to re-run the algorithm a few times to check out the different results and pick the one you like best. If you don't quite like any, you can delete some photos, add some new photos and try again.
-9) Hit "Save" when you are done with the page.  The photos used disappear from your directory - they've been moved into the photo album. This is very helpful, since you can then focus only on the photos you've not yet added. If there are photos I've decided I no longer want, I simply delete them from the directory (they are exported copies, so...).
+9) Hit "Save Modified" when you are done with the page.  The photos used disappear from your "-photos" directory - they've been moved into the photo album. This is very helpful, since you can then focus only on the photos you've not yet added. If there are photos I've decided I no longer want, I simply delete them from the "-photos" directory (they are exported copies, so no harm deleting them).
 10) Move to the next empty page and go back to step 6.
 
 Once you're done: open the book in CEWE Creator and do any fine-tuning you wish. 
@@ -50,21 +50,6 @@ Optional steps in QLayout:
 1) You can also use the "Gap Perfecter" to ensure all edge gaps and internal gaps on a page are identical - fixing minor imperfections or overlaps.
 2) You can use the "Gridify" algorithm for some layouts.
 3) Export PDF - this exports just a single page of photos (no texts) so you can examine carefully.
-
-**Other capabilities**
-
-Canvas: there is also limited support for editing layouts of a single-page Canvas from CEWE Creator
-
-Calendar: again limited support for editing the 12 monthly pages of a Calendar.
-
-PDF Export: for testing purposes, you can export a PDF file render of a single page, containing just the photos. 
-This export does not contain any of the cleverness of the cewe2pdf project, and supports no other visual features than the photos themselves. It is meant just for generating a single page collage-style multi-photo PDF.
-
-**Safety features**
-
-QLayout does a few things to help lower the risk of problems when editing your photobook:
-1. When saving a page, which modifies the xml file, it validates (after saving) both that the correct number of photos and text blocks are indeed in that xml file, and that the referenced photo files do actually exist.
-2. When moving photos into the photo-book, QLayout renames the jpeg files by adding a "-pg" suffix containing the page they have been saved into. In this way if you need to manually look for photos, it is easy to find the right ones inside the book.
 
 **Adding Photos to a Page**
 
@@ -92,6 +77,25 @@ Details for the technically minded:
 
 - Refine handling of front/back-covers & spine, and validate we have all margins correct for those special pages.
 - More/better layout clean-up/fine-tuning algorithms?
+
+**Other capabilities**
+
+Canvas (experimental): there is also limited support for editing layouts of a single-page Canvas from CEWE Creator
+
+Calendar (experimental): again limited support for editing the 12 monthly pages of a Calendar.
+
+PDF Export: for testing purposes, you can export a PDF file render of a single page, containing just the photos. 
+This export does not contain any of the cleverness of the cewe2pdf project, and supports no other visual features than the photos themselves. It is meant just for generating a single page collage-style multi-photo PDF.
+
+PDF import: some work towards importing an old PDF file and creating a .xmcf CEWE-compatible album from it, automatically.  Use '--startingPdf Album.pdf' on the command line.  And then, if necessary, apply various algorithms to identify/extract photos from each page (if the fully automatic import hasn't quite identified photos correctly).
+
+Photo improver (experimental): building on top of the PDF import, search in a directory of photos for higher quality instances of the photos extracted from the PDF, so that you can enhance the digital photo album and potentially print at higher quality.
+
+**Safety features**
+
+QLayout does a few things to help lower the risk of problems when editing your photobook:
+1. When saving a page, which modifies the xml file, it validates (after saving) both that the correct number of photos and text blocks are indeed in that xml file, and that the referenced photo files do actually exist.
+2. When moving photos into the photo-book, QLayout renames the jpeg files by adding a "-pg" suffix containing the page they have been saved into. In this way if you need to manually look for photos, it is easy to find the right ones inside the book.
 
 **Layout Algorithms**
 

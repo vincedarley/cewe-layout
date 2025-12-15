@@ -151,6 +151,9 @@ class LayoutViewer:
             if self.inside_back_cover_page is not None:
                 self.protected_inside_covers.add(self.inside_back_cover_page)
         
+        # Track photo improvements (photos upgraded with -up suffix)
+        self.improved_photos = {}  # Maps original_filename -> improved_filename
+        
         # initialize layout manager with originals from file
         for pageno, info in self.pages:
             self.layout_mgr.set_original(pageno, info.get('photos', []), info.get('texts', []))
@@ -377,9 +380,20 @@ class LayoutViewer:
             )
             self.segmentation_algorithm_combo.pack(side='left')
         
+        # Row 2.5: Photo improvement controls (always shown)
+        improve_frame = ttk.Frame(self.ctrlWin)
+        row_num = 3 if self.pdf_content else 2
+        improve_frame.grid(row=row_num, column=0, columnspan=2, sticky='w', padx=4, pady=4)
+        
+        ttk.Label(improve_frame, text='Improve:').pack(side='left', padx=(0,4))
+        improve_search_btn = ttk.Button(improve_frame, text='Search', command=self._search_photo_improvements)
+        improve_search_btn.pack(side='left', padx=(0,4))
+        ttk.Label(improve_frame, text='(finds better quality photos in -photos directory)').pack(side='left', padx=(4,0))
+        
         # Row 3: Modified pages label (pack label and value tightly)
         modified_frame = ttk.Frame(self.ctrlWin)
-        modified_frame.grid(row=3, column=0, columnspan=3, sticky='w', padx=4, pady=(5,0))
+        row_num = 4 if self.pdf_content else 3
+        modified_frame.grid(row=row_num, column=0, columnspan=3, sticky='w', padx=4, pady=(5,0))
         ttk.Label(modified_frame, text='Modified pages:').pack(side='left')
         self.modified_pages_var = tk.StringVar(value='(none)')
         self.modified_pages_label = ttk.Label(modified_frame, textvariable=self.modified_pages_var, 
@@ -388,7 +402,8 @@ class LayoutViewer:
         
         # Row 4: Action buttons (indented)
         actions_frame = ttk.Frame(self.ctrlWin)
-        actions_frame.grid(row=4, column=0, columnspan=3, sticky='w', padx=4, pady=4)
+        row_num = 5 if self.pdf_content else 4
+        actions_frame.grid(row=row_num, column=0, columnspan=3, sticky='w', padx=4, pady=4)
         ttk.Label(actions_frame, text='  ').pack(side='left')  # Indentation spacer
         mod_sym = get_modifier_symbol()
         undo_btn = ttk.Button(actions_frame, text=f'Undo ({mod_sym}Z)', command=self.undo_layout)
@@ -402,7 +417,8 @@ class LayoutViewer:
 
         # Row 5: Status message with label
         status_frame = ttk.Frame(self.ctrlWin)
-        status_frame.grid(row=5, column=0, columnspan=3, padx=4, pady=4, sticky='ew')
+        row_num = 6 if self.pdf_content else 5
+        status_frame.grid(row=row_num, column=0, columnspan=3, padx=4, pady=4, sticky='ew')
         ttk.Label(status_frame, text='Status:').pack(side='left', padx=(0,4))
         self.status_var = tk.StringVar(value='')
         self.status_entry = ttk.Entry(status_frame, textvariable=self.status_var, 
@@ -3939,6 +3955,90 @@ class LayoutViewer:
         self.layout_mgr.clear_gaps(pageno)  # Also reset gap values to original
         self.show_status(f'Reverted page {pageno} to original layout.')
         self.render_page()
+
+    def _search_photo_improvements(self):
+        """Search for higher-quality versions of photos on current page."""
+        if not self.pages:
+            self.show_status('No pages available', error=True)
+            return
+        
+        pageno, info = self.pages[self.index]
+        
+        # Check if this is a protected inside cover page
+        if pageno in self.protected_inside_covers:
+            self.show_status('Inside cover pages have no photos to improve', error=True)
+            return
+        
+        # Get current photos
+        current_layout = self.layout_mgr.get_current(pageno)
+        photos = current_layout.photos
+        photos = [p for p in photos if p.get('filename')]  # Filter empty slots
+        
+        if not photos:
+            self.show_status('No photos on current page', error=True)
+            return
+        
+        # Filter out already-improved photos (those with -up in filename)
+        photos_to_search = []
+        skipped_indices = []
+        for i, photo in enumerate(photos):
+            filename = photo.get('filename', '')
+            filename_lower = filename.lower()
+            # Check for -up- anywhere in filename or -up at end before extension
+            is_improved = '-up-' in filename_lower or any(
+                filename_lower.endswith(f'-up.{ext}') 
+                for ext in ['jpg', 'jpeg', 'png']
+            )
+            if is_improved:
+                skipped_indices.append(i + 1)  # 1-based for user display
+            else:
+                photos_to_search.append(photo)
+        
+        if not photos_to_search:
+            self.show_status('All photos already improved', error=False)
+            return
+        
+        # Build status message
+        if skipped_indices:
+            skipped_str = ', '.join(str(i) for i in skipped_indices)
+            status_msg = f'Searching for improvements: {len(photos_to_search)} photos ({len(skipped_indices)} skipped: {skipped_str})'
+        else:
+            status_msg = f'Searching for improvements for {len(photos_to_search)} photos...'
+        self.show_status(status_msg)
+        
+        # Call photoimprover interface
+        from .photoimprover import search_and_show_improvements
+        
+        def on_photo_replaced(old_filename: str, new_filename: str):
+            """Handle photo replacement in layout."""
+            # Use layout manager helper to replace the photo with proper tracking
+            success = self.layout_mgr.replace_photo_by_filename(pageno, old_filename, new_filename)
+            
+            if not success:
+                logger.error(f"Failed to replace photo {old_filename} with {new_filename}")
+                self.show_status(f'Error: Could not replace photo', error=True)
+                return
+            
+            logger.info(f"Replaced photo in layout: {old_filename} -> {new_filename}")
+            
+            # Track improvement
+            self.improved_photos[old_filename] = new_filename
+            
+            # Mark page as modified
+            self.modified_pages.add(pageno)
+            self._update_modified_pages_display()
+            
+            # Re-render to show new photo
+            self.render_page()
+            self.show_status(f'Replaced photo with improved version')
+        
+        search_and_show_improvements(
+            self.root,
+            self.mcf_file_path,
+            photos_to_search,
+            on_photo_replaced,
+            scope='page'
+        )
 
 
 def launch_gui(mcf_path, pdf_content, insidecovers=False):

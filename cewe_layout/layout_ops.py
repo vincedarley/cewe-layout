@@ -263,3 +263,46 @@ class LayoutManager:
                 self.set_size(pageno, filename, 1.0)
         
         return True
+    
+    def replace_photo_by_filename(self, pageno, old_filename, new_filename):
+        """Replace a single photo with a new one, updating tracking.
+        
+        This is used for operations like photo improvement where we're swapping
+        one photo for another higher-quality version.
+        
+        Args:
+            pageno: Page number
+            old_filename: Filename of photo to replace
+            new_filename: Filename of new photo
+            
+        Returns:
+            True if successful, False if photo not found or no current layout
+        """
+        # Get current layout
+        current = self.get_current(pageno)
+        if not current:
+            return False
+        
+        # Find and replace the photo
+        found = False
+        for photo in current.photos:
+            if photo.get('filename') == old_filename:
+                photo['filename'] = new_filename
+                found = True
+                break
+        
+        if not found:
+            return False
+        
+        # Update tracking: mark old as deleted, new as added
+        self.mark_photo_as_deleted(pageno, old_filename)
+        self.mark_photo_as_new(pageno, new_filename)
+        
+        # Preserve the preferred size from old photo
+        old_size = self.get_size(pageno, old_filename)
+        self.set_size(pageno, new_filename, old_size)
+        
+        # Push updated layout
+        self.push_layout(pageno, current.photos, current.texts)
+        
+        return True
