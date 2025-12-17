@@ -937,8 +937,8 @@ class PageRenderer:
     def get_overlay_rectangles(self):
         """Get overlay rectangle coordinates in spread-relative canvas pixels.
         
-        This function converts segment coordinates from MCF spread units to canvas pixels,
-        but keeps them in SPREAD-RELATIVE space. This means:
+        This function converts segment coordinates from PDF-based MCF to CEWE MCF,
+        then to canvas pixels, keeping them in SPREAD-RELATIVE space. This means:
         - Left pages (origin_left=0): rectangles have small x values (0 to page_width pixels)
         - Right pages (origin_left=page_width): rectangles have LARGE x values (page_width to 2*page_width pixels)
         
@@ -955,26 +955,51 @@ class PageRenderer:
         segments = self.overlay_segments
         canvas_w = self.overlay_canvas_w
         canvas_h = self.overlay_canvas_h
-        page_width = self.overlay_page_width
+        page_width = self.overlay_page_width  # CEWE page dimensions
         page_height = self.overlay_page_height
         margin_mcf = self.overlay_margin_mcf
         origin_left = self.overlay_origin_left
         
-        logger.info(f"Overlay calculation: canvas={canvas_w}x{canvas_h}, page={page_width}x{page_height} MCF, margin={margin_mcf}")
+        logger.info(f"Overlay calculation: canvas={canvas_w}x{canvas_h}, CEWE page={page_width}x{page_height} MCF, margin={margin_mcf}")
+        
+        # Get PDF-to-CEWE scale factors from segment metadata if available
+        # Segments have PDF-based MCF coordinates that need scaling to CEWE dimensions
+        first_seg = segments[0] if segments else {}
+        pdf_page_width = first_seg.get('_pdf_page_width_mcf')
+        pdf_page_height = first_seg.get('_pdf_page_height_mcf')
+        
+        if pdf_page_width and pdf_page_height:
+            # Calculate scale factors from PDF MCF to CEWE MCF
+            pdf_to_cewe_scale_x = page_width / pdf_page_width
+            pdf_to_cewe_scale_y = page_height / pdf_page_height
+            logger.info(f"  PDF→CEWE scale: x={pdf_to_cewe_scale_x:.6f}, y={pdf_to_cewe_scale_y:.6f}")
+        else:
+            # Fallback: assume PDF == CEWE dimensions
+            pdf_to_cewe_scale_x = 1.0
+            pdf_to_cewe_scale_y = 1.0
+            logger.warning(f"  No PDF dimension metadata in segments, assuming PDF == CEWE")
         
         scale = self._getScale()
 
-        logger.info(f"Scale factor: {scale} pixels/MCF")
+        logger.info(f"Scale factor (CEWE MCF to pixels): {scale} pixels/MCF")
         
         rectanglesSpreadRelative = []
         for i, seg in enumerate(segments):
-            # Segment coordinates are already in MCF spread units from PDF extraction
-            seg_left_mcf = seg['left']
-            seg_top_mcf = seg['top']
-            seg_width_mcf = seg['width']
-            seg_height_mcf = seg['height']
+            # Segment coordinates are in PDF-based MCF spread units from PDF extraction
+            # Scale them to CEWE MCF dimensions first
+            seg_left_pdf = seg['left']
+            seg_top_pdf = seg['top']
+            seg_width_pdf = seg['width']
+            seg_height_pdf = seg['height']
             
-            logger.info(f"  Segment {i} (MCF spread): left={seg_left_mcf:.1f}, top={seg_top_mcf:.1f}, "
+            seg_left_mcf = seg_left_pdf * pdf_to_cewe_scale_x
+            seg_top_mcf = seg_top_pdf * pdf_to_cewe_scale_y
+            seg_width_mcf = seg_width_pdf * pdf_to_cewe_scale_x
+            seg_height_mcf = seg_height_pdf * pdf_to_cewe_scale_y
+            
+            logger.info(f"  Segment {i} (PDF MCF): left={seg_left_pdf:.1f}, top={seg_top_pdf:.1f}, "
+                       f"width={seg_width_pdf:.1f}, height={seg_height_pdf:.1f}")
+            logger.info(f"           (CEWE MCF): left={seg_left_mcf:.1f}, top={seg_top_mcf:.1f}, "
                        f"width={seg_width_mcf:.1f}, height={seg_height_mcf:.1f}")
             logger.info(f"  origin_left={origin_left}")
             

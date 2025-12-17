@@ -708,21 +708,27 @@ def _convert_page_to_mcf_coordinates(page_data: Dict[str, Any], page_num: int, t
 
 def _makeScaledSegments(composite_image, ui_page, image_data, image_format,
                         new_segments: list[dict[str, Any]]) -> list[Any]:
-    """Scale segments from image pixels to MCF spread coordinates.
+    """Scale segments from image pixels to PDF-based MCF coordinates.
     
-    The composite_image dict already has coordinates in MCF spread units (converted by
-    _convert_page_to_mcf_coordinates). We scale the segments and position them within
-    the composite, producing segments in MCF spread coordinates.
+    The composite_image dict has coordinates in PDF-based MCF spread units (converted by
+    _convert_page_to_mcf_coordinates from the original PDF dimensions).
+    
+    This function stores TWO coordinate systems for each segment:
+    1. PDF-based coordinates (for extracting photo data from composite image)
+    2. Image-relative pixel coordinates (for scaling to CEWE book dimensions in GUI)
+    
+    The GUI will need to scale these coordinates to match the actual CEWE book dimensions,
+    just like it does for the composite background image.
     
     Args:
-        composite_image: Composite image dict with MCF spread coordinates
+        composite_image: Composite image dict with PDF-based MCF spread coordinates
         ui_page: UI page identifier ("F", "B", 0, 1, ...) for debugging
         image_data: Raw image bytes
         image_format: Image format (jpg, png, etc)
         new_segments: List of segments with coordinates in image pixels
         
     Returns:
-        List of segments with coordinates in MCF spread units
+        List of segments with both PDF-based MCF coords and original pixel coords
     """
     from PIL import Image as PILImage
     from io import BytesIO
@@ -736,10 +742,10 @@ def _makeScaledSegments(composite_image, ui_page, image_data, image_format,
     print(f"  DEBUG: Saved composite image to {debug_path}")
 
     print(
-        f"  Composite image (MCF spread coords): left={composite_image.get('left'):.1f}, top={composite_image.get('top'):.1f}, "
+        f"  Composite image (PDF-based MCF coords): left={composite_image.get('left'):.1f}, top={composite_image.get('top'):.1f}, "
         f"width={composite_image.get('width'):.1f}, height={composite_image.get('height'):.1f}")
 
-    # Calculate scale factors (pixels to MCF units)
+    # Calculate scale factors (pixels to PDF-based MCF units)
     scale_x = composite_image['width'] / img_width_pixels
     scale_y = composite_image['height'] / img_height_pixels
 
@@ -747,16 +753,16 @@ def _makeScaledSegments(composite_image, ui_page, image_data, image_format,
         f"  Image: {img_width_pixels}x{img_height_pixels} pixels -> {composite_image['width']:.1f}x{composite_image['height']:.1f} MCF")
     print(f"  Scale factors: x={scale_x:.4f}, y={scale_y:.4f} MCF/pixel")
 
-    # Scale segment coordinates from image pixels to MCF spread coordinates
+    # Scale segment coordinates from image pixels to PDF-based MCF spread coordinates
     scaled_segments = []
     for i, seg in enumerate(new_segments):
-        # Scale from image pixels to MCF units (same scale as composite)
+        # Scale from image pixels to PDF-based MCF units (same scale as composite)
         seg_left_mcf = seg['left'] * scale_x
         seg_top_mcf = seg['top'] * scale_y
         seg_width_mcf = seg['width'] * scale_x
         seg_height_mcf = seg['height'] * scale_y
 
-        # Add composite image position to make absolute MCF spread coordinates
+        # Add composite image position to make absolute PDF-based MCF spread coordinates
         abs_left_mcf = composite_image['left'] + seg_left_mcf
         abs_top_mcf = composite_image['top'] + seg_top_mcf
 
@@ -764,13 +770,20 @@ def _makeScaledSegments(composite_image, ui_page, image_data, image_format,
         print(
             f"  Segment {i} (image-relative MCF): ({seg_left_mcf:.1f}, {seg_top_mcf:.1f}) {seg_width_mcf:.1f}x{seg_height_mcf:.1f}")
         print(
-            f"  Segment {i} (MCF spread coords): ({abs_left_mcf:.1f}, {abs_top_mcf:.1f}) {seg_width_mcf:.1f}x{seg_height_mcf:.1f}")
+            f"  Segment {i} (PDF-based MCF spread coords): ({abs_left_mcf:.1f}, {abs_top_mcf:.1f}) {seg_width_mcf:.1f}x{seg_height_mcf:.1f}")
 
         scaled_seg = {
+            # PDF-based MCF coordinates (for reference, but GUI will need to scale)
             'left': abs_left_mcf,
             'top': abs_top_mcf,
             'width': seg_width_mcf,
             'height': seg_height_mcf,
+            # Original pixel coordinates relative to composite image (for extraction and scaling)
+            'pixel_left': seg['left'],
+            'pixel_top': seg['top'],
+            'pixel_width': seg['width'],
+            'pixel_height': seg['height'],
+            # Image data
             'data': seg['data'],
             'format': seg['format'],
         }

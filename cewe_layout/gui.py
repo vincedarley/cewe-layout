@@ -2742,24 +2742,59 @@ class LayoutViewer:
         """Show overlay with segmentation rectangles and accept/reject buttons.
         
         Args:
-            segments: List of segment dicts from segmentation (in page-relative PDF coordinates)
+            segments: List of segment dicts from segmentation (in PDF-based MCF coordinates)
             pageno: Page number being re-segmented
             composite_image: Original composite image dict from PDF
             image_data: Original image bytes
             image_format: Image format
             photos_to_replace: List of photo indices to replace (empty = all photos)
         """
-        # Get page info for rendering
+        # Get page info for rendering and dimension calculations
         _, page_info = self.pages[self.index]
         page_width = page_info.get('page_width')
         page_height = page_info.get('page_height')
         origin_left = page_info.get('origin_left', 0.0)
         
-        # Segments are already in MCF spread coordinates from _makeScaledSegments()
-        # No conversion needed - just pass them through
-        spread_relative_segments = segments
+        # Segments are already in PDF-based MCF spread coordinates from _makeScaledSegments()
+        # Add dimension metadata to segments for overlay rendering
         
-        # Store data for accept/reject handlers (with original page-relative segments)
+        # Get PDF page dimensions from composite_image if available
+        # These are the dimensions used when extracting from PDF
+        pdf_page_width = None
+        pdf_page_height = None
+        if composite_image:
+            # Calculate PDF page dimensions from composite coordinates
+            # composite_image has PDF-based MCF coordinates
+            # For a full-page composite, width should be close to page width
+            comp_width = composite_image.get('width', 0)
+            comp_height = composite_image.get('height', 0)
+            # Use composite dimensions as proxy for PDF page dimensions
+            # This is approximate but should be close for full-page composites
+            pdf_page_width = comp_width
+            pdf_page_height = comp_height
+            
+            # Add dimension metadata to composite_image for use in _accept_segmentation
+            composite_image = composite_image.copy()  # Don't modify original
+            composite_image['pdf_page_width_mcf'] = pdf_page_width
+            composite_image['pdf_page_height_mcf'] = pdf_page_height
+            composite_image['cewe_page_width_mcf'] = page_width
+            composite_image['cewe_page_height_mcf'] = page_height
+            
+            print(f"  Dimension metadata: PDF {pdf_page_width:.1f}x{pdf_page_height:.1f} MCF, "
+                  f"CEWE {page_width:.1f}x{page_height:.1f} MCF")
+            
+            # Add dimension metadata to each segment for overlay rendering
+            spread_relative_segments = []
+            for seg in segments:
+                seg_with_meta = seg.copy()
+                seg_with_meta['_pdf_page_width_mcf'] = pdf_page_width
+                seg_with_meta['_pdf_page_height_mcf'] = pdf_page_height
+                spread_relative_segments.append(seg_with_meta)
+        else:
+            # No composite_image - pass segments through unchanged
+            spread_relative_segments = segments
+        
+        # Store data for accept/reject handlers
         self.pending_segmentation = {
             'segments': segments,
             'pageno': pageno,
@@ -2842,7 +2877,9 @@ class LayoutViewer:
         
         Args:
             pageno: Page number to update
-            segments: New segment list (in MCF spread coordinates)
+            segments: New segment list with both coordinate systems:
+                     - left/top/width/height: PDF-based MCF spread coordinates
+                     - pixel_left/pixel_top/pixel_width/pixel_height: Image pixel coordinates
             image_data: Original composite image data
             image_format: Image format (e.g., 'JPEG', 'PNG')
             photos_to_replace: List of photo indices to replace (None/empty = replace all)
@@ -2860,8 +2897,33 @@ class LayoutViewer:
         
         print(f"Saving segmentation images to: {photos_dir}")
         
-        # Get page info
+        # Get page info for dimension information
         _, page_info = self.pages[self.index]
+        
+        # Get composite image metadata for scaling calculations
+        composite_image = self.pending_segmentation.get('composite_image')
+        if not composite_image:
+            print("  Warning: No composite_image metadata in pending_segmentation")
+            # Proceed anyway - segments should have 'data' field
+        
+        # Get dimension scaling factors from PDF to CEWE
+        # These are stored in the composite_image metadata by _show_segmentation_overlay
+        pdf_page_width = composite_image.get('pdf_page_width_mcf') if composite_image else None
+        pdf_page_height = composite_image.get('pdf_page_height_mcf') if composite_image else None
+        cewe_page_width = composite_image.get('cewe_page_width_mcf') if composite_image else None
+        cewe_page_height = composite_image.get('cewe_page_height_mcf') if composite_image else None
+        
+        # Calculate scale factors from PDF MCF to CEWE MCF
+        if pdf_page_width and cewe_page_width and pdf_page_height and cewe_page_height:
+            scale_x = cewe_page_width / pdf_page_width
+            scale_y = cewe_page_height / pdf_page_height
+            print(f"  Scaling segments: PDF {pdf_page_width}x{pdf_page_height} → CEWE {cewe_page_width}x{cewe_page_height}")
+            print(f"  Scale factors: x={scale_x:.6f}, y={scale_y:.6f}")
+        else:
+            # Fallback: no scaling (assume PDF dimensions match CEWE)
+            scale_x = 1.0
+            scale_y = 1.0
+            print(f"  Warning: Missing dimension metadata, assuming PDF == CEWE dimensions")
         
         # Create new photo dicts from segments and save image files
         new_photo_dicts = []
@@ -2882,33 +2944,47 @@ class LayoutViewer:
             image_path = photos_dir / filename_with_meta
             
             # Extract and save this segment's image data
-            # If seg has 'data' key, use it directly; otherwise extract from composite
+            # If seg has 'data' key, use it directly; otherwise extract from composite using pixel coords
             if 'data' in seg:
-                # Segment already has image data
+                # Segment already has image data (normal case from segmenter)
                 image_path.write_bytes(seg['data'])
             else:
-                # Extract from composite image (this shouldn't happen with current code)
-                # But handle it just in case
-                img = Image.open(io.BytesIO(image_data))
-                # Crop to segment bounds (assuming segments have x,y,w,h in pixel coords)
-                # This is a fallback - normally segments should have 'data'
-                if 'x' in seg and 'y' in seg and 'width' in seg and 'height' in seg:
-                    cropped = img.crop((seg['x'], seg['y'], seg['x'] + seg['width'], seg['y'] + seg['height']))
+                # Fallback: Extract from composite image using pixel coordinates
+                # This shouldn't happen with current segmenter, but handle it gracefully
+                print(f"  Warning: Segment {i} missing 'data' field, extracting from composite")
+                if 'pixel_left' in seg and 'pixel_top' in seg and 'pixel_width' in seg and 'pixel_height' in seg:
+                    img = Image.open(io.BytesIO(image_data))
+                    # Crop using pixel coordinates relative to composite image
+                    pixel_x1 = int(seg['pixel_left'])
+                    pixel_y1 = int(seg['pixel_top'])
+                    pixel_x2 = int(seg['pixel_left'] + seg['pixel_width'])
+                    pixel_y2 = int(seg['pixel_top'] + seg['pixel_height'])
+                    cropped = img.crop((pixel_x1, pixel_y1, pixel_x2, pixel_y2))
                     cropped.save(image_path, quality=95)
                 else:
-                    print(f"  Warning: Segment {i} missing data or crop coordinates")
+                    print(f"  Error: Segment {i} missing both 'data' and pixel coordinates")
                     continue
             
             print(f"  Saved segment {i} to: {filename_with_meta}")
+            
+            # Scale coordinates from PDF-based MCF to CEWE MCF dimensions
+            # Segments have 'left', 'top', 'width', 'height' in PDF-based MCF spread coordinates
+            cewe_left = seg['left'] * scale_x
+            cewe_top = seg['top'] * scale_y
+            cewe_width = seg['width'] * scale_x
+            cewe_height = seg['height'] * scale_y
+            
+            print(f"  Segment {i}: PDF MCF ({seg['left']:.1f}, {seg['top']:.1f}) {seg['width']:.1f}x{seg['height']:.1f}")
+            print(f"           → CEWE MCF ({cewe_left:.1f}, {cewe_top:.1f}) {cewe_width:.1f}x{cewe_height:.1f}")
             
             # Create photo dict with safecontainer prefix
             safe_filename = f"safecontainer:/{filename_with_meta}"
             photo_dict = {
                 'filename': safe_filename,
-                'area_left': seg['left'],    # MCF spread coordinates
-                'area_top': seg['top'],
-                'area_width': seg['width'],
-                'area_height': seg['height'],
+                'area_left': cewe_left,      # CEWE MCF spread coordinates
+                'area_top': cewe_top,
+                'area_width': cewe_width,
+                'area_height': cewe_height,
                 'area_rot': 0,
                 'cutout': None,
                 '_source_path': str(image_path)  # Track source for save_layout
