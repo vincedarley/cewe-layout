@@ -5,6 +5,7 @@ from xml.dom import minidom
 from pathlib import Path
 from typing import Dict, Any, Optional
 import hashlib
+from .pdf_extractor import find_closest_book_size, BOOK_SIZES
 
 
 def calculate_image_relative_sizes(pdf_content: Dict[str, Any]):
@@ -143,15 +144,26 @@ def create_mcf_xml(pdf_content: Dict[str, Any], output_dir: Path, verbose: bool 
     # This ensures consistent dimensions throughout the photobook and avoids
     # floating-point errors in bundlesize specifications
     #
-    # FUTURE: Consider allowing user to override page size here to:
-    #   (a) Scale the entire book to a different size (e.g., change aspect ratio)
-    #   (b) Snap to one of CEWE's standard printable sizes (e.g., 21x28cm, 28x21cm)
-    #       to ensure the resulting MCF can be physically printed
-    page_width_mcf = round(page_width * pt_to_mcf)
-    page_height_mcf = round(page_height * pt_to_mcf)
+    # Calculate PDF dimensions in MCF units
+    pdf_page_width_mcf = round(page_width * pt_to_mcf)
+    pdf_page_height_mcf = round(page_height * pt_to_mcf)
+    
+    # Find the closest matching CEWE book size
+    # This ensures the MCF uses standard CEWE dimensions that can be printed
+    book_size_id = find_closest_book_size(pdf_page_width_mcf, pdf_page_height_mcf)
+    cewe_dimensions = BOOK_SIZES[book_size_id]
+    
+    # Use CEWE's standard dimensions for the photobook
+    page_width_mcf = cewe_dimensions['pageWidth']
+    page_height_mcf = cewe_dimensions['pageHeight']
+    
+    if verbose:
+        print(f"PDF dimensions: {pdf_page_width_mcf} x {pdf_page_height_mcf} MCF units")
+        print(f"Matched CEWE book size: {book_size_id}")
+        print(f"Using CEWE dimensions: {page_width_mcf} x {page_height_mcf} MCF units")
     
     fotobook = ET.SubElement(mcf, 'fotobook')
-    fotobook.set('productname', 'Custom Photobook')
+    fotobook.set('productname', book_size_id)
     # CEWE pagecount = number of content pages (not including covers/inside covers)
     # WITHOUT --insidecovers: PDF has [front, content..., back] → content pages = N-2
     # WITH --insidecovers: PDF has [front, inside_front, content..., inside_back, back] → content pages = N-4

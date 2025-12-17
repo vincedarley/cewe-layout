@@ -1,6 +1,6 @@
 """Pure rendering engine for photobook pages - no business logic, only visualization."""
 import tkinter as tk
-from tkinter import ttk
+
 from PIL import Image, ImageDraw, ImageTk
 from dataclasses import dataclass
 import os
@@ -8,6 +8,8 @@ from pathlib import Path
 import logging
 import re
 import html
+
+from cewe_layout.colour_utils import getBackgroundAndFrameColour
 
 logger = logging.getLogger(__name__)
 
@@ -130,17 +132,8 @@ class PageRenderer:
         page_w = first_page.page_width
         page_h = first_page.page_height
         
-        # Determine page background color from designElementId
-        background_id = first_page.background_id
-        if background_id == '212':
-            page_bg_color = 'black'
-            frame_color = 'white'  # White frame for black background
-        else:  # '201' or None or any other value defaults to white
-            page_bg_color = 'white'
-            frame_color = 'black'  # Black frame for white background
-        
-        # Create canvas image
-        img = Image.new('RGB', (canvas_w, canvas_h), page_bg_color)
+        # Create canvas image with white background (will draw page backgrounds per-page)
+        img = Image.new('RGB', (canvas_w, canvas_h), 'white')
         draw = ImageDraw.Draw(img)
         
         # Calculate scale to fit page(s) + margins in canvas
@@ -169,6 +162,9 @@ class PageRenderer:
         
         # Render each page
         for page_offset, page_data in enumerate(page_data_list):
+            # Get background and frame colors for this specific page
+            page_bg_color, frame_color = getBackgroundAndFrameColour(page_data.background_id)
+            
             # Calculate frame position for this page
             # In spread mode, second page is offset by page_w
             page_x_offset = page_offset * page_w if len(page_data_list) == 2 else 0
@@ -176,6 +172,12 @@ class PageRenderer:
             frame_y = margin_mcf * scale
             frame_w = page_w * scale
             frame_h = page_h * scale
+            
+            # Draw the page background rectangle for this page
+            draw.rectangle(
+                [frame_x, frame_y, frame_x + frame_w, frame_y + frame_h],
+                fill=page_bg_color
+            )
             
             # Render photos for this page
             self._render_photos(img, draw, page_data.photos, frame_x, frame_y, scale, 
@@ -193,10 +195,11 @@ class PageRenderer:
             self._draw_page_frame(draw, frame_x, frame_y, frame_w, frame_h, frame_color)
         
         # In spread mode, draw dotted line down the crease (center)
-        # But not for Canvas mode (single large page, no crease)
-        if len(page_data_list) == 2 and not is_canvas:
+        if len(page_data_list) == 2:
+            # Use the first page's frame color for the crease line
+            _, crease_frame_color = getBackgroundAndFrameColour(page_data_list[0].background_id)
             crease_x = margin_mcf * scale + page_w * scale
-            self._draw_crease_line(draw, crease_x, frame_y, frame_h, frame_color)
+            self._draw_crease_line(draw, crease_x, frame_y, frame_h, crease_frame_color)
         
         # Draw overlay text for protected inside cover pages
         if protected_inside_covers:
@@ -212,7 +215,7 @@ class PageRenderer:
         # Show image and create delete buttons
         self._show_image(img)
         self._create_delete_buttons(delete_button_info, delete_callback)
-    
+
     def render_empty_page(self, canvas_w: int, canvas_h: int, message: str) -> None:
         """Render empty page with message.
         
@@ -313,8 +316,7 @@ class PageRenderer:
     def _render_photos(self, img, draw, photos, frame_x, frame_y, scale, origin_left, 
                       start_number, pageno, delete_button_info, page_bg_color):
         """Render photos for a single page."""
-        from .file_utils import extract_metadata_from_filename
-        
+
         try:
             from PIL import ImageFont
             label_font = ImageFont.truetype('Arial', 16)
@@ -1081,7 +1083,6 @@ class PageRenderer:
         Returns:
             Button frame widget
         """
-        import tkinter as tk
         from tkinter import ttk
         
         logger.info("Creating overlay accept/reject buttons in control window")

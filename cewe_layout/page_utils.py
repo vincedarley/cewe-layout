@@ -5,7 +5,6 @@ Shared utilities for determining page ownership and handling two-page spreads.
 """
 from typing import Any
 
-
 def page_sort_key(page_num):
     """Sort key for mixed page identifiers (strings and integers).
     
