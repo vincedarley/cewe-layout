@@ -720,7 +720,9 @@ def create_image_area(img: Dict[str, Any], output_dir: Path, z_position: int, ve
     cutout = ET.SubElement(image, 'cutout')
     cutout.set('left', '0')
     cutout.set('top', '0')
-    cutout.set('scale', '1.0')
+    # We do not set a "scale" because we might have rescaled the page a bit,
+    # and CEWE will do its own fitting. Setting scale=1.0 forces no scaling.
+    #cutout.set('scale', '1.0')
     
     # Decoration element (no decoration by default)
     ET.SubElement(area, 'decoration')
