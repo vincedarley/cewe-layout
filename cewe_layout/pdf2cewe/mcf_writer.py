@@ -130,10 +130,10 @@ def create_mcf_xml(pdf_content: Dict[str, Any], output_dir: Path, verbose: bool 
     # Create page mapping
     page_mapping = _create_page_mapping(len(pdf_content['pages']), insidecovers)
     
-    # Create root MCF element
-    mcf = ET.Element('mcf')
+    # Create fotobook element as root (no mcf wrapper)
+    fotobook = ET.Element('fotobook')
     
-    # Create fotobook element with basic attributes
+    # Set basic fotobook attributes
     page_width, page_height = pdf_content['page_size']
     # Convert PDF points to MCF units (0.1mm)
     # PDF points: 72 points = 1 inch = 25.4mm
@@ -154,7 +154,7 @@ def create_mcf_xml(pdf_content: Dict[str, Any], output_dir: Path, verbose: bool 
     cewe_dimensions = BOOK_SIZES[book_size_id]
     
     # Use CEWE's standard dimensions for the photobook
-    page_width_mcf = cewe_dimensions['pageWidth']
+    page_width_mcf = cewe_dimensions['pageWidth']/2
     page_height_mcf = cewe_dimensions['pageHeight']
     
     if verbose:
@@ -162,8 +162,6 @@ def create_mcf_xml(pdf_content: Dict[str, Any], output_dir: Path, verbose: bool 
         print(f"Matched CEWE book size: {book_size_id}")
         print(f"Using CEWE dimensions: {page_width_mcf} x {page_height_mcf} MCF units")
     
-    fotobook = ET.SubElement(mcf, 'fotobook')
-    fotobook.set('productname', book_size_id)
     # CEWE pagecount = number of content pages (not including covers/inside covers)
     # WITHOUT --insidecovers: PDF has [front, content..., back] → content pages = N-2
     # WITH --insidecovers: PDF has [front, inside_front, content..., inside_back, back] → content pages = N-4
@@ -171,16 +169,26 @@ def create_mcf_xml(pdf_content: Dict[str, Any], output_dir: Path, verbose: bool 
         normal_page_count = len(pdf_content['pages']) - 4  # Exclude front, inside_front, inside_back, back
     else:
         normal_page_count = len(pdf_content['pages']) - 2  # Exclude front, back
-    fotobook.set('pagecount', str(normal_page_count))
-    fotobook.set('type', 'FLATBIND')
-    fotobook.set('version', '7.1.5')
-    fotobook.set('cover', 'HARDCOVER')
-    fotobook.set('covertype', 'FRONT')
+    
+    # Set all required fotobook attributes
+    fotobook.set('art_id', '8068')
+    fotobook.set('article_name', 'Custom Photobook')
+    fotobook.set('externalProjectId', '')
+    fotobook.set('folderID', '8418b9a9-25ab-445b-ab58-d6d7901f2105')
+    fotobook.set('imagedir', '')
+    fotobook.set('isDataMcf', '0')
+    fotobook.set('productname', book_size_id)
+    fotobook.set('startdatecalendarium', '')
+    fotobook.set('useSpineLogo', '1')
+    fotobook.set('version', '4.0')
     
     # Add metadata if available
     metadata = pdf_content.get('metadata', {})
     if metadata.get('title'):
         fotobook.set('title', metadata['title'])
+    
+    # Add CEWE boilerplate elements
+    add_cewe_boilerplate_elements(fotobook)
     
     # Add cover pages (THREE pagenr=0 pages required before content):
     # 1. Back+Front cover spread (type=fullcover, contains images from both halves)
@@ -214,41 +222,40 @@ def create_mcf_xml(pdf_content: Dict[str, Any], output_dir: Path, verbose: bool 
     front_cover_empty = create_empty_cover_page(page_width_mcf, page_height_mcf)
     fotobook.append(front_cover_empty)
     
-    # Add inside front cover (4th pagenr=0 emptypage)
-    # Inside front cover is LEFT page of spread (pagenr=0 is even = left side, x_offset = 0)
-    # Page 1 is RIGHT page of spread (pagenr=1 is odd = right side, x_offset = page_width)
+    # Add inside front cover (4th pagenr=0 emptypage) and page 1
+    # Inside front cover is LEFT page of spread (page 0, even = left side)
+    # Page 1 is RIGHT page of spread (page 1, odd = right side)
+    # Page 1's content is ALWAYS added to page 0's element
     inside_front_pdf_idx = page_mapping[0]
+    
+    # Create page 0 element - either with content (insidecovers) or empty (no insidecovers)
     if inside_front_pdf_idx is not None:
-        # Use content from PDF (inside front cover with content)
         inside_front_data = pdf_content['pages'][inside_front_pdf_idx]
         inside_front_page = create_page_element(inside_front_data, output_dir, 0, 'emptypage', False, verbose, ui_page=0)
-        fotobook.append(inside_front_page)
-        
-        # Add page 1's areas to page 0's element (page 1 is right side of the spread with page 0)
-        page1_pdf_idx = page_mapping.get(1)
-        if page1_pdf_idx is not None:
-            page1_data = pdf_content['pages'][page1_pdf_idx]
-            # Add page 1's areas to inside_front_page element
-            z_position = 1000 + len(inside_front_data.get('images', [])) + len(inside_front_data.get('text_blocks', []))
-            for img in page1_data.get('images', []):
-                img['ui_page'] = 1  # Page 1 for filename
-                area = create_image_area(img, output_dir, z_position, verbose)
-                inside_front_page.append(area)
-                z_position += 1
-            for text_block in page1_data.get('text_blocks', []):
-                area = create_text_area(text_block, z_position, verbose)
-                inside_front_page.append(area)
-                z_position += 1
-        
-        # Create empty page 1 (RIGHT side of the same spread)
-        empty_page_1 = create_empty_page(page_width_mcf, page_height_mcf)
-        empty_page_1.set('pagenr', '1')
-        empty_page_1.set('type', 'normalpage')
-        fotobook.append(empty_page_1)
+        z_position = 1000 + len(inside_front_data.get('images', [])) + len(inside_front_data.get('text_blocks', []))
     else:
-        # Empty inside front cover (no --insidecovers)
         inside_front_page = create_empty_page(page_width_mcf, page_height_mcf)
-        fotobook.append(inside_front_page)
+        z_position = 1000
+    
+    fotobook.append(inside_front_page)
+    
+    # Add page 1's areas to page 0's element (page 1 is right side of the spread)
+    page1_pdf_idx = page_mapping.get(1)
+    if page1_pdf_idx is not None:
+        page1_data = pdf_content['pages'][page1_pdf_idx]
+        for img in page1_data.get('images', []):
+            img['ui_page'] = 1  # Page 1 for filename
+            area = create_image_area(img, output_dir, z_position, verbose)
+            inside_front_page.append(area)
+            z_position += 1
+        for text_block in page1_data.get('text_blocks', []):
+            area = create_text_area(text_block, z_position, verbose)
+            inside_front_page.append(area)
+            z_position += 1
+    
+    # Create empty page 1 element (placeholder for right side)
+    empty_page_1 = create_empty_content_page(page_width_mcf, page_height_mcf, 1)
+    fotobook.append(empty_page_1)
     
     # Add content pages
     # Calculate how many content pages we have from the mapping
@@ -260,19 +267,15 @@ def create_mcf_xml(pdf_content: Dict[str, Any], output_dir: Path, verbose: bool 
     
     max_content_ui_page = num_content_pages
     
-    # Process each content page (1 through max_content_ui_page)
+    # Process content pages starting from page 2
+    # Page 0 and 1 are already handled above
     # We only process EVEN pages in the loop, because each even page creates
     # both the left page element (with areas from both pages) and an empty right page element
-    # EXCEPTION: Page 1 must be processed if NOT using insidecovers (it's not created elsewhere)
-    if max_content_ui_page > 0:
-        for ui_page in range(1, max_content_ui_page + 1):
+    if max_content_ui_page >= 2:
+        for ui_page in range(2, max_content_ui_page + 1):
             # Skip odd pages (they're created when we process the preceding even page)
-            # EXCEPT page 1 without insidecovers (no preceding even page creates it)
             if ui_page % 2 == 1:
-                if ui_page == 1 and not insidecovers:
-                    pass  # Process page 1 without insidecovers
-                else:
-                    continue  # Skip other odd pages
+                continue
                 
             pdf_idx = page_mapping.get(ui_page)
             if pdf_idx is None:
@@ -332,7 +335,7 @@ def create_mcf_xml(pdf_content: Dict[str, Any], output_dir: Path, verbose: bool 
     inside_back_page = create_empty_page(page_width_mcf, page_height_mcf)
     fotobook.append(inside_back_page)
     
-    return mcf
+    return fotobook
 
 
 def create_spine_page(page_width_mcf: float, page_height_mcf: float) -> ET.Element:
@@ -623,7 +626,7 @@ def create_image_area(img: Dict[str, Any], output_dir: Path, z_position: int, ve
     
     # Image element
     image = ET.SubElement(area, 'image')
-    image.set('filename', image_filename)
+    image.set('filename', f"safecontainer:/{image_filename}")
     image.set('backgroundPosition', 'CENTER_MIDDLE')
     
     # Cutout element (default: no crop)
@@ -731,6 +734,47 @@ def create_folderid_xml(output_dir: Path):
     xml_str = prettify_xml(root)
     folderid_path = output_dir / 'folderid.xml'
     folderid_path.write_text(xml_str, encoding='utf-8')
+
+
+def add_cewe_boilerplate_elements(fotobook: ET.Element) -> None:
+    """Add required CEWE boilerplate XML elements to fotobook.
+    
+    These elements (project, savingVersion, creationHistory) are required
+    by CEWE's photobook format and appear immediately after the opening
+    fotobook tag.
+    
+    Args:
+        fotobook: The fotobook element to add boilerplate to
+    """
+    import uuid
+    import time
+    from datetime import datetime
+    
+    # Generate unique project ID
+    project_id = str(uuid.uuid4())
+    epoch_time = int(time.time())
+    current_date = datetime.now().strftime('%Y-%m-%d %H:%M')
+    
+    # <project> element
+    project = ET.SubElement(fotobook, 'project')
+    project.set('createdWithHPSVersion', '8.0.5')
+    project.set('createdWithHPSVersionBuild', '20251014')
+    project.set('multiPurposeText', '')
+    project.set('projectID', project_id)
+    project.set('projectIDCreatedEpoch', str(epoch_time))
+    
+    # <savingVersion> element
+    saving_version = ET.SubElement(fotobook, 'savingVersion')
+    saving_version.set('compatibilityVersion', '6.4.2')
+    saving_version.set('programversion', '8.0.5')
+    saving_version.set('programversionBuild', '20251014')
+    saving_version.set('savetime', current_date)
+    
+    # <creationHistory> element
+    creation_history = ET.SubElement(fotobook, 'creationHistory')
+    creation_history.set('clientId', '37')
+    creation_history.set('clientVersion', '7.4.3-20240328-default')
+    creation_history.set('creationDate', current_date)
 
 
 def prettify_xml(elem: ET.Element) -> str:
