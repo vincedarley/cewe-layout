@@ -157,10 +157,15 @@ def create_mcf_xml(pdf_content: Dict[str, Any], output_dir: Path, verbose: bool 
     page_width_mcf = cewe_dimensions['pageWidth']/2
     page_height_mcf = cewe_dimensions['pageHeight']
     
+    # Calculate percentage difference between PDF and CEWE dimensions
+    width_diff_pct = ((page_width_mcf - pdf_page_width_mcf) / pdf_page_width_mcf) * 100
+    height_diff_pct = ((page_height_mcf - pdf_page_height_mcf) / pdf_page_height_mcf) * 100
+    
     if verbose:
         print(f"PDF dimensions: {pdf_page_width_mcf} x {pdf_page_height_mcf} MCF units")
         print(f"Matched CEWE book size: {book_size_id}")
         print(f"Using CEWE dimensions: {page_width_mcf} x {page_height_mcf} MCF units")
+        print(f"Dimension difference: width {width_diff_pct:+.2f}%, height {height_diff_pct:+.2f}%")
     
     # CEWE pagecount = number of content pages (not including covers/inside covers)
     # WITHOUT --insidecovers: PDF has [front, content..., back] → content pages = N-2
@@ -203,14 +208,16 @@ def create_mcf_xml(pdf_content: Dict[str, Any], output_dir: Path, verbose: bool 
         cover_page = create_cover_spread_element(
             pdf_content['pages'][front_pdf_idx],   # Front cover (right half)
             pdf_content['pages'][back_pdf_idx],    # Back cover (left half)
-            output_dir, page_width_mcf, page_height_mcf, verbose
+            output_dir, page_width_mcf, page_height_mcf, verbose,
+            pdf_page_width_mcf, pdf_page_height_mcf
         )
         fotobook.append(cover_page)
     elif front_pdf_idx is not None:
         # Only front cover available
         cover_page = create_cover_spread_element(
             pdf_content['pages'][front_pdf_idx], None,
-            output_dir, page_width_mcf, page_height_mcf, verbose
+            output_dir, page_width_mcf, page_height_mcf, verbose,
+            pdf_page_width_mcf, pdf_page_height_mcf
         )
         fotobook.append(cover_page)
     
@@ -231,7 +238,9 @@ def create_mcf_xml(pdf_content: Dict[str, Any], output_dir: Path, verbose: bool 
     # Create page 0 element - either with content (insidecovers) or empty (no insidecovers)
     if inside_front_pdf_idx is not None:
         inside_front_data = pdf_content['pages'][inside_front_pdf_idx]
-        inside_front_page = create_page_element(inside_front_data, output_dir, 0, 'emptypage', False, verbose, ui_page=0)
+        inside_front_page = create_page_element(inside_front_data, output_dir, 0, 'emptypage', False, verbose, ui_page=0,
+                                               pdf_page_width=pdf_page_width_mcf, pdf_page_height=pdf_page_height_mcf,
+                                               cewe_page_width=page_width_mcf, cewe_page_height=page_height_mcf)
         z_position = 1000 + len(inside_front_data.get('images', [])) + len(inside_front_data.get('text_blocks', []))
     else:
         inside_front_page = create_empty_page(page_width_mcf, page_height_mcf)
@@ -245,11 +254,15 @@ def create_mcf_xml(pdf_content: Dict[str, Any], output_dir: Path, verbose: bool 
         page1_data = pdf_content['pages'][page1_pdf_idx]
         for img in page1_data.get('images', []):
             img['ui_page'] = 1  # Page 1 for filename
-            area = create_image_area(img, output_dir, z_position, verbose)
+            area = create_image_area(img, output_dir, z_position, verbose,
+                                    pdf_page_width_mcf, pdf_page_height_mcf,
+                                    page_width_mcf, page_height_mcf)
             inside_front_page.append(area)
             z_position += 1
         for text_block in page1_data.get('text_blocks', []):
-            area = create_text_area(text_block, z_position, verbose)
+            area = create_text_area(text_block, z_position, verbose,
+                                   pdf_page_width_mcf, pdf_page_height_mcf,
+                                   page_width_mcf, page_height_mcf)
             inside_front_page.append(area)
             z_position += 1
     
@@ -287,7 +300,9 @@ def create_mcf_xml(pdf_content: Dict[str, Any], output_dir: Path, verbose: bool 
             # Even pages (left side of spread) contain areas for both this and next page
             if cewe_pagenr % 2 == 0:
                 # Even page (left page of spread) - create page element with areas
-                page_elem = create_page_element(page_data, output_dir, cewe_pagenr, 'normalpage', False, verbose, ui_page=ui_page)
+                page_elem = create_page_element(page_data, output_dir, cewe_pagenr, 'normalpage', False, verbose, ui_page=ui_page,
+                                               pdf_page_width=pdf_page_width_mcf, pdf_page_height=pdf_page_height_mcf,
+                                               cewe_page_width=page_width_mcf, cewe_page_height=page_height_mcf)
                 fotobook.append(page_elem)
                 
                 # If there's a next odd page in our mapping, add its areas too
@@ -302,11 +317,15 @@ def create_mcf_xml(pdf_content: Dict[str, Any], output_dir: Path, verbose: bool 
                     for img in next_page_data.get('images', []):
                         # Use next_ui_page for the odd (right) page images
                         img['ui_page'] = next_ui_page
-                        area = create_image_area(img, output_dir, z_position, verbose)
+                        area = create_image_area(img, output_dir, z_position, verbose,
+                                                pdf_page_width_mcf, pdf_page_height_mcf,
+                                                page_width_mcf, page_height_mcf)
                         page_elem.append(area)
                         z_position += 1
                     for text_block in next_page_data.get('text_blocks', []):
-                        area = create_text_area(text_block, z_position, verbose)
+                        area = create_text_area(text_block, z_position, verbose,
+                                               pdf_page_width_mcf, pdf_page_height_mcf,
+                                               page_width_mcf, page_height_mcf)
                         page_elem.append(area)
                         z_position += 1
                     
@@ -336,6 +355,41 @@ def create_mcf_xml(pdf_content: Dict[str, Any], output_dir: Path, verbose: bool 
     fotobook.append(inside_back_page)
     
     return fotobook
+
+
+def scale_area_to_cewe(left: float, top: float, width: float, height: float,
+                       pdf_width: float, pdf_height: float,
+                       cewe_width: float, cewe_height: float) -> tuple[float, float, float, float]:
+    """Scale area coordinates from PDF dimensions to CEWE dimensions.
+    
+    Maps the area from PDF page space to CEWE page space, preserving relative
+    position. The bottom-left (0,0) and top-right corners are exactly mapped.
+    
+    Args:
+        left: Left coordinate in PDF space
+        top: Top coordinate in PDF space
+        width: Width in PDF space
+        height: Height in PDF space
+        pdf_width: PDF page width (single page)
+        pdf_height: PDF page height
+        cewe_width: CEWE page width (single page)
+        cewe_height: CEWE page height
+        
+    Returns:
+        Tuple of (scaled_left, scaled_top, scaled_width, scaled_height)
+    """
+    # Calculate scale factors
+    # Note: For spread coordinates, width scale applies to full spread width (2*page_width)
+    width_scale = cewe_width / pdf_width
+    height_scale = cewe_height / pdf_height
+    
+    # Scale all dimensions
+    scaled_left = left * width_scale
+    scaled_top = top * height_scale
+    scaled_width = width * width_scale
+    scaled_height = height * height_scale
+    
+    return scaled_left, scaled_top, scaled_width, scaled_height
 
 
 def create_spine_page(page_width_mcf: float, page_height_mcf: float) -> ET.Element:
@@ -392,7 +446,8 @@ def create_empty_cover_page(page_width_mcf: float, page_height_mcf: float) -> ET
 
 def create_cover_spread_element(front_page_data: Dict[str, Any], back_page_data: Optional[Dict[str, Any]],
                                 output_dir: Path, page_width_mcf: float, page_height_mcf: float, 
-                                verbose: bool = False) -> ET.Element:
+                                verbose: bool = False,
+                                pdf_page_width: float = None, pdf_page_height: float = None) -> ET.Element:
     """Create a cover spread element with both front and back covers.
     
     The cover spread is a single page element with pagenr=0 and type=fullcover.
@@ -403,9 +458,11 @@ def create_cover_spread_element(front_page_data: Dict[str, Any], back_page_data:
         front_page_data: Front cover page content (positioned on right half)
         back_page_data: Back cover page content (positioned on left half), or None if no back cover
         output_dir: Directory to save image files
-        page_width_mcf: Single page width in MCF units
-        page_height_mcf: Page height in MCF units
+        page_width_mcf: Single page width in MCF units (CEWE)
+        page_height_mcf: Page height in MCF units (CEWE)
         verbose: Print detailed info
+        pdf_page_width: Original PDF page width (for scaling)
+        pdf_page_height: Original PDF page height (for scaling)
         
     Returns:
         Cover page XML element
@@ -429,12 +486,16 @@ def create_cover_spread_element(front_page_data: Dict[str, Any], back_page_data:
     if back_page_data:
         for img in back_page_data.get('images', []):
             img['ui_page'] = 'B'  # Back cover identifier
-            area = create_image_area(img, output_dir, z_position, verbose)
+            area = create_image_area(img, output_dir, z_position, verbose,
+                                    pdf_page_width, pdf_page_height,
+                                    page_width_mcf, page_height_mcf)
             page.append(area)
             z_position += 1
         
         for text_block in back_page_data.get('text_blocks', []):
-            area = create_text_area(text_block, z_position, verbose)
+            area = create_text_area(text_block, z_position, verbose,
+                                   pdf_page_width, pdf_page_height,
+                                   page_width_mcf, page_height_mcf)
             page.append(area)
             z_position += 1
     
@@ -442,12 +503,16 @@ def create_cover_spread_element(front_page_data: Dict[str, Any], back_page_data:
     # Front cover images from PDF already have x in [page_width, 2*page_width) since they're right pages
     for img in front_page_data.get('images', []):
         img['ui_page'] = 'F'  # Front cover identifier
-        area = create_image_area(img, output_dir, z_position, verbose)
+        area = create_image_area(img, output_dir, z_position, verbose,
+                                pdf_page_width, pdf_page_height,
+                                page_width_mcf, page_height_mcf)
         page.append(area)
         z_position += 1
     
     for text_block in front_page_data.get('text_blocks', []):
-        area = create_text_area(text_block, z_position, verbose)
+        area = create_text_area(text_block, z_position, verbose,
+                               pdf_page_width, pdf_page_height,
+                               page_width_mcf, page_height_mcf)
         page.append(area)
         z_position += 1
     
@@ -518,7 +583,9 @@ def create_empty_content_page(page_width_mcf: float, page_height_mcf: float, pag
 
 def create_page_element(page_data: Dict[str, Any], output_dir: Path,
                        cewe_pagenr: int, page_type: str, is_cover: bool, verbose: bool = False,
-                       is_first_content_dummy: bool = False, ui_page = None) -> ET.Element:
+                       is_first_content_dummy: bool = False, ui_page = None,
+                       pdf_page_width: float = None, pdf_page_height: float = None,
+                       cewe_page_width: float = None, cewe_page_height: float = None) -> ET.Element:
     """Create a page element with images and text.
     
     Args:
@@ -530,6 +597,10 @@ def create_page_element(page_data: Dict[str, Any], output_dir: Path,
         verbose: Print detailed info
         is_first_content_dummy: True if this is the dummy page 0 for first content page
         ui_page: UI page identifier ("F", "B", 0, 1, 2, ...) for filename generation
+        pdf_page_width: Original PDF page width (for scaling)
+        pdf_page_height: Original PDF page height (for scaling)
+        cewe_page_width: Target CEWE page width (for scaling)
+        cewe_page_height: Target CEWE page height (for scaling)
         
     Returns:
         Page XML element
@@ -541,11 +612,10 @@ def create_page_element(page_data: Dict[str, Any], output_dir: Path,
     
     # CEWE photobooks use two-page spreads
     # bundlesize = width of spread (2 pages side-by-side) × height of one page
-    # Each PDF page becomes one side of a spread
-    # Coordinates are already in MCF units from PDF extractor
-    page_width_mcf = page_data['width']
-    page_height_mcf = page_data['height']
-    
+    # Use CEWE dimensions for bundlesize (not PDF dimensions)
+    page_width_mcf = cewe_page_width
+    page_height_mcf = cewe_page_height
+
     # Spread width is double the single page width
     spread_width_mcf = page_width_mcf * 2
     
@@ -562,20 +632,26 @@ def create_page_element(page_data: Dict[str, Any], output_dir: Path,
     for img in page_data['images']:
         # Use UI page number if provided, otherwise fall back to PDF page_num
         img['ui_page'] = ui_page if ui_page is not None else page_data.get('page_num', cewe_pagenr)
-        area = create_image_area(img, output_dir, z_position, verbose)
+        area = create_image_area(img, output_dir, z_position, verbose,
+                                pdf_page_width, pdf_page_height,
+                                cewe_page_width, cewe_page_height)
         page.append(area)
         z_position += 1
     
     # Add text areas
     for text_block in page_data['text_blocks']:
-        area = create_text_area(text_block, z_position, verbose)
+        area = create_text_area(text_block, z_position, verbose,
+                               pdf_page_width, pdf_page_height,
+                               cewe_page_width, cewe_page_height)
         page.append(area)
         z_position += 1
     
     return page
 
 
-def create_image_area(img: Dict[str, Any], output_dir: Path, z_position: int, verbose: bool = False) -> ET.Element:
+def create_image_area(img: Dict[str, Any], output_dir: Path, z_position: int, verbose: bool = False,
+                     pdf_page_width: float = None, pdf_page_height: float = None,
+                     cewe_page_width: float = None, cewe_page_height: float = None) -> ET.Element:
     """Create an image area element.
     
     Args:
@@ -583,6 +659,10 @@ def create_image_area(img: Dict[str, Any], output_dir: Path, z_position: int, ve
         output_dir: Directory to save image file
         z_position: Z-position for layering
         verbose: Print detailed info
+        pdf_page_width: Original PDF page width (for scaling)
+        pdf_page_height: Original PDF page height (for scaling)
+        cewe_page_width: Target CEWE page width (for scaling)
+        cewe_page_height: Target CEWE page height (for scaling)
         
     Returns:
         Area XML element
@@ -610,17 +690,24 @@ def create_image_area(img: Dict[str, Any], output_dir: Path, z_position: int, ve
     if verbose:
         print(f"  Saved image: {image_filename}")
     
+    # Scale coordinates from PDF to CEWE dimensions if scaling info provided
+    # Note: Coordinates are in spread space, so use 2*page_width for spread width
+    scaled_left, scaled_top, scaled_width, scaled_height = scale_area_to_cewe(
+        img['left'], img['top'], img['width'], img['height'],
+        pdf_page_width * 2, pdf_page_height,  # PDF spread dimensions
+        cewe_page_width * 2, cewe_page_height  # CEWE spread dimensions
+    )
+    
     # Create area element
     area = ET.Element('area')
     area.set('areatype', 'imagearea')
     
-    # Position element - coordinates are already in MCF spread units from PDF extractor
-    # No conversion needed, pt_to_mcf and x_offset are for legacy compatibility only
+    # Position element with scaled coordinates
     position = ET.SubElement(area, 'position')
-    position.set('left', f"{img['left']:.2f}")
-    position.set('top', f"{img['top']:.2f}")
-    position.set('width', f"{img['width']:.2f}")
-    position.set('height', f"{img['height']:.2f}")
+    position.set('left', f"{scaled_left:.2f}")
+    position.set('top', f"{scaled_top:.2f}")
+    position.set('width', f"{scaled_width:.2f}")
+    position.set('height', f"{scaled_height:.2f}")
     position.set('rotation', '0')
     position.set('zposition', str(z_position))
     
@@ -641,26 +728,40 @@ def create_image_area(img: Dict[str, Any], output_dir: Path, z_position: int, ve
     return area
 
 
-def create_text_area(text_block: Dict[str, Any], z_position: int, verbose: bool = False) -> ET.Element:
+def create_text_area(text_block: Dict[str, Any], z_position: int, verbose: bool = False,
+                    pdf_page_width: float = None, pdf_page_height: float = None,
+                    cewe_page_width: float = None, cewe_page_height: float = None) -> ET.Element:
     """Create a text area element.
     
     Args:
         text_block: Text block data dictionary with coordinates in MCF spread units
         z_position: Z-position for layering
         verbose: Print detailed info
+        pdf_page_width: Original PDF page width (for scaling)
+        pdf_page_height: Original PDF page height (for scaling)
+        cewe_page_width: Target CEWE page width (for scaling)
+        cewe_page_height: Target CEWE page height (for scaling)
         
     Returns:
         Area XML element
     """
+    # Scale coordinates from PDF to CEWE dimensions if scaling info provided
+    # Note: Coordinates are in spread space, so use 2*page_width for spread width
+    scaled_left, scaled_top, scaled_width, scaled_height = scale_area_to_cewe(
+        text_block['left'], text_block['top'], text_block['width'], text_block['height'],
+        pdf_page_width * 2, pdf_page_height,  # PDF spread dimensions
+        cewe_page_width * 2, cewe_page_height  # CEWE spread dimensions
+    )
+    
     area = ET.Element('area')
     area.set('areatype', 'textarea')
     
-    # Position element - coordinates are already in MCF spread units from PDF extractor
+    # Position element with scaled coordinates
     position = ET.SubElement(area, 'position')
-    position.set('left', f"{text_block['left']:.2f}")
-    position.set('top', f"{text_block['top']:.2f}")
-    position.set('width', f"{text_block['width']:.2f}")
-    position.set('height', f"{text_block['height']:.2f}")
+    position.set('left', f"{scaled_left:.2f}")
+    position.set('top', f"{scaled_top:.2f}")
+    position.set('width', f"{scaled_width:.2f}")
+    position.set('height', f"{scaled_height:.2f}")
     position.set('rotation', '0')
     position.set('zposition', str(z_position))
     
@@ -683,22 +784,30 @@ def create_text_area(text_block: Dict[str, Any], z_position: int, verbose: bool 
     font_weight = '700' if is_bold else '400'
     font_style = 'italic' if is_italic else 'normal'
     
-    # Create simple HTML content
-    html_content = f'''<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.0//EN" "http://www.w3.org/TR/REC-html40/strict.dtd">
-<html><head><meta name="qrichtext" content="1" /><style type="text/css">
-p, li {{ white-space: pre-wrap; }}
-</style></head><body style=" font-family:'{text_block['font']}'; font-size:{int(text_block['size'])}pt; font-weight:{font_weight}; font-style:{font_style};">
-<p style=" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;"><span style=" color:{color_hex};">{escape_html(text_block['text'])}</span></p>
-</body></html>'''
+    # Create minimal HTML content - just font, size, and text
+    html_content = f'<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.0//EN" "http://www.w3.org/TR/REC-html40/strict.dtd"><html><head><meta name="qrichtext" content="1" /></head><body style="font-family:\'{text_block["font"]}\'; font-size:{int(text_block["size"])}pt;"><p><span style="color:{color_hex};">{escape_html(text_block["text"])}</span></p></body></html>'
     
-    text.text = f'<![CDATA[{html_content}]]>'
+    # Set areaTextType attribute
+    text.set('areaTextType', 'content')
+    # Store HTML directly - we'll wrap in CDATA during XML serialization
+    text.text = html_content
     
-    # TextFormat element
+    # Add outline element
+    outline = ET.SubElement(text, 'outline')
+    outline.set('width', '0')
+    
+    # TextFormat element with full CEWE attributes
     textFormat = ET.SubElement(text, 'textFormat')
-    textFormat.set('Alignment', 'ALIGNLEADING')
-    textFormat.set('font', f"{text_block['font']},{int(text_block['size'])},-1,5,50,0,0,0,0,0")
-    textFormat.set('foregroundColor', f"#ff{color_int:06x}")
+    textFormat.set('Alignment', 'ALIGNLEFT')
+    textFormat.set('IndentMargin', '4')
+    textFormat.set('VerticalIndentMargin', '50')
     textFormat.set('backgroundColor', '#00000000')
+    textFormat.set('font', f"{text_block['font']},{int(text_block['size'])},-1,5,{font_weight},0,0,0,0,0,0,1,0,0,0,1")
+    textFormat.set('foregroundColor', f"#ff{color_int:06x}")
+    textFormat.set('hasOutline', '0')
+    textFormat.set('hyphenation', '0')
+    textFormat.set('letterSpacing', '0')
+    textFormat.set('lineHeight', '100')
     
     return area
 
@@ -788,4 +897,50 @@ def prettify_xml(elem: ET.Element) -> str:
     """
     rough_string = ET.tostring(elem, encoding='utf-8')
     reparsed = minidom.parseString(rough_string)
-    return reparsed.toprettyxml(indent='  ', encoding='utf-8').decode('utf-8')
+    pretty_xml = reparsed.toprettyxml(indent='  ', encoding='utf-8').decode('utf-8')
+    
+    # Remove blank lines that minidom adds around text content
+    lines = pretty_xml.split('\n')
+    non_blank_lines = [line for line in lines if line.strip()]
+    result = '\n'.join(non_blank_lines)
+    
+    # Unescape CDATA markers first (ElementTree escapes them)
+    result = result.replace('&lt;![CDATA[', '<![CDATA[')
+    result = result.replace(']]&gt;', ']]>')
+    
+    # Wrap text element HTML content in CDATA sections
+    # The HTML content in <text> elements needs to be in CDATA to prevent XML parsing
+    import re
+    
+    # Pattern: <text ...>whitespace_and_escaped_html_content<outline.../>
+    # Match everything between <text> opening tag and <outline/> tag, including whitespace and newlines
+    # This will capture the HTML content that needs CDATA wrapping
+    def wrap_text_in_cdata(match):
+        opening_tag = match.group(1)
+        content = match.group(2)
+        outline_tag = match.group(3)
+        
+        # Strip all leading/trailing whitespace (including newlines)
+        content = content.strip()
+        
+        # Skip if content is already wrapped in CDATA (from a previous match)
+        if content.startswith('<![CDATA[') and content.endswith(']]>'):
+            return match.group(0)  # Return unchanged
+        
+        # Unescape the HTML content (ElementTree escapes < > etc)
+        content = content.replace('&lt;', '<').replace('&gt;','>').replace('&quot;', '"').replace('&amp;', '&')
+        
+        # Wrap in CDATA and keep everything on one line with outline
+        return f'{opening_tag}<![CDATA[{content}]]>{outline_tag}'
+    
+    # Match: <text ...>content<outline.../> where content is everything until we hit <outline
+    # Use non-greedy match to stop at first <outline tag
+    # IMPORTANT: Must match <text> but NOT <textFormat> - use word boundary or space after 'text'
+    result = re.sub(
+        r'(<text\s[^>]*>)((?:(?!<outline).)*?)(<outline[^>]*/?>)',
+        wrap_text_in_cdata,
+        result,
+        flags=re.DOTALL
+    )
+    
+    return result

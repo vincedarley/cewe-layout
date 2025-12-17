@@ -838,6 +838,23 @@ class LayoutViewer:
                     pdf_data = get_page_content(self.pdf_content, pdf_page_index)
                     if pdf_data:
                         composite_image = pdf_data.get('composite_image')
+                        # Add dimension information for aspect-ratio-preserving scaling
+                        if composite_image:
+                            # Get PDF page dimensions in points and convert to MCF units
+                            pdf_page_size = self.pdf_content.get('page_size', (0, 0))
+                            # 1 point = 25.4mm / 72 = 0.3527778mm = 3.527778 MCF units (1 MCF = 0.1mm)
+                            pdf_page_width_mcf = pdf_page_size[0] * 3.527778
+                            pdf_page_height_mcf = pdf_page_size[1] * 3.527778
+                            
+                            # Get CEWE page dimensions in MCF units
+                            cewe_page_width_mcf = info.get('page_width')
+                            cewe_page_height_mcf = info.get('page_height')
+                            
+                            # Store in composite_image dict for use in rendering
+                            composite_image['pdf_page_width_mcf'] = pdf_page_width_mcf
+                            composite_image['pdf_page_height_mcf'] = pdf_page_height_mcf
+                            composite_image['cewe_page_width_mcf'] = cewe_page_width_mcf
+                            composite_image['cewe_page_height_mcf'] = cewe_page_height_mcf
             
             page_data = PageRenderData(
                 pageno=pageno,

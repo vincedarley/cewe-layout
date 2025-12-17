@@ -174,10 +174,12 @@ class PageRenderer:
             frame_h = page_h * scale
             
             # Draw the page background rectangle for this page
-            draw.rectangle(
-                [frame_x, frame_y, frame_x + frame_w, frame_y + frame_h],
-                fill=page_bg_color
-            )
+            # Skip if showing PDF composite (composite serves as background)
+            if not show_pdf_composite:
+                draw.rectangle(
+                    [frame_x, frame_y, frame_x + frame_w, frame_y + frame_h],
+                    fill=page_bg_color
+                )
             
             # Render photos for this page
             self._render_photos(img, draw, page_data.photos, frame_x, frame_y, scale, 
@@ -276,25 +278,55 @@ class PageRenderer:
             composite_gray = ImageOps.grayscale(composite_pil)
             composite_gray = composite_gray.convert('RGB')  # Convert back to RGB for pasting
             
+            # Calculate uniform scale factor to preserve aspect ratio
+            # Get dimension information from composite_image dict
+            pdf_page_width_mcf = page_data.composite_image.get('pdf_page_width_mcf')
+            pdf_page_height_mcf = page_data.composite_image.get('pdf_page_height_mcf')
+            cewe_page_width_mcf = page_data.composite_image.get('cewe_page_width_mcf')
+            cewe_page_height_mcf = page_data.composite_image.get('cewe_page_height_mcf')
+            
             # Calculate position on canvas
-            # Composite image coordinates are already in MCF spread units from PDF extraction
+            # Composite image coordinates are in MCF spread units from PDF extraction
             comp_left_mcf = page_data.composite_image.get('left', 0)
             comp_top_mcf = page_data.composite_image.get('top', 0)
             comp_width_mcf = page_data.composite_image.get('width', 0)
             comp_height_mcf = page_data.composite_image.get('height', 0)
             
-            # Composite coordinates are in MCF spread units - convert to page-relative for display
-            # For left pages: origin_left=0 → no change
-            # For right pages: origin_left=page_width → subtract to make page-relative
-            comp_left_page = comp_left_mcf - page_data.origin_left
-            comp_top_page = comp_top_mcf  # Top is the same
+            # Composite coordinates are in PDF MCF spread units - convert to page-relative
+            # For left pages: comp_left_mcf starts from 0
+            # For right pages: comp_left_mcf starts from pdf_page_width_mcf
+            # Subtract PDF page width to make page-relative (avoids rounding issues with origin_left which is CEWE dimensions)
+            if page_data.origin_left > 0:
+                # Right page: subtract PDF page width to zero out
+                comp_left_page_pdf = comp_left_mcf - pdf_page_width_mcf
+            else:
+                # Left page: already zeroed
+                comp_left_page_pdf = comp_left_mcf
+            
+            comp_top_page_pdf = comp_top_mcf  # Top is the same
+            
+            # Calculate scale factors from PDF to CEWE dimensions
+            pdf_to_cewe_width_scale = cewe_page_width_mcf / pdf_page_width_mcf
+            pdf_to_cewe_height_scale = cewe_page_height_mcf / pdf_page_height_mcf
+            
+            # Choose scale factor closest to 1.0 to minimize distortion
+            width_diff = abs(pdf_to_cewe_width_scale - 1.0)
+            height_diff = abs(pdf_to_cewe_height_scale - 1.0)
+            
+            if width_diff < height_diff:
+                uniform_pdf_scale = pdf_to_cewe_width_scale
+                logger.debug(f"Using width scale factor {uniform_pdf_scale:.4f} (closer to 1.0)")
+            else:
+                uniform_pdf_scale = pdf_to_cewe_height_scale
+                logger.debug(f"Using height scale factor {uniform_pdf_scale:.4f} (closer to 1.0)")
             
             # Transform to canvas coordinates
+            # First scale from PDF dimensions to CEWE dimensions, then to canvas pixels
             # frame_x already includes margin and page positioning
-            canvas_x = int(frame_x + comp_left_page * scale)
-            canvas_y = int(frame_y + comp_top_page * scale)
-            canvas_w = int(comp_width_mcf * scale)
-            canvas_h = int(comp_height_mcf * scale)
+            canvas_x = int(frame_x + comp_left_page_pdf * uniform_pdf_scale * scale)
+            canvas_y = int(frame_y + comp_top_page_pdf * uniform_pdf_scale * scale)
+            canvas_w = int(comp_width_mcf * uniform_pdf_scale * scale)
+            canvas_h = int(comp_height_mcf * uniform_pdf_scale * scale)
             
             # Resize composite to canvas scale
             if canvas_w > 0 and canvas_h > 0:
