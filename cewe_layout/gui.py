@@ -840,11 +840,10 @@ class LayoutViewer:
                         composite_image = pdf_data.get('composite_image')
                         # Add dimension information for aspect-ratio-preserving scaling
                         if composite_image:
-                            # Get PDF page dimensions in points and convert to MCF units
-                            pdf_page_size = self.pdf_content.get('page_size', (0, 0))
-                            # 1 point = 25.4mm / 72 = 0.3527778mm = 3.527778 MCF units (1 MCF = 0.1mm)
-                            pdf_page_width_mcf = pdf_page_size[0] * 3.527778
-                            pdf_page_height_mcf = pdf_page_size[1] * 3.527778
+                            # Get PDF page dimensions from this specific page (already in MCF units)
+                            # Each page stores its own dimensions, so this handles varying page sizes
+                            pdf_page_width_mcf = pdf_data['width']
+                            pdf_page_height_mcf = pdf_data['height']
                             
                             # Get CEWE page dimensions in MCF units
                             cewe_page_width_mcf = info.get('page_width')
@@ -1084,30 +1083,46 @@ class LayoutViewer:
             all_photos.extend(photos_i)
             all_texts.extend(texts_i)
         
+        # Get page dimensions for title
+        # For spreads, use first page's dimensions and double the width
+        first_page_info = self.pages[page_indices[0]][1]
+        page_width_mcf = first_page_info.get('page_width')
+        page_height_mcf = first_page_info.get('page_height')
+        
+        # Convert to cm (MCF / 100) and format to 1 decimal place
+        if len(page_indices) == 2:
+            # Spread: double the width
+            width_cm = (page_width_mcf * 2) / 100.0
+        else:
+            # Single page
+            width_cm = page_width_mcf / 100.0
+        height_cm = page_height_mcf / 100.0
+        dimensions_str = f'{width_cm:.1f}cm x {height_cm:.1f}cm'
+        
         # Update window title with photobook/canvas/calendar name and page info
         text_label = 'text' if len(all_texts) == 1 else 'texts'
         if self.is_canvas:
             # Canvas mode: show as "Canvas" not "Page"
             if all_texts:
-                title = f'{self.photobook_name} - Canvas : {len(all_photos)} photos, {len(all_texts)} {text_label}'
+                title = f'{self.photobook_name} - Canvas, {dimensions_str} : {len(all_photos)} photos, {len(all_texts)} {text_label}'
             else:
-                title = f'{self.photobook_name} - Canvas : {len(all_photos)} photos'
+                title = f'{self.photobook_name} - Canvas, {dimensions_str} : {len(all_photos)} photos'
         elif self.is_calendar:
             # Calendar mode: show as "Month" not "Page"
             if all_texts:
-                title = f'{self.photobook_name} - Month {self.current_spread_pages[0]} : {len(all_photos)} photos, {len(all_texts)} {text_label}'
+                title = f'{self.photobook_name} - Month {self.current_spread_pages[0]}, {dimensions_str} : {len(all_photos)} photos, {len(all_texts)} {text_label}'
             else:
-                title = f'{self.photobook_name} - Month {self.current_spread_pages[0]} : {len(all_photos)} photos'
+                title = f'{self.photobook_name} - Month {self.current_spread_pages[0]}, {dimensions_str} : {len(all_photos)} photos'
         elif len(self.current_spread_pages) == 2:
             if all_texts:
-                title = f'{self.photobook_name} - Pages {self.current_spread_pages[0]}-{self.current_spread_pages[1]} : {len(all_photos)} photos, {len(all_texts)} {text_label}'
+                title = f'{self.photobook_name} - Pages {self.current_spread_pages[0]}-{self.current_spread_pages[1]}, {dimensions_str} : {len(all_photos)} photos, {len(all_texts)} {text_label}'
             else:
-                title = f'{self.photobook_name} - Pages {self.current_spread_pages[0]}-{self.current_spread_pages[1]} : {len(all_photos)} photos'
+                title = f'{self.photobook_name} - Pages {self.current_spread_pages[0]}-{self.current_spread_pages[1]}, {dimensions_str} : {len(all_photos)} photos'
         else:
             if all_texts:
-                title = f'{self.photobook_name} - Page {self.current_spread_pages[0]} : {len(all_photos)} photos, {len(all_texts)} {text_label}'
+                title = f'{self.photobook_name} - Page {self.current_spread_pages[0]}, {dimensions_str} : {len(all_photos)} photos, {len(all_texts)} {text_label}'
             else:
-                title = f'{self.photobook_name} - Page {self.current_spread_pages[0]} : {len(all_photos)} photos'
+                title = f'{self.photobook_name} - Page {self.current_spread_pages[0]}, {dimensions_str} : {len(all_photos)} photos'
         self.root.title(title)
         
         # Update PDF photo count field if PDF content is available

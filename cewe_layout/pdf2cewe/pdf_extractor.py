@@ -48,6 +48,7 @@ for pageno in range(pdf_content['page_count']):
         # ... use composite ...
 """
 
+from os import error
 import fitz  # PyMuPDF
 from pathlib import Path
 from typing import Dict, List, Optional, Any
@@ -77,7 +78,6 @@ class PDFReader:
         self._page_to_ui = page_to_ui or {}
         self._doc = None
         self._metadata = None
-        self._page_size = None
         self._page_count = None
     
     def _ensure_open(self):
@@ -93,9 +93,6 @@ class PDFReader:
                 'producer': self._doc.metadata.get('producer', ''),
             }
             
-            # Cache page size from first page
-            first_page = self._doc[0]
-            self._page_size = (first_page.rect.width, first_page.rect.height)            
             self._page_count = len(self._doc)
 
             
@@ -105,12 +102,6 @@ class PDFReader:
         """Get PDF metadata."""
         self._ensure_open()
         return self._metadata
-    
-    @property
-    def page_size(self) -> tuple:
-        """Get page size (width, height) in points."""
-        self._ensure_open()
-        return self._page_size
     
     @property
     def page_count(self) -> int:
@@ -176,7 +167,6 @@ def create_pdf_reader(pdf_path: Path, verbose: bool = False, page_to_ui: Optiona
     Returns:
         Dictionary containing:
             - 'metadata': PDF metadata
-            - 'page_size': (width, height) in points
             - 'page_count': Number of pages
             - 'reader': PDFReader instance for on-demand page access
             - 'pages': Empty list (pages loaded on-demand via get_page_content())
@@ -192,7 +182,6 @@ def create_pdf_reader(pdf_path: Path, verbose: bool = False, page_to_ui: Optiona
     
     return {
         'metadata': reader.metadata,
-        'page_size': reader.page_size,
         'page_count': reader.page_count,
         'reader': reader,
         'pages': [],  # Empty - pages loaded on-demand via get_page_content()
@@ -272,7 +261,6 @@ def extract_pdf_content(pdf_path: Path, page_range: Optional[List[int]] = None, 
     Returns:
         Dictionary containing:
             - 'metadata': PDF metadata (title, author, etc.)
-            - 'page_size': (width, height) in points
             - 'pages': List of page data dictionaries
     """
     doc = fitz.open(pdf_path)
@@ -298,19 +286,14 @@ def extract_pdf_content(pdf_path: Path, page_range: Optional[List[int]] = None, 
             
         page = doc[page_num]
         # Get UI page number for this PDF page (for correct coordinate positioning)
-        ui_page = page_to_ui.get(page_num) if page_to_ui else page_num
+        ui_page = page_to_ui.get(page_num)
         page_data = extract_page_content(page, page_num, len(doc), verbose, debug, ui_page)
         pages.append(page_data)
-    
-    # Get consistent page size from first page
-    first_page = doc[page_range[0]] if page_range else doc[0]
-    page_size = (first_page.rect.width, first_page.rect.height)
     
     doc.close()
     
     return {
         'metadata': metadata,
-        'page_size': page_size,
         'page_count': len(pages),
         'pages': pages,
     }
@@ -932,8 +915,9 @@ tuple[list[int], list[Any], Any, list[dict[str, Any]] | None, Any]:
     
 # Widths are spread dimensions (so 2x pages)
 BOOK_SIZES = {
-    'ALB45': {'coverWidth': 3975, 'coverHeight': 1530, 'pageWidth': 3800, 'pageHeight': 1480},
-    'ALB42': {'coverWidth': 7870, 'coverHeight': 2960, 'pageWidth': 7640, 'pageHeight': 2900},
+    'ALB45': {'coverWidth': 3975, 'coverHeight': 1530, 'pageWidth': 3800, 'pageHeight': 1480, 'art_id': 8068},
+    'ALB42': {'coverWidth': 7870, 'coverHeight': 2960, 'pageWidth': 7640, 'pageHeight': 2900, 'art_id': 9896},
+    'ALB35': {'coverWidth': 5575, 'coverHeight': 2100, 'pageWidth': 5400, 'pageHeight': 2050, 'art_id': 9759},
 }
 
 def find_closest_book_size(width: int, height: int) -> str:
