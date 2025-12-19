@@ -10,23 +10,23 @@ CEWE photobooks use a **two-page spread** layout system where pages are not indi
 
 A typical CEWE photobook has the following structure:
 
-| MCF Order | pagenr | type | Description | PDF Mapping | UI Code
-|-----------|--------|------|-------------|-------------|
-| 1st | 0 | `fullcover` or `FULLCOVER` | Back cover (left side of spread) | N/A (part of cover spread) | Page "B"
-| 2nd | 0 | `spine` | Spine of book | N/A (part of cover spread) |
-| 3rd | 0 | `fullcover` or `FULLCOVER` | Front cover (right side of spread) | **PDF Page 1** | Page "F"
-| 4th | 0 | `emptypage` or `EMPTY` | Inside front cover (blank page) | **Not in PDF** | Page 0
-| 5th | 1 | `normalpage` | First content page (right side) | **PDF Page 2** | Page 1...
-| 6th | 2 | `normalpage` | Second content page (left side) | **PDF Page 3** |
-| ... | ... | `normalpage` | Content pages | **PDF Pages 4...N-1** |
-| Last-1 | N-2 | `normalpage` | Last content page | **PDF Page N-1** |
-| Last | 0 | `emptypage` or `EMPTY` | Inside back cover (blank page) | **Not in PDF** | Page N-1
+| MCF Order | pagenr | type                       | Description                            | PDF Mapping                  | UI Code  |
+|-----------|--------|----------------------------|----------------------------------------|------------------------------|----------|
+| 1st       | 0      | `fullcover` or `FULLCOVER` | Back cover (left side of spread)       | N/A (part of cover spread)   | Page "B" |
+| 2nd       | 0      | `spine`                    | Spine of book                          | N/A (part of cover spread)   |          |
+| 3rd       | 0      | `fullcover` or `FULLCOVER` | Front cover (right side of spread)     | **PDF Page 1**               | Page "F" |
+| 4th       | 0      | `emptypage` or `EMPTY`     | Inside front cover (blank page)        | **Not in PDF**               | Page 0   |
+| 5th       | 1      | `normalpage`               | First content page (right side)        | **PDF Page 2**               | Page 1   |
+| 6th       | 2      | `normalpage`               | Second content page (left side)        | **PDF Page 3**               | Page 2   |
+| ...       | ...    | `normalpage`               | Content pages                          | **PDF Pages 4...N-1**        | ...      |
+| Last-1    | N-2    | `normalpage`               | Last content page                      | **PDF Page N-1**             | Page N-2 |
+| Last      | 0      | `emptypage` or `EMPTY`     | Inside back cover (blank page)         | **Not in PDF**               | Page N-1 |
 
 **Notes**: 
 - The back cover fullcover page (1st in list) contains both back cover AND front cover areas positioned on the SAME spread. The backcover is the left side of the spread and the front cover is the right side of the same spread.
-- The 4th "0" empty page (just before page 1) is where the contents of page 1 actually goes
+- The 4th "0" empty page (just before page 1) is where the contents of page 1 is stored, just as with all odd-numbered pages
 - In xml, using the usual x-offset is applied to the contents of any odd-numbered pagenr (and the front cover) - i.e. to all of the right-side pages - this is what makes that contents appear on the right side - simply the fact that their x-coordinates are >= half the size of the spread.
-- Finally since pages have two sides (!), the last page N-1 (inside back cover) here MUST be an odd number. Our spreads are 0 & 1, 2 & 3, ...., N-2 & N-1. However pagenr="N-1" will not appear in the XML, since pagenr="0" is used for that last right hand side of the spread.
+- Finally since pages have two sides (!), the last page N-1 (inside back cover) here MUST be an odd number. Our spreads are 0 & 1, 2 & 3, ...., N-2 & N-1. However pagenr="N-1" will not appear in the XML, since pagenr="0" is used for that last (empty) right hand side of the spread.
 
 ### Key Points
 
@@ -40,6 +40,8 @@ A typical CEWE photobook has the following structure:
    - **Inside front cover** (4th page): Has `pagenr="0"`, `type="emptypage"`, and may contain `<area>` elements or `<background alignment="1">. In particular the content of page 1 is actually inside this
    page in the xml, but offset by the usual x-offset.
    - **Inside back cover** (last page): Has `pagenr="0"`, `type="emptypage"`, no `<area>` elements or has `<background alignment="3">`
+
+In many photobook types, pages come in chunks of 4 (due to the nature of the printing process).  So a photobook must have 2+4xM internal pages (for some 'M'), excluding the inside front and inside back pages, or if you include those empty inside pages, then it must be a multiple of 4.
 
 ## Spread Layout System
 

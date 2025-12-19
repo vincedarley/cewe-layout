@@ -12,7 +12,7 @@ This document describes the coordinate transformations used in cewe-layout.
 - **Unit**: 0.1mm (10 MCF units = 1mm)
 - **Origin**: Top-left of the **spread** (two pages side-by-side)
 - **Range**: 
-  - Left pages: x ∈ [0, page_width_mcf]
+  - Left pages: x ∈ [0, page_width_mcf)
   - Right pages: x ∈ [page_width_mcf, 2×page_width_mcf]
   - Both pages: y ∈ [0, page_height_mcf]
 
@@ -26,7 +26,14 @@ This document describes the coordinate transformations used in cewe-layout.
 **Conversion (done internally in pdf_extractor.py only)**:
 ```python
 PT_TO_MCF = 3.52778  # 1 PDF point = 0.352778mm = 3.52778 × 0.1mm
-is_right_page = (pdf_page_num % 2 == 0)  # Pages 0, 2, 4... are right
+is_right_page rules:
+    Page positioning rules based on UI page number:
+    - "F" (front cover): RIGHT side of cover spread
+    - "B" (back cover): LEFT side of cover spread
+    - UI page 0 (inside front): LEFT side
+    - Other odd UI pages (1,3,5...): RIGHT side of content spreads
+    - Other even UI pages (2,4,6...): LEFT side of content spreads
+    - Final numbered page (always odd) is the blank inside back page: RIGHT side.
 x_mcf_spread = pdf_x * PT_TO_MCF + (page_width_mcf if is_right_page else 0)
 ```
 
@@ -84,12 +91,12 @@ x_mcf_spread = pdf_x * PT_TO_MCF + (page_width_mcf if is_right_page else 0)
 
 1. **PDF Extraction** (pdf_extractor.py):
    ```python
-   # PDF page 2 (right page), image at (100, 50) PDF points
+   # PDF page 3 (right page), image at (100, 50) PDF points
    pdf_x, pdf_y = 100, 50  # PDF points, page-relative
    
    # Convert to MCF spread coordinates (done internally)
    PT_TO_MCF = 3.52778
-   is_right = (2 % 2 == 0)  # True
+   is_right = (3 % 2 == 1)  # True
    page_width_mcf = 5400
    x_mcf_spread = 100 * 3.52778 + 5400 = 5752.78  # MCF spread coordinate
    ```

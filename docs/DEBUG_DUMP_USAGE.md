@@ -8,7 +8,7 @@ The debug dump system allows you to capture all parameters used during layout ge
 
 1. **Run the GUI:**
    ```bash
-   python ./cewe-layout/run_qlayout.py --input ./Test-album.xmcf --gui
+   python ./cewe-layout/run_qlayout.py --cewe ./Test-album.xmcf --gui
    ```
 
 2. **Navigate to the problem page** (e.g., page 75)
