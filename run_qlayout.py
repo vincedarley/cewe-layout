@@ -33,7 +33,7 @@ if __name__ == '__main__':
     parser.add_argument('--unpatch', action='store_true', 
                        help='Restore the most recent backup')
     parser.add_argument('--renamephotos', nargs='+', metavar='ARG',
-                       help='Rename photos: DIRECTORY PREFIX [PATTERN]. Pattern defaults to * (all files).')
+                       help='Rename photos: DIRECTORY RENAMEPREFIX [PATTERN]. Pattern defaults to * (all files).')
     parser.add_argument('--debug', action='store_true',
                        help='Enable debug mode (saves composite images during segmentation)')
     parser.add_argument('--insidecovers', action='store_true',

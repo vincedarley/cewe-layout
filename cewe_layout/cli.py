@@ -21,7 +21,7 @@ def natural_sort_key(path):
     return [convert(c) for c in re.split('([0-9]+)', path.name)]
 
 
-def rename_photos(directory, name_prefix, pattern='*'):
+def rename_photos(directory, rename_prefix, pattern='*'):
     """Rename photos in directory with structured naming based on creation date and star rating.
     
     Args:
@@ -66,7 +66,7 @@ def rename_photos(directory, name_prefix, pattern='*'):
         # Find first available counter for this date (skip existing files)
         counter = date_counters[date_str] + 1
         while True:
-            new_name = f"{name_prefix}-{date_str}-p{counter:03d}"
+            new_name = f"{rename_prefix}-{date_str}-p{counter:03d}"
             
             # Add star rating suffix if present
             star_rating = get_photo_star_rating(photo)
@@ -105,7 +105,7 @@ def main():
     parser = argparse.ArgumentParser(description='Extract photo slot info from CEWE .mcf or rename photos')
     parser.add_argument('--input', '-i', help='Path to .mcf file or folder containing data.mcf')
     parser.add_argument('--renamephotos', nargs='+', metavar='ARG',
-                        help='Rename photos: DIRECTORY PREFIX [PATTERN]. Pattern defaults to * (all files).')
+                        help='Rename photos: DIRECTORY RENAMEPREFIX [PATTERN]. Pattern defaults to * (all files).')
     args = parser.parse_args()
     
     # Handle -renamephotos mode
@@ -113,9 +113,9 @@ def main():
         if len(args.renamephotos) < 2:
             parser.error('--renamephotos requires at least DIRECTORY and PREFIX')
         directory = args.renamephotos[0]
-        name_prefix = args.renamephotos[1]
+        rename_prefix = args.renamephotos[1]
         pattern = args.renamephotos[2] if len(args.renamephotos) > 2 else '*'
-        rename_photos(directory, name_prefix, pattern)
+        rename_photos(directory, rename_prefix, pattern)
         return
     
     # Original MCF parsing mode

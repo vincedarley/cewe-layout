@@ -105,14 +105,14 @@ def analyze_gap_details(photos: List[Dict[str, Any]], page_width: float, page_he
         top_margin = top - page_top
         if top_margin < 0:
             bleed_margins.append(abs(top_margin))
-        elif 10 < top_margin < page_height * 0.05:
+        elif 0 <= top_margin < page_height * 0.05:
             top_gaps.append(top_margin)
 
         # Bottom edge (distance from page bottom)
         bottom_margin = page_bottom - bottom
         if bottom_margin < 0:
             bleed_margins.append(abs(bottom_margin))
-        elif 10 < bottom_margin < page_height * 0.05:
+        elif 0 <= bottom_margin < page_height * 0.05:
             bottom_gaps.append(bottom_margin)
 
         left_margin = left - page_left
@@ -122,11 +122,11 @@ def analyze_gap_details(photos: List[Dict[str, Any]], page_width: float, page_he
             # Spread mode: apply bleed to both left and right edges
             if left_margin < 0:
                 bleed_margins.append(abs(left_margin))
-            elif 10 < left_margin < page_width * 0.05:
+            elif 0 <= left_margin < page_width * 0.05:
                 left_gaps.append(left_margin)
             if right_margin < 0:
                 bleed_margins.append(abs(right_margin))
-            elif 10 < right_margin < page_width * 0.05:
+            elif 0 <= right_margin < page_width * 0.05:
                 right_gaps.append(right_margin)
         else:
             # Single page: apply bleed to left, right, top, bottom except center fold
@@ -136,11 +136,11 @@ def analyze_gap_details(photos: List[Dict[str, Any]], page_width: float, page_he
             # For now, apply bleed to left and right edges as before
             if left_margin < 0:
                 bleed_margins.append(abs(left_margin))
-            elif 10 < left_margin < page_width * 0.05:
+            elif 0 <= left_margin < page_width * 0.05:
                 left_gaps.append(left_margin)
             if right_margin < 0:
                 bleed_margins.append(abs(right_margin))
-            elif 10 < right_margin < page_width * 0.05:
+            elif 0 <= right_margin < page_width * 0.05:
                 right_gaps.append(right_margin)
     
     # Collect internal gaps (spacing between adjacent photos)

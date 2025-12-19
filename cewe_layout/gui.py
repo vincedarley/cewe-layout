@@ -34,7 +34,8 @@ from .gap_utils import (
     transform_page_to_gapfree,
     transform_item_to_gapfree,
     transform_item_for_gap_change,
-    make_uniform_edge_gap
+    make_uniform_edge_gap,
+    make_edge_gap
 )
 from .file_utils import (
     extract_metadata_from_filename,
@@ -555,8 +556,16 @@ class LayoutViewer:
         margins_frame = ttk.LabelFrame(right_col, text='Margins', padding=6)
         margins_frame.grid(row=2, column=0, sticky='ew')
         
+        # Internal gap parameter (editable) - moved to row 0
+        ttk.Label(margins_frame, text='Internal gap (mm):').grid(row=0, column=0, sticky='w', pady=2)
+        self.internal_gap_var = tk.StringVar(value='0.0')
+        self.internal_gap_entry = ttk.Entry(margins_frame, textvariable=self.internal_gap_var, width=8)
+        self.internal_gap_entry.grid(row=0, column=1, sticky='w', padx=4, pady=2)
+        self.internal_gap_entry.bind('<Return>', lambda e: self.on_internal_gap_changed())
+        self.internal_gap_entry.bind('<FocusOut>', lambda e: self.on_internal_gap_changed())
+        
         # Edge gap parameter (now editable, except for calendars which have fixed gaps)
-        ttk.Label(margins_frame, text='Edge gap (mm):').grid(row=0, column=0, sticky='w', pady=2)
+        ttk.Label(margins_frame, text='Edge gap (mm):').grid(row=1, column=0, sticky='w', pady=2)
         self.edge_gap_var = tk.StringVar(value='0.0')
         if self.is_calendar:
             # Calendar: show fixed edge gaps (disabled entry)
@@ -567,15 +576,48 @@ class LayoutViewer:
             self.edge_gap_entry = ttk.Entry(margins_frame, textvariable=self.edge_gap_var, width=8)
             self.edge_gap_entry.bind('<Return>', lambda e: self.on_edge_gap_changed())
             self.edge_gap_entry.bind('<FocusOut>', lambda e: self.on_edge_gap_changed())
-        self.edge_gap_entry.grid(row=0, column=1, sticky='w', padx=4, pady=2)
+        self.edge_gap_entry.grid(row=1, column=1, sticky='w', padx=4, pady=2)
         
-        # Internal gap parameter (editable)
-        ttk.Label(margins_frame, text='Internal gap (mm):').grid(row=1, column=0, sticky='w', pady=2)
-        self.gap_var = tk.StringVar(value='0.0')
-        self.gap_entry = ttk.Entry(margins_frame, textvariable=self.gap_var, width=8)
-        self.gap_entry.grid(row=1, column=1, sticky='w', padx=4, pady=2)
-        self.gap_entry.bind('<Return>', lambda e: self.on_internal_gap_changed())
-        self.gap_entry.bind('<FocusOut>', lambda e: self.on_internal_gap_changed())
+        # Add "(average)" label after edge gap entry
+        ttk.Label(margins_frame, text='(average)', font=('TkDefaultFont', 9, 'italic')).grid(row=1, column=2, sticky='w', padx=(2,0), pady=2)
+        
+        # Individual edge gap controls (row 2) - only for non-calendars
+        if not self.is_calendar:
+            # Create a sub-frame for the 4 individual edge gaps
+            individual_gaps_frame = ttk.Frame(margins_frame)
+            individual_gaps_frame.grid(row=2, column=0, columnspan=3, sticky='w', pady=(4,2))
+            
+            # Top edge gap
+            ttk.Label(individual_gaps_frame, text='  Top:', font=('TkDefaultFont', 9)).grid(row=0, column=0, sticky='w', padx=(0,2))
+            self.edge_gap_top_var = tk.StringVar(value='0.0')
+            self.edge_gap_top_entry = ttk.Entry(individual_gaps_frame, textvariable=self.edge_gap_top_var, width=6)
+            self.edge_gap_top_entry.grid(row=0, column=1, sticky='w', padx=2)
+            self.edge_gap_top_entry.bind('<Return>', lambda e: self.on_individual_edge_gap_changed())
+            self.edge_gap_top_entry.bind('<FocusOut>', lambda e: self.on_individual_edge_gap_changed())
+            
+            # Right edge gap
+            ttk.Label(individual_gaps_frame, text='Right:', font=('TkDefaultFont', 9)).grid(row=0, column=2, sticky='w', padx=(8,2))
+            self.edge_gap_right_var = tk.StringVar(value='0.0')
+            self.edge_gap_right_entry = ttk.Entry(individual_gaps_frame, textvariable=self.edge_gap_right_var, width=6)
+            self.edge_gap_right_entry.grid(row=0, column=3, sticky='w', padx=2)
+            self.edge_gap_right_entry.bind('<Return>', lambda e: self.on_individual_edge_gap_changed())
+            self.edge_gap_right_entry.bind('<FocusOut>', lambda e: self.on_individual_edge_gap_changed())
+            
+            # Bottom edge gap
+            ttk.Label(individual_gaps_frame, text='Bottom:', font=('TkDefaultFont', 9)).grid(row=1, column=0, sticky='w', padx=(0,2), pady=(2,0))
+            self.edge_gap_bottom_var = tk.StringVar(value='0.0')
+            self.edge_gap_bottom_entry = ttk.Entry(individual_gaps_frame, textvariable=self.edge_gap_bottom_var, width=6)
+            self.edge_gap_bottom_entry.grid(row=1, column=1, sticky='w', padx=2, pady=(2,0))
+            self.edge_gap_bottom_entry.bind('<Return>', lambda e: self.on_individual_edge_gap_changed())
+            self.edge_gap_bottom_entry.bind('<FocusOut>', lambda e: self.on_individual_edge_gap_changed())
+            
+            # Left edge gap
+            ttk.Label(individual_gaps_frame, text='Left:', font=('TkDefaultFont', 9)).grid(row=1, column=2, sticky='w', padx=(8,2), pady=(2,0))
+            self.edge_gap_left_var = tk.StringVar(value='0.0')
+            self.edge_gap_left_entry = ttk.Entry(individual_gaps_frame, textvariable=self.edge_gap_left_var, width=6)
+            self.edge_gap_left_entry.grid(row=1, column=3, sticky='w', padx=2, pady=(2,0))
+            self.edge_gap_left_entry.bind('<Return>', lambda e: self.on_individual_edge_gap_changed())
+            self.edge_gap_left_entry.bind('<FocusOut>', lambda e: self.on_individual_edge_gap_changed())
         
         # Photo weight rows (will be populated dynamically)
         self.weight_widgets = []  # List of (item_label, desired_entry, actual_label) for photos and texts
@@ -1395,8 +1437,7 @@ class LayoutViewer:
         self.modified_pages.add(pageno)
         self._update_modified_pages_display()
         
-        # Set preferred sizes for ALL photos (existing + new) based on EXIF data
-        # and populate photo_dimensions cache for algorithm use
+        # Populate photo_dimensions cache for algorithm (all photos)
         for photo in all_photos:
             filename = photo.get('filename', '')
             if not filename:
@@ -1415,11 +1456,22 @@ class LayoutViewer:
                     img_path = Path(self.mcf_base_folder) / safefn
             
             if img_path.exists():
-                preferred_size = get_photo_preferred_size(img_path)
                 # Populate dimensions cache for algorithm
                 dims = get_image_dimensions(img_path)
                 if dims:
                     self.photo_dimensions[filename] = dims
+        
+        # Set preferred sizes for NEW photos only (don't override existing photo preferences)
+        for photo in new_photos:
+            filename = photo.get('filename', '')
+            if not filename:
+                continue
+            
+            # Resolve photo path from staged source
+            img_path = Path(photo['_source_path'])
+            
+            if img_path.exists():
+                preferred_size = get_photo_preferred_size(img_path)
             else:
                 preferred_size = 1.0
             
@@ -1669,18 +1721,23 @@ class LayoutViewer:
         
         # Update gap displays (convert MCF units to mm: 1 MCF unit = 0.1mm)
         # For calendars with non-uniform edge gaps, show 'Fixed' in UI
-        # For others, show average of all 4 edge gaps
+        # For others, show average of all edge gaps
         if self.is_calendar:
             self.edge_gap_var.set('Fixed')
         else:
-            # Average of all 4 edges for display
-            avg_edge_gap_mm = (current_edge_gap['top'] + current_edge_gap['bottom'] + 
-                              current_edge_gap['left'] + current_edge_gap['right']) / 40.0  # /4 edges, /10 for mm
+            # Show average of the 4 edge gaps (top, bottom, left, right)
+            avg_edge_gap_mm = (current_edge_gap['top'] + current_edge_gap['bottom'] +
+                                    current_edge_gap['left'] + current_edge_gap['right']) / 40.0
             self.edge_gap_var.set(f'{avg_edge_gap_mm:.1f}')
-        
-        gap_mm = current_internal_gap / 10.0
-        self.gap_var.set(f'{gap_mm:.1f}')
-        
+            
+            # Update individual edge gap fields
+            self.edge_gap_top_var.set(f'{current_edge_gap["top"] / 10.0:.1f}')
+            self.edge_gap_right_var.set(f'{current_edge_gap["right"] / 10.0:.1f}')
+            self.edge_gap_bottom_var.set(f'{current_edge_gap["bottom"] / 10.0:.1f}')
+            self.edge_gap_left_var.set(f'{current_edge_gap["left"] / 10.0:.1f}')
+
+        self.internal_gap_var.set(f'{current_internal_gap / 10.0:.1f}')         
+
         # Clear existing weight widgets
         for widgets in self.weight_widgets:
             for w in widgets:
@@ -2243,6 +2300,13 @@ class LayoutViewer:
             # Update stored gap value
             self.layout_mgr.set_edge_gap(pageno, new_edge_gap)
             
+            # Update individual edge gap displays to match the uniform value
+            if not self.is_calendar:
+                self.edge_gap_top_var.set(f'{edge_gap_mm:.1f}')
+                self.edge_gap_right_var.set(f'{edge_gap_mm:.1f}')
+                self.edge_gap_bottom_var.set(f'{edge_gap_mm:.1f}')
+                self.edge_gap_left_var.set(f'{edge_gap_mm:.1f}')
+            
             # Mark page(s) as modified
             self._mark_current_pages_modified()
             
@@ -2279,12 +2343,12 @@ class LayoutViewer:
             old_internal_gap = self.layout_mgr.get_internal_gap(pageno)
             
             # Parse and validate NEW internal gap
-            gap_mm = float(self.gap_var.get())
+            gap_mm = float(self.internal_gap_var.get())
             new_internal_gap = gap_mm * 10.0  # Convert mm to MCF units
             if not (0.0 <= new_internal_gap <= 200.0):  # Reasonable bounds (0-20mm)
                 self.show_status(f"Invalid internal gap: {gap_mm:.1f}mm (must be 0 to 20mm)", error=True)
                 # Restore previous valid value
-                self.gap_var.set(f"{old_internal_gap / 10.0:.1f}")
+                self.internal_gap_var.set(f"{old_internal_gap / 10.0:.1f}")
                 return
             
             # Transform current layout using gap change
@@ -2312,8 +2376,98 @@ class LayoutViewer:
             self.render_page()
         except ValueError as e:
             # Show error and restore previous value
-            self.show_status(f"Invalid internal gap value: {self.gap_var.get()}", error=True)
-            self.gap_var.set(f"{old_internal_gap / 10.0:.1f}")
+            self.show_status(f"Invalid internal gap value: {self.internal_gap_var.get()}", error=True)
+            self.internal_gap_var.set(f"{old_internal_gap / 10.0:.1f}")
+    
+    def on_individual_edge_gap_changed(self):
+        """Handle individual edge gap entry changes (top, right, bottom, left).
+        
+        When individual edge gaps change, transform layout: MCF → gap-free (old gaps) → MCF (new gaps).
+        This adjusts item positions/sizes to match the new gap values.
+        """
+        if not self.pages:
+            return
+        try:
+            pageno, info = self.pages[self.index]
+            
+            # For calendars, edge gap cannot be changed - return early
+            if self.is_calendar:
+                self.show_status("Edge gap is fixed for calendars and cannot be changed", error=False)
+                return
+            
+            # Get OLD gaps before changing
+            old_edge_gap = self.layout_mgr.get_edge_gap(pageno)
+            old_internal_gap = self.layout_mgr.get_internal_gap(pageno)
+            
+            # Parse and validate NEW individual edge gaps
+            try:
+                top_mm = float(self.edge_gap_top_var.get())
+                right_mm = float(self.edge_gap_right_var.get())
+                bottom_mm = float(self.edge_gap_bottom_var.get())
+                left_mm = float(self.edge_gap_left_var.get())
+            except ValueError:
+                self.show_status("Invalid edge gap value - must be a number", error=True)
+                # Restore previous values
+                self.edge_gap_top_var.set(f'{old_edge_gap["top"] / 10.0:.1f}')
+                self.edge_gap_right_var.set(f'{old_edge_gap["right"] / 10.0:.1f}')
+                self.edge_gap_bottom_var.set(f'{old_edge_gap["bottom"] / 10.0:.1f}')
+                self.edge_gap_left_var.set(f'{old_edge_gap["left"] / 10.0:.1f}')
+                return
+            
+            # Convert mm to MCF units
+            top_mcf = top_mm * 10.0
+            right_mcf = right_mm * 10.0
+            bottom_mcf = bottom_mm * 10.0
+            left_mcf = left_mm * 10.0
+            
+            # Validate bounds (-20mm to +20mm)
+            if not all(-200.0 <= val <= 200.0 for val in [top_mcf, right_mcf, bottom_mcf, left_mcf]):
+                self.show_status("Invalid edge gap: must be between -20mm and +20mm", error=True)
+                # Restore previous values
+                self.edge_gap_top_var.set(f'{old_edge_gap["top"] / 10.0:.1f}')
+                self.edge_gap_right_var.set(f'{old_edge_gap["right"] / 10.0:.1f}')
+                self.edge_gap_bottom_var.set(f'{old_edge_gap["bottom"] / 10.0:.1f}')
+                self.edge_gap_left_var.set(f'{old_edge_gap["left"] / 10.0:.1f}')
+                return
+            
+            # Create new edge gap dict with individual values
+            new_edge_gap = make_edge_gap(top_mcf, bottom_mcf, left_mcf, right_mcf)
+            
+            # Transform current layout using gap change
+            self._transform_layout_for_gap_change(
+                pageno, old_edge_gap, old_internal_gap, new_edge_gap, old_internal_gap
+            )
+            
+            # Update stored gap value
+            self.layout_mgr.set_edge_gap(pageno, new_edge_gap)
+            
+            # Update average edge gap display
+            avg_edge_gap_mm = (top_mcf + right_mcf + bottom_mcf + left_mcf) / 40.0
+            self.edge_gap_var.set(f'{avg_edge_gap_mm:.1f}')
+            
+            # Mark page(s) as modified
+            self._mark_current_pages_modified()
+            
+            # Report gap variations after edge gap change
+            current_layout = self.layout_mgr.get_current(pageno)
+            if current_layout and (current_layout.photos or current_layout.texts):
+                all_items = current_layout.photos + current_layout.texts
+                page_w = info.get('page_width')
+                page_h = info.get('page_height')
+                origin_left = info.get('origin_left', 0.0)
+                analysis = analyze_gap_details(all_items, page_w, page_h, origin_left, self.spread_mode.get())
+                report_gap_variations(analysis, pageno)
+            
+            # Re-render with adjusted layout
+            self.render_page()
+        except Exception as e:
+            # Show error and restore previous values
+            self.show_status(f"Error updating edge gaps: {e}", error=True)
+            old_edge_gap = self.layout_mgr.get_edge_gap(pageno)
+            self.edge_gap_top_var.set(f'{old_edge_gap["top"] / 10.0:.1f}')
+            self.edge_gap_right_var.set(f'{old_edge_gap["right"] / 10.0:.1f}')
+            self.edge_gap_bottom_var.set(f'{old_edge_gap["bottom"] / 10.0:.1f}')
+            self.edge_gap_left_var.set(f'{old_edge_gap["left"] / 10.0:.1f}')
     
     def _transform_layout_for_gap_change(self, pageno, old_edge_gap, old_internal_gap,
                                           new_edge_gap, new_internal_gap):
