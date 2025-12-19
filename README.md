@@ -17,7 +17,7 @@ pip install -r requirements.txt
 2. Run the diagnostic just to list all page contents of an unpacked `.xmcf` folder or `.mcf` file. This is perhaps a useful first step to reassure you that the tool correctly understands your photobook:
 
 ```bash
-python run_qlayout.py --cewe /path/to/Test-album.xmcf --nogui
+python run_qlayout.py --cewe /path/to/My-album.xmcf --nogui
 ```
 
 Note that if your photobook is stored in the newest '.mcfx' format ('x' at the end of the extension, not the start), that means your book's "files" have been put into an SQLite database and are one big blob. You will need to open the photobook in CEWE Creator and "Save As" the older file format.  At some point I might build in direct support for the database, but given we need to both read and write, that will require more careful work and testing... (feel free to contribute).
@@ -25,31 +25,46 @@ Note that if your photobook is stored in the newest '.mcfx' format ('x' at the e
 3. Run the full tool (with GUI) against an unpacked `.xmcf` folder or `.mcf` file. Now you can use the GUI to interactively and algorithmically modify layouts in your photobook, and save them, etc (just remove the '--nogui' flag)
 
 ```bash
-python run_qlayout.py --cewe /path/to/Test-album.xmcf
+python run_qlayout.py --cewe /path/to/My-album.xmcf
 ```
+
+Note that on MacOS, CEWE registers the ".xmcf" directory extension with MacOS so that this directory (which contains the data.mcf file and all the photos it references), appears as a single bundle -- which you can double-click on to launch CEWE Creator and open the photobook.  If you want to peer inside the directory in the Finder, right click on it and select "Show Package Contents".
 
 **Workflow**
 
-You have to work indepedently in QLayout vs in Cewe Creator.  In general you should only have one of the two applications open (with the same book.xmcf) at any one time.  So close one, work in the other, repeat until your book is done... In case you forget this "work independently" instruction, you should generally not worry about file corruption - but you should worry that important layout work you've done in one tool is going to be overwritten by the other.  So you will be wasting time and effort.
+You have to work indepedently in QLayout vs in Cewe Creator.  In general you should only have one of the two applications open (with the same photobook) at any one time.  So close one, work in the other, repeat until your book is done... In case you forget this "work independently" instruction, you should generally not worry about file corruption - but you should worry that important layout work you've done in one tool is going to be overwritten by the other.  So you will be wasting time and effort.
 
 Here's my current workflow:
-1) Select all my favourite photos in MacOS photos and _export_ _copies_ of them to a directory. If it is easy for you to do so, before exporting tag the very best photos with either "4 star" or "5 star" as keywords. CEWE Creator and QLayout can handle jpeg and png, but not heif/heic (sadly).
+1) Select all your favourite photos in MacOS photos and _export_ _copies_ of them to a directory. If it is easy for you to do so, before exporting tag the very best photos with either "4 star" or "5 star" as keywords. CEWE Creator and QLayout can handle jpeg and png, but not heif/heic (sadly).
 2) Run QLayout with "-renamephotos" to name all of the photos according to date (and according to 4/5 star keywords).
-3) Use CEWE Creator to create a new book (of the size/style you want) with loads of empty pages. Save it in the xmcf or mcf format. Quit.
+3) Use CEWE Creator to create a new photo-book (of the size/style you want) with loads of empty pages. Save it in the xmcf or mcf format. Quit.
 4) If your photobook is called "MyBook.xmcf" then put the directory with all your photos next to it, and rename the directory to be called "MyBook-photos".
 5) Run QLayout. The first empty page of your book will open automatically.
 6) Examine your photos, in approximate date order, and drag and drop as many photos as you want onto that empty page.
-7) Run the "Fan-GA" algorithm.  Tweak slot aspect ratio and "preferred size" for any of the photos you want -- simplest is to give the very best 2-4 photos a preferred size of somewhere between 3.0 and 6.0.
+7) Run the "Fan-GA" algorithm.  Tweak slot aspect ratio and "preferred size" for any of the photos you want -- simplest is to give the very best 2-4 photos a preferred size of somewhere between 3.0 and 6.0.  If you want an exact grid layout, try the "Gridify" algorithm instead.
 8) Re-run the "Fan-GA" algorithm. Sometimes you might wish to re-run the algorithm a few times to check out the different results and pick the one you like best. If you don't quite like any, you can delete some photos, add some new photos and try again.
 9) Hit "Save Modified" when you are done with the page.  The photos used disappear from your "-photos" directory - they've been moved into the photo album. This is very helpful, since you can then focus only on the photos you've not yet added. If there are photos I've decided I no longer want, I simply delete them from the "-photos" directory (they are exported copies, so no harm deleting them).
-10) Move to the next empty page and go back to step 6.
+10) Move to the next empty page and go back to step 6. If you have no more empty pages, open in CEWE Creator to add some more.
 
-Once you're done: open the book in CEWE Creator and do any fine-tuning you wish. 
+Once you're done: open the book in CEWE Creator and do any fine-tuning you wish. Typically:
+- Adjust zoom levels of photos
+- Adjust photo cropping (in general the QLayout algorithms produce layouts which require almost zero cropping, so this is normally only required if you zoom into your photos)
+- Change the background colour
+- Edit/adjust text boxes
+- Use any of the many other decorative features CEWE provide.
 
-Optional steps in QLayout:
-1) You can also use the "Gap Perfecter" to ensure all edge gaps and internal gaps on a page are identical - fixing minor imperfections or overlaps.
-2) You can use the "Gridify" algorithm for some layouts.
-3) Export PDF - this exports just a single page of photos (no texts) so you can examine carefully.
+Optional additional steps in QLayout:
+- Use the "Gap Perfecter" algorithm to ensure all edge gaps and internal gaps on a page are identical - fixing minor imperfections or overlaps.
+- Adjust the "Edge Gap" and "Internal Gap" - on some pages you might want a large gap, on others no gap at all.  Note that an edge-gap of -3.0mm is
+  what CEWE suggests for full-page layouts. The 3.0mm bleed ensures a neat edge to the page.
+- Export PDF - this is a quick export of just a single page of photos (no texts) so you can examine carefully.
+
+You can obviously go back and forth between CEWE Creator and QLayout as often as you wish.
+
+Finally:
+1) Order the photobook from CEWE.
+2) Use (separate) cewe2pdf project from github to export a high-quality, accurate PDF of your entire photobook.
+3) Backup both your photobook and pdf copy for safe-keeping.
 
 **Adding Photos to a Page**
 
@@ -66,16 +81,9 @@ When photos are added:
 3. Initial layout rectangles are created (overlapping at the top of the page for easy visibility)
 4. You can then use any layout algorithm (Collage-Gen, Fan-GA, etc.) to arrange them nicely
 
-Details for the technically minded:
-- Saving a modified page layout in QLayout will successfully modify the data.mcf xml file inside your Cewe book project. BUT, if that book is already open in Cewe Creator (CC) application, then CC will NOT notice that the layout has changed. You will need to close the project and re-open it for CC to notice the layout changes.  Unfortunately this means that the workflow you adopt cannot efficiently include making adjustments to a Page in both QLayout and CC while moving back and forth between the two applications.
-- Similarly if you modify+save a page in QLayout and modify anything else in CC (even things completely unrelated to the earlier page) and "Save" the book in CC, the "Save" in CC will overwrite the changes you have just made from QLayout. Clearly CC maintains an in-memory copy of the book and writes the entire book to disk afresh every time you "Save".
-- So, in short, while working with QLayout you are best not to have the book open in CC.  So: Close CC. Work with QLayout. Then open CC.  (If you absolutely have to have CC open, treat it as a read-only tool, and do NOT accidentally "Save" else your QLayout changes will be overwritten).
-- Note that while QLayout is designed only to modify the location and size of photos and text blocks on pages in the data.mcf xml file, it does also rewrite the entire xml file. Its approach is to generically load the large xml file (most of which it does not understand!), and only manipulate the location/size portions of the file, and then generically save the entire xml file (while also making a backup of the original)
-- There does not seem to be any risk of file corruption, except perhaps if you choose to hit "Save" in both applications simultaneously. And we do make backups of original xml files, but of course use at your own risk.
-
 **TO DO and possible ideas**
 
-- Refine handling of front/back-covers & spine, and validate we have all margins correct for those special pages.
+- Validate we have bleed/margins correct for front and back cover ("special pages").
 - More/better layout clean-up/fine-tuning algorithms?
 
 **Other capabilities**
@@ -87,15 +95,23 @@ Calendar (experimental): again limited support for editing the 12 monthly pages 
 PDF Export: for testing purposes, you can export a PDF file render of a single page, containing just the photos. 
 This export does not contain any of the cleverness of the cewe2pdf project, and supports no other visual features than the photos themselves. It is meant just for generating a single page collage-style multi-photo PDF.
 
-PDF import: some work towards importing an old PDF file and creating a .xmcf CEWE-compatible album from it, automatically.  Use '--startingPdf Album.pdf' on the command line.  And then, if necessary, apply various algorithms to identify/extract photos from each page (if the fully automatic import hasn't quite identified photos correctly).
+PDF import: some work towards importing an old PDF file and creating a .xmcf CEWE-compatible album from it, automatically.  Use '--originalPdf Album.pdf' on the command line.  And then, if necessary, apply various algorithms to identify/extract photos from each page (if the fully automatic import hasn't quite identified photos correctly).  I've used this to turn old PDFs from Mimeo-photos exports into editable photobooks again.
 
-Photo improver (experimental): building on top of the PDF import, search in a directory of photos for higher quality instances of the photos extracted from the PDF, so that you can enhance the digital photo album and potentially print at higher quality.
+Photo improver (experimental): building on top of the PDF import, search in a directory of photos for higher quality instances of the photos extracted from the PDF, so that you can enhance the digital photo album and potentially re-print at higher quality.
 
 **Safety features**
 
 QLayout does a few things to help lower the risk of problems when editing your photobook:
 1. When saving a page, which modifies the xml file, it validates (after saving) both that the correct number of photos and text blocks are indeed in that xml file, and that the referenced photo files do actually exist.
-2. When moving photos into the photo-book, QLayout renames the jpeg files by adding a "-pg" suffix containing the page they have been saved into. In this way if you need to manually look for photos, it is easy to find the right ones inside the book.
+2. When moving photos into the photo-book, QLayout renames the jpeg/png files by adding a "-pg" suffix containing the page they have been saved into. In this way if you need to manually look for photos, it is easy to find the right ones inside the book.
+3. When removing photos from the photo-book, QLayout moves them out of the CEWE directory into your "<Album>-photos" directory. So their files are not deleted from your disk.
+
+Details for the technically minded:
+- Saving a modified page layout in QLayout will successfully modify the data.mcf xml file inside your Cewe book project. BUT, if that book is already open in Cewe Creator (CC) application, then CC will NOT notice that the layout has changed. You will need to close the project and re-open it for CC to notice the layout changes.  Unfortunately this means that the workflow you adopt cannot efficiently include making adjustments to a Page in both QLayout and CC while moving back and forth between the two applications.
+- Similarly if you modify+save a page in QLayout and modify anything else in CC (even things completely unrelated to the earlier page) and "Save" the book in CC, the "Save" in CC will overwrite the changes you have just made from QLayout. Clearly CC maintains an in-memory copy of the book and writes the entire book to disk afresh every time you "Save".
+- So, in short, while working with QLayout you are best not to have the book open in CC.  So: Close CC. Work with QLayout. Then open CC.  (If you absolutely have to have CC open, treat it as a read-only tool, and do NOT accidentally "Save" else your QLayout changes will be overwritten).
+- Note that while QLayout is designed only to modify the location and size of photos and text blocks on pages in the data.mcf xml file, it does also rewrite the entire xml file. Its approach is to generically load the large xml file (most of which it does not understand!), and only manipulate the location/size portions of the file, and then generically save the entire xml file (while also making a backup of the original)
+- There does not seem to be any risk of file corruption, except perhaps if you choose to hit "Save" in both applications simultaneously. And we do make backups of original xml files, but of course use at your own risk.
 
 **Layout Algorithms**
 
