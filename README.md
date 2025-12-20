@@ -2,7 +2,9 @@
 
 Utility to parse CEWE `.mcf` / `.xmcf` photobook files, inspect page photo and text slots and interactively generate new layouts.  It is intended to help you make great CEWE photobooks. It is not a replacement for the Cewe Creator software (and never will be). You will absolutely want to use that as well as this tool.  The problem this tool aims to solve is that it is painful, slow and cumbersome to make nice photo layouts with 5 to 15 photos in Cewe Creator. The clever auto-layout tools provided by Cewe are (for my use cases) completely unhelpful. Hence this tool.
 
-The primary workflow step I aim to dramatically improve is this one: you have 11 photos you want to place on a single page. 2 of them are more important and should be approximately 3x the size of the others. You want to produce a nice-looking layout which achieves that aim, and where the photos collectively occupy most of the page (with edge gaps and internal gaps easily configurable and precisely aligned).  And you want to do that in seconds, not 10s of minutes...  Using this tool, I've now built more than one 100+ page photobook that looks great, in very little time, and with very little hassle.  After some quick fine-tuning in CEWE's software I can then get them purchased/printed.
+The primary workflow step I aim to dramatically improve is this one: you have 11 photos you want to place on a single page. 3 of them are more important and should be approximately 4x the size of the others, two other photos would also preferably be a bit larger than the rest, say 2x the size. You want to produce a nice-looking layout which achieves these aims, and where the photos collectively occupy most of the page (with edge gaps and internal gaps easily configurable and precisely aligned).  And you want to do that in seconds, not 10s of minutes... And you want to be able to press a button a see different layouts which achieve these aims, so you can pick the one you like the most.
+
+Using this tool, I've now built more than one 100+ page photobook that looks great, in very little time, and with very little hassle.  After some quick fine-tuning in CEWE's software I can then get them purchased, printed & delivered.
 
 **Quickstart**
 
@@ -14,13 +16,13 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-2. Run the diagnostic just to list all page contents of an unpacked `.xmcf` folder or `.mcf` file. This is perhaps a useful first step to reassure you that the tool correctly understands your photobook:
+2. Run the diagnostic just to list all page contents of an unpacked `.xmcf` folder-bundle or `.mcf` file (assuming you already have a partially completed photo-book project). This is perhaps a useful first step to reassure you that the tool correctly understands your photobook:
 
 ```bash
 python run_qlayout.py --cewe /path/to/My-album.xmcf --nogui
 ```
 
-Note that if your photobook is stored in the newest '.mcfx' format ('x' at the end of the extension, not the start), that means your book's "files" have been put into an SQLite database and are one big blob. You will need to open the photobook in CEWE Creator and "Save As" the older file format.  At some point I might build in direct support for the database, but given we need to both read and write, that will require more careful work and testing... (feel free to contribute).
+Note that if your photobook is stored in the newest '.mcfx' format ('x' at the _end_ of the extension, not the start), that means your book's "files" have been put into an SQLite database and are one big blob. You will need to open the photobook in CEWE Creator and "Save As" the older file format.  At some point I might build in direct support for the database, but given we need to both read and write, that will require more careful work and testing... (feel free to contribute).
 
 3. Run the full tool (with GUI) against an unpacked `.xmcf` folder or `.mcf` file. Now you can use the GUI to interactively and algorithmically modify layouts in your photobook, and save them, etc (just remove the '--nogui' flag)
 
@@ -28,23 +30,26 @@ Note that if your photobook is stored in the newest '.mcfx' format ('x' at the e
 python run_qlayout.py --cewe /path/to/My-album.xmcf
 ```
 
-Note that on MacOS, CEWE registers the ".xmcf" directory extension with MacOS so that this directory (which contains the data.mcf file and all the photos it references), appears as a single bundle -- which you can double-click on to launch CEWE Creator and open the photobook.  If you want to peer inside the directory in the Finder, right click on it and select "Show Package Contents".
+Note that on MacOS, CEWE registers the ".xmcf" directory extension with MacOS so that this directory (which contains the data.mcf file and all the photos it references), appears as a single bundle -- which you can double-click on to launch CEWE Creator and open the photobook.  If you want to peer inside the directory in the Finder, right click on it and select "Show Package Contents".  You can also just run with 'python run_qlayout.py --cewe /path/to/My-album.xmcf/data.mcf'
 
 **Workflow**
 
-You have to work indepedently in QLayout vs in Cewe Creator.  In general you should only have one of the two applications open (with the same photobook) at any one time.  So close one, work in the other, repeat until your book is done... In case you forget this "work independently" instruction, you should generally not worry about file corruption - but you should worry that important layout work you've done in one tool is going to be overwritten by the other.  So you will be wasting time and effort.
+You have to work _indepedently_ in QLayout vs in Cewe Creator.  In general you should only have one of the two applications open (with the same photobook) at any one time.  So close one, work in the other, repeat until your book is done... In case you forget this "work independently" instruction, you should generally not worry about file corruption - but you should worry that important layout work you've done in one tool is going to be overwritten by the other.  So you will be wasting time and effort.
 
 Here's my current workflow:
 1) Select all your favourite photos in MacOS Photos (or whatever you use to organise your master photos) and _export_ _copies_ of them to a directory. If it is easy for you to do so, before exporting tag the very best photos with either "4 star" or "5 star" as keywords, and make sure you export those keywords. Note that CEWE Creator, at least on MacOS, can't handle heif/heic (sadly), so stick to jpeg or png.
-2) Run QLayout with "-renamephotos" to name all of the photos according to date (and according to 4/5 star keywords).  For example: python run_qlayout.py --renamephotos path/to/my-directory "yr"
-3) Use CEWE Creator to create a new photo-book (of the size/style you want) with loads of empty pages. Save it in the xmcf or mcf format. Quit.
+2) Optionally, run QLayout with "-renamephotos" to name all of the photos according to date (and according to 4/5 star keywords).  For example: python run_qlayout.py --renamephotos path/to/exported-directory "yr". This isn't _necessary_ but I find it helpful to have a clear photo naming scheme in place.
+3) Use CEWE Creator to create a new photo-book (of the size/style you want) with loads of empty pages. Save it in the older xmcf or mcf format. Quit CEWE Creator.
 4) If your photobook is called "MyBook.xmcf" then put the directory with all your photos next to it, and rename the directory to be called "MyBook-photos".
 5) Run QLayout (python run_qlayout --cewe /path/to/MyBook.xmcf). The first empty page of your book will open automatically.
-6) Examine your photos, in approximate date order, and drag and drop as many photos as you want onto that empty page.
-7) Run the "Fan-GA" algorithm.  Tweak slot aspect ratio and "preferred size" for any of the photos you want -- simplest is to give the very best 2-4 photos a preferred size of somewhere between 3.0 and 6.0.  
-8) Re-run the "Fan-GA" algorithm. Sometimes you might wish to re-run the algorithm a few times to check out the different results and pick the one you like best. If you don't quite like any, you can delete some photos, add some new photos (or a text-box) and try again.  If you want an exact grid layout (e.g. 2 rows of 4 photos, all identically sized), try the "Gridify" algorithm instead of Fan-GA.
-9) Hit "Save Modified" when you are done with the page.  The photos used disappear from your "-photos" directory - they've been moved into the photo album. This is very helpful, since you can then focus only on the photos you've not yet added. If there are photos I've decided I no longer want, I simply delete them from the "-photos" directory (they are exported copies, so no harm deleting them).
-10) Move to the next empty page and go back to step 6. If you have no more empty pages, open in CEWE Creator to add some more.
+6) Examine your photos, in approximate date order (assuming your photo-books are roughly chronological), and drag and drop as many photos as you want onto that empty page.
+7) Run the "Fan-GA" algorithm.  Tweak slot aspect ratio and "preferred size" for any of the photos you want -- simplest is to give the very best 2-4 photos a preferred size of somewhere between 3.0 and 6.0.  This is easy in the UI.
+- Re-run the "Fan-GA" algorithm. Sometimes you might wish to re-run the algorithm a few times to check out the different results and pick the layout you like best. 
+- If you don't quite like any, you can delete some photos, add some new photos (or a text-box) and try again.  
+- If you want an exact grid layout (e.g. 2 rows of 4 photos, all identically sized), try the "Gridify" algorithm instead of Fan-GA.
+- Adjust edge gaps and internal gaps for a different look
+8) Hit "Save Modified" when you are done with the page.  The photos used disappear from your "-photos" directory - they've been moved into the photo album. This is very helpful, since you can then focus only on the photos you've not yet added. If there are photos I've decided I no longer want, I simply delete them from the "-photos" directory (they are exported copies, so no harm deleting them).
+9) Move to the next empty page and go back to step 6. If you have no more empty pages, open in CEWE Creator to add some more.
 
 Once you're done: open the book in CEWE Creator and do any fine-tuning you wish. Typically:
 - Adjust zoom levels of photos
@@ -52,6 +57,7 @@ Once you're done: open the book in CEWE Creator and do any fine-tuning you wish.
 - Change the background colour
 - Edit/adjust text boxes
 - Use any of the many other decorative features CEWE provide.
+...or of course if you want rotated photos or any other creative manual layout.
 
 Optional additional steps in QLayout:
 - Use the "Gap Perfecter" algorithm to ensure all edge gaps and internal gaps on a page are identical - fixing minor imperfections or overlaps.
