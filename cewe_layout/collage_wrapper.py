@@ -147,11 +147,9 @@ def generate_layout_for_page(photos, page_width_mcf, page_height_mcf, photo_dime
     for i, rect1 in enumerate(positioned_rects):
         for j, rect2 in enumerate(positioned_rects[i+1:], start=i+1):
             # Check for rectangle overlap (allowing small tolerance for floating point)
-            if (rect1.x < rect2.x + rect2.width - 1.0 and
-                rect1.x + rect1.width > rect2.x + 1.0 and
-                rect1.y < rect2.y + rect2.height - 1.0 and
-                rect1.y + rect1.height > rect2.y + 1.0):
-                overlapping_pairs.append((rect1.item_id, rect2.item_id))
+            hasOverlap, size = calculate_overlap(rect1, rect2, 1.0)
+            if hasOverlap:
+                overlapping_pairs.append((rect1.item_id, rect2.item_id, size))
     
     if overlapping_pairs:
         page_context = f"Page {pageno}: " if pageno else ""
@@ -175,6 +173,39 @@ def generate_layout_for_page(photos, page_width_mcf, page_height_mcf, photo_dime
     
     return True, updated_photos, updated_texts, ""
 
+
+def calculate_overlap(rect1, rect2, tolerance=1.0):
+    """
+    Calculate if two rectangles overlap and return the overlap area.
+    
+    Args:
+        rect1: First rectangle with attributes x, y, width, height
+        rect2: Second rectangle with attributes x, y, width, height
+        tolerance: Floating point tolerance for overlap detection (default: 1.0)
+    
+    Returns:
+        tuple: (has_overlap: bool, overlap_area: float)
+    """
+    # Check for rectangle overlap
+    has_overlap = (rect1.x < rect2.x + rect2.width - tolerance and
+                   rect1.x + rect1.width > rect2.x + tolerance and
+                   rect1.y < rect2.y + rect2.height - tolerance and
+                   rect1.y + rect1.height > rect2.y + tolerance)
+    
+    if not has_overlap:
+        return False, 0.0
+    
+    # Calculate overlap area
+    overlap_x_start = max(rect1.x, rect2.x)
+    overlap_x_end = min(rect1.x + rect1.width, rect2.x + rect2.width)
+    overlap_y_start = max(rect1.y, rect2.y)
+    overlap_y_end = min(rect1.y + rect1.height, rect2.y + rect2.height)
+    
+    overlap_width = overlap_x_end - overlap_x_start
+    overlap_height = overlap_y_end - overlap_y_start
+    overlap_area = overlap_width * overlap_height
+    
+    return True, overlap_area
 
 def _photos_to_rectangles(photos, photo_dimensions, preferred_sizes=None, edge_gap=0.0, internal_gap=0.0, use_slot_aspect=None, slot_aspect_ratios=None, origin_left=0.0, is_spread=False, is_left_page=True, has_full_bleed=False):
     """

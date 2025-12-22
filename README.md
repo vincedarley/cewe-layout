@@ -2,7 +2,7 @@
 
 Utility to parse CEWE `.mcf` / `.xmcf` photobook files, inspect page photo and text slots and interactively generate new layouts.  It is intended to help you make great CEWE photobooks. It is not a replacement for the Cewe Creator software (and never will be). You will absolutely want to use that as well as this tool.  The problem this tool aims to solve is that it is painful, slow and cumbersome to make nice photo layouts with 5 to 15 photos in Cewe Creator. The clever auto-layout tools provided by Cewe are (for my use cases) completely unhelpful. Hence this tool.
 
-The primary workflow step I aim to dramatically improve is this one: you have 11 photos you want to place on a single page. 3 of them are more important and should be approximately 4x the size of the others, two other photos would also preferably be a bit larger than the rest, say 2x the size. You want to produce a nice-looking layout which achieves these aims, and where the photos collectively occupy most of the page (with edge gaps and internal gaps easily configurable and precisely aligned).  And you want to do that in seconds, not 10s of minutes... And you want to be able to press a button a see different layouts which achieve these aims, so you can pick the one you like the most.
+The primary workflow step I aim to dramatically improve is this one: you have 11 photos you want to place on a single page. 3 of them are more important and should be approximately 4x the size of the others, two other photos would also preferably be a bit larger than the rest, say 2x the size. You want to produce a nice-looking layout which achieves these aims, and where the photos collectively occupy most of the page (with edge gaps and internal gaps easily configurable and precisely aligned).  Perhaps you want to include 1-2 text boxes in the layout.  And you want to get that beautiful layout in seconds, not 10s of minutes... And you want to be able to press a button a see different layouts which achieve these aims, so you can pick the one you like the most.
 
 Using this tool, I've now built more than one 100+ page photobook that looks great, in very little time, and with very little hassle.  After some quick fine-tuning in CEWE's software I can then get them purchased, printed & delivered.
 
@@ -24,13 +24,14 @@ python run_qlayout.py --cewe /path/to/My-album.xmcf --nogui
 
 Note that if your photobook is stored in the newest '.mcfx' format ('x' at the _end_ of the extension, not the start), that means your book's "files" have been put into an SQLite database and are one big blob. You will need to open the photobook in CEWE Creator and "Save As" the older file format.  At some point I might build in direct support for the database, but given we need to both read and write, that will require more careful work and testing... (feel free to contribute).
 
-3. Run the full tool (with GUI) against an unpacked `.xmcf` folder or `.mcf` file. Now you can use the GUI to interactively and algorithmically modify layouts in your photobook, and save them, etc (just remove the '--nogui' flag)
+3. Run the full tool (with GUI) against an unpacked `.xmcf` folder or `.mcf` file. Now you can use the GUI to interactively and algorithmically modify layouts in your photobook, and save them, etc (just remove the '--nogui' flag), using either of these:
 
 ```bash
 python run_qlayout.py --cewe /path/to/My-album.xmcf
+python run_qlayout.py --cewe /path/to/My-album/data.mcf
 ```
 
-Note that on MacOS, CEWE registers the ".xmcf" directory extension with MacOS so that this directory (which contains the data.mcf file and all the photos it references), appears as a single bundle -- which you can double-click on to launch CEWE Creator and open the photobook.  If you want to peer inside the directory in the Finder, right click on it and select "Show Package Contents".  You can also just run with 'python run_qlayout.py --cewe /path/to/My-album.xmcf/data.mcf'
+Note that on MacOS, CEWE registers the ".xmcf" directory extension with MacOS so that this directory (which contains the data.mcf file and all the photos it references), appears as a single bundle -- which you can double-click on to launch CEWE Creator and open the photobook.  If you want to peer inside the directory in the Finder, right click on it and select "Show Package Contents".
 
 **Workflow**
 
@@ -89,7 +90,7 @@ When photos are added:
 **TO DO and possible ideas**
 
 - Validate we have bleed/margins correct for front and back cover ("special pages").
-- More/better layout clean-up/fine-tuning algorithms?
+- More/better layout clean-up/fine-tuning algorithms? (Gap Perfecter, Gridify, and Tree Builder all have their good and bad aspects in improving layouts).
 
 **Other capabilities**
 
@@ -102,14 +103,14 @@ This export does not contain any of the cleverness of the cewe2pdf project, and 
 
 PDF import: some work towards importing an old PDF file and creating a .xmcf CEWE-compatible album from it, automatically.  Use '--originalPdf Album.pdf' on the command line.  And then, if necessary, apply various algorithms to identify/extract photos from each page (if the fully automatic import hasn't quite identified photos correctly).  I've used this to turn old PDFs from Mimeo-photos exports into editable photobooks again.
 
-Photo improver (experimental): building on top of the PDF import, search in a directory of photos for higher quality instances of the photos extracted from the PDF, so that you can enhance the digital photo album and potentially re-print at higher quality.
+Photo improver (experimental): building on top of the PDF import, search in a directory of photos for higher quality instances of the photos extracted from the PDF, so that you can enhance the digital photo album and potentially re-print at higher quality.  Some of my old Mimeo photo album pdfs are from physically small photo albums and so the resolution saved in the PDFs is sometimes very low. If I want to edit and reprint in a larger size, then help in finding the original photos is useful.
 
 **Safety features**
 
 QLayout does a few things to help lower the risk of problems when editing your photobook:
 1. When saving a page, which modifies the xml file, it validates (after saving) both that the correct number of photos and text blocks are indeed in that xml file, and that the referenced photo files do actually exist.
 2. When moving photos into the photo-book, QLayout renames the jpeg/png files by adding a "-pg" suffix containing the page they have been saved into. In this way if you need to manually look for photos, it is easy to find the right ones inside the book.
-3. When removing photos from the photo-book, QLayout moves them out of the CEWE directory into your "<Album>-photos" directory. So their files are not deleted from your disk.
+3. When removing photos from the photo-book, QLayout moves them out of the CEWE directory into your "Album-photos" directory. So their files are not deleted from your disk.
 
 Details for the technically minded:
 - Saving a modified page layout in QLayout will successfully modify the data.mcf xml file inside your Cewe book project. BUT, if that book is already open in Cewe Creator (CC) application, then CC will NOT notice that the layout has changed. You will need to close the project and re-open it for CC to notice the layout changes.  Unfortunately this means that the workflow you adopt cannot efficiently include making adjustments to a Page in both QLayout and CC while moving back and forth between the two applications.
@@ -122,7 +123,7 @@ Details for the technically minded:
 
 - **[Fan Layout](cewe_layout/algorithms/fan_layout.py)** — Genetic algorithm-based layout using binary slicing trees with O(N) fast evaluation, based on [Fan, Jian (2012)](https://ieeexplore.ieee.org/document/6267282). Uses crossover and mutation operators to explore the layout space, balancing canvas coverage and photo size distribution. Best for generating completely new layouts from scratch.
 
-- **[Gap Perfecter]** - Tries to ensure all gaps (internal gaps and edge gaps) are identical across the layout, and fixes small overlaps. It will only work effectively on a layout that is "nearly perfect" and will try to make it completely perfect.  If it doesn't work on your layout, just hit Undo.
+- **[Gap Perfecter](cewe_layout/algorithms/gap_perfecter.py)** - Tries to ensure all gaps (internal gaps and edge gaps) are identical across the layout, and fixes small overlaps. It will only work effectively on a layout that is "nearly perfect" and will try to make it completely perfect.  If it doesn't work on your layout, just hit Undo.
 
 - **[Collage Generator](cewe_layout/algorithms/collage_generator.py)** — Content-preserved photo collage algorithm based on [Wu & Aizawa (2016)](https://www.researchgate.net/publication/269455490_Very_fast_generation_of_content_preserved_photo_collage_under_canvas_size_constraint). Uses greedy tree construction to preserve aspect ratios while maximizing canvas coverage. Adapted from [n-gao's implementation](https://github.com/n-gao/collage-generator).
 

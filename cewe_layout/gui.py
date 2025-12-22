@@ -381,15 +381,16 @@ class LayoutViewer:
             )
             self.segmentation_algorithm_combo.pack(side='left')
         
-        # Row 2.5: Photo improvement controls (always shown)
-        improve_frame = ttk.Frame(self.ctrlWin)
-        row_num = 3 if self.pdf_content else 2
-        improve_frame.grid(row=row_num, column=0, columnspan=2, sticky='w', padx=4, pady=4)
+        # Row 2.5: Photo improvement controls (only shown if pdf_content is available)
+        if self.pdf_content:
+            improve_frame = ttk.Frame(self.ctrlWin)
+            row_num = 3 if self.pdf_content else 2
+            improve_frame.grid(row=row_num, column=0, columnspan=2, sticky='w', padx=4, pady=4)
         
-        ttk.Label(improve_frame, text='Improve:').pack(side='left', padx=(0,4))
-        improve_search_btn = ttk.Button(improve_frame, text='Search', command=self._search_photo_improvements)
-        improve_search_btn.pack(side='left', padx=(0,4))
-        ttk.Label(improve_frame, text='(finds better quality photos in -photos directory)').pack(side='left', padx=(4,0))
+            ttk.Label(improve_frame, text='Improve:').pack(side='left', padx=(0,4))
+            improve_search_btn = ttk.Button(improve_frame, text='Search', command=self._search_photo_improvements)
+            improve_search_btn.pack(side='left', padx=(0,4))
+            ttk.Label(improve_frame, text='(finds better quality photos in -photos directory)').pack(side='left', padx=(4,0))
         
         # Row 3: Modified pages label (pack label and value tightly)
         modified_frame = ttk.Frame(self.ctrlWin)
