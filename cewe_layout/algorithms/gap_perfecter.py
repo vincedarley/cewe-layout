@@ -183,13 +183,13 @@ class GapPerfecterAlgorithm(LayoutAlgorithm):
         """
         # Find the rightmost edge of any previous rect to our left (with Y overlap)
         target_left = 0.0  # Default: expand to page left edge
-        left_neighbor = None  # Track which rect is our left neighbor
+        left_neighbors = []  # Track all rects to our left with vertical overlap
         for prev in previous_rects:
             if self._has_vertical_overlap(rect, prev) and prev.x + prev.width <= rect.x:
                 # Previous rect is to our left and has vertical overlap
                 if prev.x + prev.width > target_left:
                     target_left = prev.x + prev.width
-                    left_neighbor = prev
+                left_neighbors.append(prev)
         
         # Expand left if there's a gap AND within 15mm of target
         if target_left < rect.x:
@@ -199,25 +199,26 @@ class GapPerfecterAlgorithm(LayoutAlgorithm):
                 rect.width += gap  # Increase width
                 rect.x = max(0.0, target_left)  # Move left, but not below 0
         
-        # Align bottom with left neighbor if within 5mm
-        if left_neighbor is not None:
+        # Align bottom with any left neighbor if within 5mm
+        for left_neighbor in left_neighbors:
             left_bottom = left_neighbor.y + left_neighbor.height
             our_bottom = rect.y + rect.height
             bottom_diff = abs(our_bottom - left_bottom)
             
             if bottom_diff < self.ALIGNMENT_TOLERANCE:
-                # Align our bottom with left neighbor's bottom
+                # Align our bottom with this neighbor's bottom
                 rect.height = left_bottom - rect.y
+                break  # Only align to first match
         
         # Find the bottommost edge of any previous rect above us (with X overlap)
         target_top = 0.0  # Default: expand to page top edge
-        top_neighbor = None  # Track which rect is our top neighbor
+        top_neighbors = []  # Track all rects above us with horizontal overlap
         for prev in previous_rects:
             if self._has_horizontal_overlap(rect, prev) and prev.y + prev.height <= rect.y:
                 # Previous rect is above us and has horizontal overlap
                 if prev.y + prev.height > target_top:
                     target_top = prev.y + prev.height
-                    top_neighbor = prev
+                top_neighbors.append(prev)
         
         # Expand top if there's a gap AND within 15mm of target
         if target_top < rect.y:
@@ -227,15 +228,16 @@ class GapPerfecterAlgorithm(LayoutAlgorithm):
                 rect.height += gap  # Increase height
                 rect.y = max(0.0, target_top)  # Move up, but not below 0
         
-        # Align right edge with top neighbor if within 5mm
-        if top_neighbor is not None:
+        # Align right edge with any top neighbor if within 5mm
+        for top_neighbor in top_neighbors:
             top_right = top_neighbor.x + top_neighbor.width
             our_right = rect.x + rect.width
             right_diff = abs(our_right - top_right)
             
             if right_diff < self.ALIGNMENT_TOLERANCE:
-                # Align our right with top neighbor's right
+                # Align our right with this neighbor's right
                 rect.width = top_right - rect.x
+                break  # Only align to first match
     
     def _expand_to_right_edge_if_close(self, rect: LayoutRectangle, page_width: float) -> None:
         """

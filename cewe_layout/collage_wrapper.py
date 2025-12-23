@@ -153,7 +153,7 @@ def generate_layout_for_page(photos, page_width_mcf, page_height_mcf, photo_dime
     
     if overlapping_pairs:
         page_context = f"Page {pageno}: " if pageno else ""
-        pair_strs = [f"({id1}, {id2})" for id1, id2 in overlapping_pairs]
+        pair_strs = [f"({id1}, {id2})" for id1, id2, overlap_area in overlapping_pairs]
         warnings.append(f"{page_context}INFO: {len(overlapping_pairs)} overlapping item pair(s) detected: {', '.join(pair_strs)} (may be intentional)")
     
     # Log warnings if any
