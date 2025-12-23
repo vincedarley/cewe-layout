@@ -147,9 +147,9 @@ def generate_layout_for_page(photos, page_width_mcf, page_height_mcf, photo_dime
     for i, rect1 in enumerate(positioned_rects):
         for j, rect2 in enumerate(positioned_rects[i+1:], start=i+1):
             # Check for rectangle overlap (allowing small tolerance for floating point)
-            hasOverlap, size = calculate_overlap(rect1, rect2, 1.0)
+            hasOverlap, overlap_area = calculate_overlap(rect1, rect2, 1.0)
             if hasOverlap:
-                overlapping_pairs.append((rect1.item_id, rect2.item_id, size))
+                overlapping_pairs.append((rect1.item_id, rect2.item_id, overlap_area))
     
     if overlapping_pairs:
         page_context = f"Page {pageno}: " if pageno else ""

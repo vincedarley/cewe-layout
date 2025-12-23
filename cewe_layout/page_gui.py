@@ -94,6 +94,7 @@ class PageRenderer:
         self.canvas_image_id = None  # Canvas image item ID
         self.delete_button_pixel = tk.PhotoImage(width=1, height=1)
         self.delete_buttons = []  # Currently displayed delete button widgets
+        self.drag_rectangles = []  # Currently displayed drag rectangle canvas items
         
         # Image caches (for rendering optimization)
         self.cache_full_images = True
@@ -108,7 +109,8 @@ class PageRenderer:
                     is_canvas: bool,
                     delete_callback,
                     show_pdf_composite: bool = False,
-                    protected_inside_covers: list = None) -> None:
+                    protected_inside_covers: list = None,
+                    drag_callback = None) -> None:
         """Render one or more pages to the display.
         
         Args:
@@ -120,6 +122,9 @@ class PageRenderer:
                            Signature: (item_type, page_index, pageno, identifier)
                            where item_type is 'photo' or 'text'
             protected_inside_covers: List of page numbers that are protected (inside covers)
+            drag_callback: Optional callback for photo drag events
+                          Signature: (event_type, pageno, photo_idx, event)
+                          where event_type is 'press', 'motion', 'enter', 'leave', 'release'
         """
         if protected_inside_covers is None:
             protected_inside_covers = []
@@ -184,7 +189,7 @@ class PageRenderer:
             # Render photos for this page
             self._render_photos(img, draw, page_data.photos, frame_x, frame_y, scale, 
                                page_data.origin_left, photo_counter, page_data.pageno, 
-                               delete_button_info, page_bg_color)
+                               delete_button_info, page_bg_color, drag_callback)
             photo_counter += len(page_data.photos)
             
             # Render texts for this page
@@ -217,6 +222,10 @@ class PageRenderer:
         # Show image and create delete buttons
         self._show_image(img)
         self._create_delete_buttons(delete_button_info, delete_callback)
+        
+        # Create invisible drag rectangles for photos if drag_callback provided
+        if drag_callback:
+            self._create_drag_rectangles(delete_button_info, drag_callback)
 
     def render_empty_page(self, canvas_w: int, canvas_h: int, message: str) -> None:
         """Render empty page with message.
@@ -346,8 +355,12 @@ class PageRenderer:
             raise  # Re-raise the exception instead of silently failing
     
     def _render_photos(self, img, draw, photos, frame_x, frame_y, scale, origin_left, 
-                      start_number, pageno, delete_button_info, page_bg_color):
-        """Render photos for a single page."""
+                      start_number, pageno, delete_button_info, page_bg_color, drag_callback=None):
+        """Render photos for a single page.
+        
+        Args:
+            drag_callback: Optional callback for photo drag events
+        """
 
         try:
             from PIL import ImageFont
@@ -461,6 +474,11 @@ class PageRenderer:
                     'filename': fn,
                     'x': int(x1) - 20,  # 20px from right edge
                     'y': int(y0) + 2,   # 2px from top edge
+                    # Store full rectangle coordinates for drag handling
+                    'rect_x0': int(x0),
+                    'rect_y0': int(y0),
+                    'rect_x1': int(x1),
+                    'rect_y1': int(y1),
                 })
     
     def _render_texts(self, draw, texts, frame_x, frame_y, scale, origin_left,
@@ -802,6 +820,122 @@ class PageRenderer:
             )
             btn.place(x=x, y=y)
             self.delete_buttons.append(btn)
+    
+    def _create_drag_rectangles(self, button_info, drag_callback):
+        """Create invisible canvas rectangles for drag-and-drop photo swapping.
+        
+        Args:
+            button_info: List of dicts with photo position info (rect_x0, rect_y0, rect_x1, rect_y1, etc.)
+            drag_callback: Function to call on drag events
+                          Signature: (event_type, pageno, photo_idx, event)
+        """
+        # Clear any existing drag rectangles
+        self.clear_drag_rectangles()
+        
+        # Create invisible rectangles for each photo
+        for info in button_info:
+            if 'photo_index' not in info:
+                continue  # Skip text boxes
+            
+            x0 = info['rect_x0']
+            y0 = info['rect_y0']
+            x1 = info['rect_x1']
+            y1 = info['rect_y1']
+            pageno = info['pageno']
+            photo_idx = info['page_index']  # Use page_index (0-based within page)
+            
+            # Create invisible rectangle (no fill, no outline initially)
+            rect_id = self.canvas.create_rectangle(
+                x0, y0, x1, y1,
+                outline='',
+                width=0,
+                tags=('photo_drag', f'photo_{pageno}_{photo_idx}')
+            )
+            
+            # Bind drag events to this rectangle
+            self.canvas.tag_bind(f'photo_{pageno}_{photo_idx}', '<ButtonPress-1>',
+                                lambda e, pn=pageno, idx=photo_idx: drag_callback('press', pn, idx, e))
+            self.canvas.tag_bind(f'photo_{pageno}_{photo_idx}', '<B1-Motion>',
+                                lambda e, pn=pageno, idx=photo_idx: drag_callback('motion', pn, idx, e))
+            self.canvas.tag_bind(f'photo_{pageno}_{photo_idx}', '<ButtonRelease-1>',
+                                lambda e, pn=pageno, idx=photo_idx: drag_callback('release', pn, idx, e))
+            self.canvas.tag_bind(f'photo_{pageno}_{photo_idx}', '<Enter>',
+                                lambda e, pn=pageno, idx=photo_idx: drag_callback('enter', pn, idx, e))
+            self.canvas.tag_bind(f'photo_{pageno}_{photo_idx}', '<Leave>',
+                                lambda e, pn=pageno, idx=photo_idx: drag_callback('leave', pn, idx, e))
+            
+            self.drag_rectangles.append(rect_id)
+    
+    def clear_drag_rectangles(self):
+        """Clear all drag rectangle canvas items."""
+        for rect_id in self.drag_rectangles:
+            self.canvas.delete(rect_id)
+        self.drag_rectangles.clear()
+    
+    def highlight_photo_as_source(self, rect_id, highlight=True):
+        """Highlight a photo rectangle as drag source (green border).
+        
+        Args:
+            rect_id: Canvas rectangle ID
+            highlight: True to highlight, False to un-highlight
+        """
+        if highlight:
+            self.canvas.itemconfig(rect_id, outline='green', width=3)
+        else:
+            self.canvas.itemconfig(rect_id, outline='', width=0)
+    
+    def highlight_photo_as_target(self, rect_id, highlight=True):
+        """Highlight a photo rectangle as drop target (green border).
+        
+        Args:
+            rect_id: Canvas rectangle ID
+            highlight: True to highlight, False to un-highlight
+        """
+        if highlight:
+            self.canvas.itemconfig(rect_id, outline='green', width=3)
+        else:
+            self.canvas.itemconfig(rect_id, outline='', width=0)
+    
+    def create_drag_thumbnail(self, x, y):
+        """Create a small colored rectangle that follows the cursor during drag.
+        
+        Args:
+            x, y: Canvas coordinates for thumbnail center
+            
+        Returns:
+            Canvas rectangle ID
+        """
+        size = 50  # 50x50 pixel square
+        rect_id = self.canvas.create_rectangle(
+            x - size//2, y - size//2,
+            x + size//2, y + size//2,
+            outline='blue', width=2,
+            fill='lightblue', stipple='gray50',
+            tags='drag_thumbnail'
+        )
+        # Ensure thumbnail is on top
+        self.canvas.tag_raise('drag_thumbnail')
+        return rect_id
+    
+    def update_drag_thumbnail(self, rect_id, x, y):
+        """Update drag thumbnail position to follow cursor.
+        
+        Args:
+            rect_id: Canvas rectangle ID of the thumbnail
+            x, y: New canvas coordinates for thumbnail center
+        """
+        size = 50
+        self.canvas.coords(rect_id,
+                          x - size//2, y - size//2,
+                          x + size//2, y + size//2)
+    
+    def delete_drag_thumbnail(self, rect_id):
+        """Delete the drag thumbnail rectangle.
+        
+        Args:
+            rect_id: Canvas rectangle ID to delete
+        """
+        self.canvas.delete(rect_id)
     
     def get_thumbnail(self, path: str, w: int, h: int):
         """Get thumbnail for an image, using cache if available.

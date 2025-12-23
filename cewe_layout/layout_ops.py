@@ -305,4 +305,52 @@ class LayoutManager:
         # Push updated layout
         self.push_layout(pageno, current.photos, current.texts)
         
+        return True    
+    def swap_photos(self, pageno1, photo_idx1, pageno2, photo_idx2):
+        """Swap two photos in the layout, preserving all metadata.
+        
+        This swaps the complete photo dictionaries (including position, dimensions,
+        rotation, cutout) between two slots. Can swap within same page or across pages.
+        
+        Args:
+            pageno1: Page number for first photo
+            photo_idx1: Index of first photo in its page's photo list
+            pageno2: Page number for second photo
+            photo_idx2: Index of second photo in its page's photo list
+            
+        Returns:
+            True if successful, False if indices invalid or no current layout
+        """
+        # Get current layouts
+        layout1 = self.get_current(pageno1)
+        layout2 = self.get_current(pageno2) if pageno2 != pageno1 else layout1
+        
+        if not layout1 or not layout2:
+            return False
+        
+        # Validate indices
+        if photo_idx1 < 0 or photo_idx1 >= len(layout1.photos):
+            return False
+        if photo_idx2 < 0 or photo_idx2 >= len(layout2.photos):
+            return False
+        
+        if pageno1 == pageno2:
+            # Same page - simple swap within one list
+            photos = list(layout1.photos)
+            photos[photo_idx1], photos[photo_idx2] = photos[photo_idx2], photos[photo_idx1]
+            
+            # Push updated layout (creates undo point)
+            self.push_layout(pageno1, photos, layout1.texts)
+        else:
+            # Cross-page swap - swap between two separate lists
+            photos1 = list(layout1.photos)
+            photos2 = list(layout2.photos)
+            
+            # Swap the photo dictionaries
+            photos1[photo_idx1], photos2[photo_idx2] = photos2[photo_idx2], photos1[photo_idx1]
+            
+            # Push both layouts
+            self.push_layout(pageno1, photos1, layout1.texts)
+            self.push_layout(pageno2, photos2, layout2.texts)
+        
         return True

@@ -155,6 +155,16 @@ class LayoutViewer:
         # Track photo improvements (photos upgraded with -up suffix)
         self.improved_photos = {}  # Maps original_filename -> improved_filename
         
+        # Photo drag-and-drop state for swapping
+        self.drag_active = False
+        self.drag_source_pageno = None
+        self.drag_source_photo_idx = None
+        self.drag_source_rect_id = None  # Canvas item ID being highlighted as source
+        self.drag_hover_pageno = None
+        self.drag_hover_photo_idx = None
+        self.drag_hover_rect_id = None  # Canvas item ID being highlighted as destination
+        self.drag_thumbnail_id = None  # Canvas item following cursor
+        
         # initialize layout manager with originals from file
         for pageno, info in self.pages:
             self.layout_mgr.set_original(pageno, info.get('photos', []), info.get('texts', []))
@@ -1194,12 +1204,107 @@ class LayoutViewer:
             is_canvas=self.is_canvas,
             delete_callback=self._handle_delete_button_click,
             show_pdf_composite=show_composite,
-            protected_inside_covers=protected_pages
+            protected_inside_covers=protected_pages,
+            drag_callback=self._on_photo_drag_event
         )
         
         # Update control widgets
         self._update_page_range_display()
         self.update_weights_display()
+    
+    def _on_photo_drag_event(self, event_type, pageno, photo_idx, event):
+        """Handle photo drag events for drag-and-drop photo swapping.
+        
+        Args:
+            event_type: 'press', 'motion', 'enter', 'leave', or 'release'
+            pageno: Page number of the photo
+            photo_idx: Index of photo within the page (0-based)
+            event: Tkinter event object with x, y coordinates
+        """
+        if event_type == 'press':
+            # (a) Visual indication - highlight source photo
+            self.drag_active = True
+            self.drag_source_pageno = pageno
+            self.drag_source_photo_idx = photo_idx
+            
+            # Find and highlight the source rectangle
+            tag = f'photo_{pageno}_{photo_idx}'
+            items = self.canvas.find_withtag(tag)
+            if items:
+                self.drag_source_rect_id = items[0]
+                self.page_renderer.highlight_photo_as_source(self.drag_source_rect_id, True)
+        
+        elif event_type == 'motion':
+            # (b) Show thumbnail following cursor
+            if self.drag_active:
+                if not self.drag_thumbnail_id:
+                    self.drag_thumbnail_id = self.page_renderer.create_drag_thumbnail(event.x, event.y)
+                else:
+                    self.page_renderer.update_drag_thumbnail(self.drag_thumbnail_id, event.x, event.y)
+        
+        elif event_type == 'enter':
+            # (c) Highlight destination photo when hovering
+            if self.drag_active:
+                # Don't highlight source photo as destination
+                if not (pageno == self.drag_source_pageno and photo_idx == self.drag_source_photo_idx):
+                    tag = f'photo_{pageno}_{photo_idx}'
+                    items = self.canvas.find_withtag(tag)
+                    if items:
+                        self.drag_hover_rect_id = items[0]
+                        self.drag_hover_pageno = pageno
+                        self.drag_hover_photo_idx = photo_idx
+                        self.page_renderer.highlight_photo_as_target(self.drag_hover_rect_id, True)
+        
+        elif event_type == 'leave':
+            # Un-highlight destination when leaving
+            if self.drag_hover_rect_id:
+                self.page_renderer.highlight_photo_as_target(self.drag_hover_rect_id, False)
+                self.drag_hover_rect_id = None
+                self.drag_hover_pageno = None
+                self.drag_hover_photo_idx = None
+        
+        elif event_type == 'release':
+            # (d) Process swap if over valid destination
+            if self.drag_hover_rect_id and self.drag_hover_pageno is not None:
+                # Execute swap
+                success = self.layout_mgr.swap_photos(
+                    self.drag_source_pageno, self.drag_source_photo_idx,
+                    self.drag_hover_pageno, self.drag_hover_photo_idx
+                )
+                
+                if success:
+                    # Mark page(s) as modified
+                    self.modified_pages.add(self.drag_source_pageno)
+                    if self.drag_hover_pageno != self.drag_source_pageno:
+                        self.modified_pages.add(self.drag_hover_pageno)
+                    self._update_modified_pages_display()
+                    
+                    # Re-render to show swapped photos
+                    self.render_page()
+                    self.show_status(f'Swapped photos')
+                else:
+                    self.show_status('Failed to swap photos', error=True)
+            
+            # Clean up visual state
+            self._clear_photo_drag_state()
+    
+    def _clear_photo_drag_state(self):
+        """Reset all photo drag-related visual state."""
+        if self.drag_source_rect_id:
+            self.page_renderer.highlight_photo_as_source(self.drag_source_rect_id, False)
+        if self.drag_hover_rect_id:
+            self.page_renderer.highlight_photo_as_target(self.drag_hover_rect_id, False)
+        if self.drag_thumbnail_id:
+            self.page_renderer.delete_drag_thumbnail(self.drag_thumbnail_id)
+        
+        self.drag_active = False
+        self.drag_source_pageno = None
+        self.drag_source_photo_idx = None
+        self.drag_source_rect_id = None
+        self.drag_hover_pageno = None
+        self.drag_hover_photo_idx = None
+        self.drag_hover_rect_id = None
+        self.drag_thumbnail_id = None
     
     def _delete_photo(self, photo_index, pageno, filename):
         """Delete a photo from a page layout.
@@ -1411,80 +1516,49 @@ class LayoutViewer:
         existing_photos = current_layout.photos if current_layout else info.get('photos', [])
         existing_texts = current_layout.texts if current_layout else info.get('texts', [])
         
-        # Filter out empty photo slots (photos with no filename)
+        # Filter out empty photo slots (photos with no filename) from existing layout
         non_empty_photos = [p for p in existing_photos if p.get('filename')]
         
-        # Combine non-empty existing photos and new photos
-        all_photos = list(non_empty_photos) + new_photos
-        
-        # Create initial layout rectangles for all photos
+        # Create initial layout positions ONLY for new photos (don't disturb existing layout)
         page_w = info.get('page_width')
         page_h = info.get('page_height')
         origin_left = info.get('origin_left', 0.0)
         
-        layout_photos = self._create_initial_layout(all_photos, page_w, page_h, origin_left)
+        new_photos_with_layout = self._create_initial_layout(new_photos, page_w, page_h, origin_left)
         
-        # Store new layout in layout manager
-        self.layout_mgr.push_layout(pageno, layout_photos, existing_texts)
+        # Append new photos to existing photos (preserves all existing positions and data)
+        all_photos = list(non_empty_photos) + new_photos_with_layout
         
-        # Clear cached slot aspect ratios for this page since layout has changed
-        # (item indices may have shifted after filtering empty slots)
-        keys_to_remove = [k for k in self.slot_aspect_ratios.keys() if k[0] == pageno]
-        for key in keys_to_remove:
-            del self.slot_aspect_ratios[key]
+        # Store updated layout in layout manager
+        self.layout_mgr.push_layout(pageno, all_photos, existing_texts)
+        
+        # DON'T clear cached slot aspect ratios - preserve user customizations
+        # New photos won't have slot aspect ratios yet, which is fine
         
         # Mark only the page where photos were actually added as modified
         # (not both pages in spread mode, since photos are added to one page only)
         self.modified_pages.add(pageno)
         self._update_modified_pages_display()
         
-        # Populate photo_dimensions cache for algorithm (all photos)
-        for photo in all_photos:
-            filename = photo.get('filename', '')
-            if not filename:
-                continue
-            
-            # Resolve photo path: use _source_path for staged photos, album path for existing
-            if '_source_path' in photo:
-                # Staged photo - read from source
-                img_path = Path(photo['_source_path'])
-            else:
-                # Existing photo in album
-                safefn = filename.replace('safecontainer:/', '').lstrip('/')
-                if self.image_folder_attr:
-                    img_path = Path(self.mcf_base_folder) / self.image_folder_attr / safefn
-                else:
-                    img_path = Path(self.mcf_base_folder) / safefn
-            
-            if img_path.exists():
-                # Populate dimensions cache for algorithm
-                dims = get_image_dimensions(img_path)
-                if dims:
-                    self.photo_dimensions[filename] = dims
-        
-        # Set preferred sizes for NEW photos only (don't override existing photo preferences)
-        for photo in new_photos:
-            filename = photo.get('filename', '')
-            if not filename:
-                continue
-            
-            # Resolve photo path from staged source
+        # Process all newly added photos: cache dimensions, set preferences, mark as new
+        for photo in new_photos_with_layout:
+            filename = photo['filename']
             img_path = Path(photo['_source_path'])
             
-            if img_path.exists():
-                preferred_size = get_photo_preferred_size(img_path)
-            else:
-                preferred_size = 1.0
+            # Populate dimensions cache for algorithm
+            dims = get_image_dimensions(img_path)
+            if dims:
+                self.photo_dimensions[filename] = dims
+            
+            # Set preferred size
+            preferred_size = get_photo_preferred_size(img_path)
             
             # Use base filename (without -sz-pg) as key for layout_mgr
             base_filename, _, _ = extract_metadata_from_filename(filename)
             self.layout_mgr.set_size(pageno, base_filename, preferred_size)
-        
-        # Mark newly added photos for tracking
-        for photo in new_photos:
-            filename = photo.get('filename', '')
-            if filename:
-                self.layout_mgr.mark_photo_as_new(pageno, filename)
+            
+            # Mark as newly added for tracking
+            self.layout_mgr.mark_photo_as_new(pageno, filename)
         
         # Re-render page to show new photos
         self.render_page()
@@ -1496,6 +1570,16 @@ class LayoutViewer:
         Photos are NOT moved yet - only validated and metadata created.
         Source paths are stored for later move operation during save.
         Photos are renamed to replace spaces with underscores for CEWE compatibility.
+        
+        Returns photo dicts with two path-related keys:
+        - 'filename': The destination filename in MCF format (e.g., "safecontainer:/my_photo_1.jpg")
+                      where the photo WILL BE after saving. Spaces replaced with underscores,
+                      may have counter suffix (_1, _2) if naming conflicts. Used as key throughout
+                      MCF and in caches.
+        - '_source_path': The current absolute path where the photo file actually exists now
+                         (e.g., "/Users/vince/Downloads/my photo with spaces.jpg").
+                         Needed to read the image before it's moved. Only exists for newly
+                         staged photos; existing album photos don't have this key.
         """
         if not self.mcf_base_folder:
             return []
@@ -1506,6 +1590,7 @@ class LayoutViewer:
         for src_path in photo_paths:
             src = Path(src_path)
             if not src.exists():
+                logging.error(f'Staging photo failed: source file does not exist: {src}')
                 continue
             
             # Replace spaces with underscores in filename for CEWE compatibility
