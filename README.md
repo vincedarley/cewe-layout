@@ -94,6 +94,8 @@ When photos are added:
 
 **Other capabilities**
 
+Drag-n-drop to swap 2 photos in the layout. Fairly intuitive approach for this simple manual layout adjustment.
+
 Canvas (experimental): there is also limited support for editing layouts of a single-page Canvas from CEWE Creator
 
 Calendar (experimental): again limited support for editing the 12 monthly pages of a Calendar.

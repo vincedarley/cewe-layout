@@ -155,16 +155,6 @@ class LayoutViewer:
         # Track photo improvements (photos upgraded with -up suffix)
         self.improved_photos = {}  # Maps original_filename -> improved_filename
         
-        # Photo drag-and-drop state for swapping
-        self.drag_active = False
-        self.drag_source_pageno = None
-        self.drag_source_photo_idx = None
-        self.drag_source_rect_id = None  # Canvas item ID being highlighted as source
-        self.drag_hover_pageno = None
-        self.drag_hover_photo_idx = None
-        self.drag_hover_rect_id = None  # Canvas item ID being highlighted as destination
-        self.drag_thumbnail_id = None  # Canvas item following cursor
-        
         # initialize layout manager with originals from file
         for pageno, info in self.pages:
             self.layout_mgr.set_original(pageno, info.get('photos', []), info.get('texts', []))
@@ -1205,106 +1195,64 @@ class LayoutViewer:
             delete_callback=self._handle_delete_button_click,
             show_pdf_composite=show_composite,
             protected_inside_covers=protected_pages,
-            drag_callback=self._on_photo_drag_event
+            swap_callback=self._on_photo_swap
         )
         
         # Update control widgets
         self._update_page_range_display()
         self.update_weights_display()
     
-    def _on_photo_drag_event(self, event_type, pageno, photo_idx, event):
-        """Handle photo drag events for drag-and-drop photo swapping.
+    def _on_photo_swap(self, source_pageno, source_photo_idx, dest_pageno, dest_photo_idx):
+        """Handle photo swap request from PageRenderer.
+        
+        This is the business logic callback - it updates the data model and re-renders.
+        All visual interaction logic stays in PageRenderer.
         
         Args:
-            event_type: 'press', 'motion', 'enter', 'leave', or 'release'
-            pageno: Page number of the photo
-            photo_idx: Index of photo within the page (0-based)
-            event: Tkinter event object with x, y coordinates
+            source_pageno: Page number of source photo
+            source_photo_idx: Index of source photo in its page
+            dest_pageno: Page number of destination photo
+            dest_photo_idx: Index of destination photo in its page
         """
-        if event_type == 'press':
-            # (a) Visual indication - highlight source photo
-            self.drag_active = True
-            self.drag_source_pageno = pageno
-            self.drag_source_photo_idx = photo_idx
+        # Debug: Log the swap attempt
+        logger.info(f"Attempting swap: page {source_pageno} photo {source_photo_idx} <-> page {dest_pageno} photo {dest_photo_idx}")
+        
+        # Get photo filenames before swap for logging
+        layout1_before = self.layout_mgr.get_current(source_pageno)
+        layout2_before = self.layout_mgr.get_current(dest_pageno)
+        if layout1_before and layout2_before:
+            photo1_before = layout1_before.photos[source_photo_idx].get('filename', 'UNKNOWN')
+            photo2_before = layout2_before.photos[dest_photo_idx].get('filename', 'UNKNOWN')
+            logger.debug(f"Before swap: [{photo1_before}] <-> [{photo2_before}]")
+        
+        # Execute swap
+        success = self.layout_mgr.swap_photos(
+            source_pageno, source_photo_idx,
+            dest_pageno, dest_photo_idx
+        )
+        
+        if success:
+            # Debug: Verify swap actually happened
+            layout1_after = self.layout_mgr.get_current(source_pageno)
+            layout2_after = self.layout_mgr.get_current(dest_pageno)
+            if layout1_after and layout2_after:
+                photo1_after = layout1_after.photos[source_photo_idx].get('filename', 'UNKNOWN')
+                photo2_after = layout2_after.photos[dest_photo_idx].get('filename', 'UNKNOWN')
+                logger.debug(f"After swap: [{photo1_after}] <-> [{photo2_after}]")
+                if photo1_after == photo1_before and photo2_after == photo2_before:
+                    logger.error("SWAP DID NOT ACTUALLY CHANGE THE LAYOUT!")
             
-            # Find and highlight the source rectangle
-            tag = f'photo_{pageno}_{photo_idx}'
-            items = self.canvas.find_withtag(tag)
-            if items:
-                self.drag_source_rect_id = items[0]
-                self.page_renderer.highlight_photo_as_source(self.drag_source_rect_id, True)
-        
-        elif event_type == 'motion':
-            # (b) Show thumbnail following cursor
-            if self.drag_active:
-                if not self.drag_thumbnail_id:
-                    self.drag_thumbnail_id = self.page_renderer.create_drag_thumbnail(event.x, event.y)
-                else:
-                    self.page_renderer.update_drag_thumbnail(self.drag_thumbnail_id, event.x, event.y)
-        
-        elif event_type == 'enter':
-            # (c) Highlight destination photo when hovering
-            if self.drag_active:
-                # Don't highlight source photo as destination
-                if not (pageno == self.drag_source_pageno and photo_idx == self.drag_source_photo_idx):
-                    tag = f'photo_{pageno}_{photo_idx}'
-                    items = self.canvas.find_withtag(tag)
-                    if items:
-                        self.drag_hover_rect_id = items[0]
-                        self.drag_hover_pageno = pageno
-                        self.drag_hover_photo_idx = photo_idx
-                        self.page_renderer.highlight_photo_as_target(self.drag_hover_rect_id, True)
-        
-        elif event_type == 'leave':
-            # Un-highlight destination when leaving
-            if self.drag_hover_rect_id:
-                self.page_renderer.highlight_photo_as_target(self.drag_hover_rect_id, False)
-                self.drag_hover_rect_id = None
-                self.drag_hover_pageno = None
-                self.drag_hover_photo_idx = None
-        
-        elif event_type == 'release':
-            # (d) Process swap if over valid destination
-            if self.drag_hover_rect_id and self.drag_hover_pageno is not None:
-                # Execute swap
-                success = self.layout_mgr.swap_photos(
-                    self.drag_source_pageno, self.drag_source_photo_idx,
-                    self.drag_hover_pageno, self.drag_hover_photo_idx
-                )
-                
-                if success:
-                    # Mark page(s) as modified
-                    self.modified_pages.add(self.drag_source_pageno)
-                    if self.drag_hover_pageno != self.drag_source_pageno:
-                        self.modified_pages.add(self.drag_hover_pageno)
-                    self._update_modified_pages_display()
-                    
-                    # Re-render to show swapped photos
-                    self.render_page()
-                    self.show_status(f'Swapped photos')
-                else:
-                    self.show_status('Failed to swap photos', error=True)
+            # Mark page(s) as modified
+            self.modified_pages.add(source_pageno)
+            if dest_pageno != source_pageno:
+                self.modified_pages.add(dest_pageno)
+            self._update_modified_pages_display()
             
-            # Clean up visual state
-            self._clear_photo_drag_state()
-    
-    def _clear_photo_drag_state(self):
-        """Reset all photo drag-related visual state."""
-        if self.drag_source_rect_id:
-            self.page_renderer.highlight_photo_as_source(self.drag_source_rect_id, False)
-        if self.drag_hover_rect_id:
-            self.page_renderer.highlight_photo_as_target(self.drag_hover_rect_id, False)
-        if self.drag_thumbnail_id:
-            self.page_renderer.delete_drag_thumbnail(self.drag_thumbnail_id)
-        
-        self.drag_active = False
-        self.drag_source_pageno = None
-        self.drag_source_photo_idx = None
-        self.drag_source_rect_id = None
-        self.drag_hover_pageno = None
-        self.drag_hover_photo_idx = None
-        self.drag_hover_rect_id = None
-        self.drag_thumbnail_id = None
+            # Re-render to show swapped photos
+            self.render_page()
+            self.show_status(f'Swapped photos')
+        else:
+            self.show_status('Failed to swap photos', error=True)
     
     def _delete_photo(self, photo_index, pageno, filename):
         """Delete a photo from a page layout.

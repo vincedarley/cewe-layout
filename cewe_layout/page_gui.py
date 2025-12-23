@@ -96,6 +96,17 @@ class PageRenderer:
         self.delete_buttons = []  # Currently displayed delete button widgets
         self.drag_rectangles = []  # Currently displayed drag rectangle canvas items
         
+        # Photo drag-and-drop state for swapping
+        self.drag_active = False
+        self.drag_source_pageno = None
+        self.drag_source_photo_idx = None
+        self.drag_source_rect_id = None  # Canvas item ID being highlighted as source
+        self.drag_hover_pageno = None
+        self.drag_hover_photo_idx = None
+        self.drag_hover_rect_id = None  # Canvas item ID being highlighted as destination
+        self.drag_thumbnail_id = None  # Canvas item following cursor
+        self.swap_callback = None  # Callback to business logic for executing swap
+        
         # Image caches (for rendering optimization)
         self.cache_full_images = True
         self.thumb_cache = {}  # For thumbnail mode: (base_filename, file_size, w, h) -> thumbnail
@@ -110,7 +121,7 @@ class PageRenderer:
                     delete_callback,
                     show_pdf_composite: bool = False,
                     protected_inside_covers: list = None,
-                    drag_callback = None) -> None:
+                    swap_callback = None) -> None:
         """Render one or more pages to the display.
         
         Args:
@@ -122,10 +133,12 @@ class PageRenderer:
                            Signature: (item_type, page_index, pageno, identifier)
                            where item_type is 'photo' or 'text'
             protected_inside_covers: List of page numbers that are protected (inside covers)
-            drag_callback: Optional callback for photo drag events
-                          Signature: (event_type, pageno, photo_idx, event)
-                          where event_type is 'press', 'motion', 'enter', 'leave', 'release'
+            swap_callback: Optional callback for photo swap completion
+                          Signature: (source_pageno, source_photo_idx, dest_pageno, dest_photo_idx)
+                          Called when user successfully drags and drops to swap two photos
         """
+        # Store swap callback for later use
+        self.swap_callback = swap_callback
         if protected_inside_covers is None:
             protected_inside_covers = []
         if not page_data_list:
@@ -189,7 +202,7 @@ class PageRenderer:
             # Render photos for this page
             self._render_photos(img, draw, page_data.photos, frame_x, frame_y, scale, 
                                page_data.origin_left, photo_counter, page_data.pageno, 
-                               delete_button_info, page_bg_color, drag_callback)
+                               delete_button_info, page_bg_color, swap_callback)
             photo_counter += len(page_data.photos)
             
             # Render texts for this page
@@ -223,9 +236,9 @@ class PageRenderer:
         self._show_image(img)
         self._create_delete_buttons(delete_button_info, delete_callback)
         
-        # Create invisible drag rectangles for photos if drag_callback provided
-        if drag_callback:
-            self._create_drag_rectangles(delete_button_info, drag_callback)
+        # Create invisible drag rectangles for photos if swap_callback provided
+        if swap_callback:
+            self._create_drag_rectangles(delete_button_info)
 
     def render_empty_page(self, canvas_w: int, canvas_h: int, message: str) -> None:
         """Render empty page with message.
@@ -355,11 +368,11 @@ class PageRenderer:
             raise  # Re-raise the exception instead of silently failing
     
     def _render_photos(self, img, draw, photos, frame_x, frame_y, scale, origin_left, 
-                      start_number, pageno, delete_button_info, page_bg_color, drag_callback=None):
+                      start_number, pageno, delete_button_info, page_bg_color, swap_callback=None):
         """Render photos for a single page.
         
         Args:
-            drag_callback: Optional callback for photo drag events
+            swap_callback: Optional callback for photo swap events
         """
 
         try:
@@ -821,13 +834,11 @@ class PageRenderer:
             btn.place(x=x, y=y)
             self.delete_buttons.append(btn)
     
-    def _create_drag_rectangles(self, button_info, drag_callback):
+    def _create_drag_rectangles(self, button_info):
         """Create invisible canvas rectangles for drag-and-drop photo swapping.
         
         Args:
             button_info: List of dicts with photo position info (rect_x0, rect_y0, rect_x1, rect_y1, etc.)
-            drag_callback: Function to call on drag events
-                          Signature: (event_type, pageno, photo_idx, event)
         """
         # Clear any existing drag rectangles
         self.clear_drag_rectangles()
@@ -851,20 +862,20 @@ class PageRenderer:
                 width=0,
                 tags=('photo_drag', f'photo_{pageno}_{photo_idx}')
             )
-            
+            self.canvas.tag_raise(f'photo_{pageno}_{photo_idx}')  # Bring to front
+
             # Bind drag events to this rectangle
             self.canvas.tag_bind(f'photo_{pageno}_{photo_idx}', '<ButtonPress-1>',
-                                lambda e, pn=pageno, idx=photo_idx: drag_callback('press', pn, idx, e))
+                                lambda e, pn=pageno, idx=photo_idx: self._on_drag_press(pn, idx, e))
             self.canvas.tag_bind(f'photo_{pageno}_{photo_idx}', '<B1-Motion>',
-                                lambda e, pn=pageno, idx=photo_idx: drag_callback('motion', pn, idx, e))
-            self.canvas.tag_bind(f'photo_{pageno}_{photo_idx}', '<ButtonRelease-1>',
-                                lambda e, pn=pageno, idx=photo_idx: drag_callback('release', pn, idx, e))
-            self.canvas.tag_bind(f'photo_{pageno}_{photo_idx}', '<Enter>',
-                                lambda e, pn=pageno, idx=photo_idx: drag_callback('enter', pn, idx, e))
-            self.canvas.tag_bind(f'photo_{pageno}_{photo_idx}', '<Leave>',
-                                lambda e, pn=pageno, idx=photo_idx: drag_callback('leave', pn, idx, e))
+                                lambda e, pn=pageno, idx=photo_idx: self._on_drag_motion(pn, idx, e))
             
             self.drag_rectangles.append(rect_id)
+        
+        # Bind ButtonRelease globally on canvas (not per-photo) because mouse might
+        # be over a different photo when released
+        if self.drag_rectangles:
+            self.canvas.bind('<ButtonRelease-1>', lambda e: self._on_drag_release(e))
     
     def clear_drag_rectangles(self):
         """Clear all drag rectangle canvas items."""
@@ -936,6 +947,129 @@ class PageRenderer:
             rect_id: Canvas rectangle ID to delete
         """
         self.canvas.delete(rect_id)
+    
+    def _on_drag_press(self, pageno, photo_idx, event):
+        """Handle mouse press on a photo rectangle - start drag operation.
+        
+        Args:
+            pageno: Page number of the photo
+            photo_idx: Index of photo within the page (0-based)
+            event: Tkinter event object
+        """
+        # Start drag operation
+        self.drag_active = True
+        self.drag_source_pageno = pageno
+        self.drag_source_photo_idx = photo_idx
+        
+        # Find and highlight the source rectangle
+        tag = f'photo_{pageno}_{photo_idx}'
+        items = self.canvas.find_withtag(tag)
+        if items:
+            self.drag_source_rect_id = items[0]
+            self.highlight_photo_as_source(self.drag_source_rect_id, True)
+    
+    def _on_drag_motion(self, pageno, photo_idx, event):
+        """Handle mouse motion during drag - update thumbnail and detect target.
+        
+        Args:
+            pageno: Page number where drag started
+            photo_idx: Index of photo where drag started
+            event: Tkinter event object
+        """
+        if not self.drag_active:
+            return
+        
+        # Find which photo rectangle contains the cursor
+        # We programmatically check which rectangle contains the point
+        new_hover_pageno = None
+        new_hover_photo_idx = None
+        new_hover_rect_id = None
+        
+        for rect_id in self.drag_rectangles:
+            # Get rectangle coordinates
+            coords = self.canvas.coords(rect_id)
+            if len(coords) == 4:
+                x0, y0, x1, y1 = coords
+                # Check if cursor is inside this rectangle
+                if x0 <= event.x <= x1 and y0 <= event.y <= y1:
+                    # Get tags to extract pageno and photo_idx
+                    tags = self.canvas.gettags(rect_id)
+                    for tag in tags:
+                        if tag.startswith('photo_') and '_' in tag[6:]:
+                            parts = tag.split('_')
+                            if len(parts) == 3:
+                                try:
+                                    hover_pn = int(parts[1])
+                                    hover_idx = int(parts[2])
+                                    # Don't highlight source photo as destination
+                                    if not (hover_pn == self.drag_source_pageno and hover_idx == self.drag_source_photo_idx):
+                                        new_hover_pageno = hover_pn
+                                        new_hover_photo_idx = hover_idx
+                                        new_hover_rect_id = rect_id
+                                        break
+                                except ValueError:
+                                    continue
+                    if new_hover_rect_id:
+                        break
+        
+        # Update highlighting if hover target changed
+        if new_hover_rect_id != self.drag_hover_rect_id:
+            # Un-highlight old target
+            if self.drag_hover_rect_id:
+                self.highlight_photo_as_target(self.drag_hover_rect_id, False)
+            
+            # Highlight new target
+            if new_hover_rect_id:
+                self.highlight_photo_as_target(new_hover_rect_id, True)
+            
+            # Update state
+            self.drag_hover_rect_id = new_hover_rect_id
+            self.drag_hover_pageno = new_hover_pageno
+            self.drag_hover_photo_idx = new_hover_photo_idx
+        
+        # Update or create thumbnail at new position
+        if not self.drag_thumbnail_id:
+            self.drag_thumbnail_id = self.create_drag_thumbnail(event.x, event.y)
+        else:
+            self.update_drag_thumbnail(self.drag_thumbnail_id, event.x, event.y)
+    
+    def _on_drag_release(self, event):
+        """Handle mouse release - complete drag operation and execute swap if valid.
+        
+        Args:
+            event: Tkinter event object
+        """
+        if not self.drag_active:
+            return
+        
+        # Check if we have a valid swap target
+        if self.drag_hover_rect_id and self.drag_hover_pageno is not None and self.swap_callback:
+            # Execute swap via callback to business logic
+            self.swap_callback(
+                self.drag_source_pageno, self.drag_source_photo_idx,
+                self.drag_hover_pageno, self.drag_hover_photo_idx
+            )
+        
+        # Clean up visual state
+        self._clear_drag_state()
+    
+    def _clear_drag_state(self):
+        """Reset all drag-related visual state."""
+        if self.drag_source_rect_id:
+            self.highlight_photo_as_source(self.drag_source_rect_id, False)
+        if self.drag_hover_rect_id:
+            self.highlight_photo_as_target(self.drag_hover_rect_id, False)
+        if self.drag_thumbnail_id:
+            self.delete_drag_thumbnail(self.drag_thumbnail_id)
+        
+        self.drag_active = False
+        self.drag_source_pageno = None
+        self.drag_source_photo_idx = None
+        self.drag_source_rect_id = None
+        self.drag_hover_pageno = None
+        self.drag_hover_photo_idx = None
+        self.drag_hover_rect_id = None
+        self.drag_thumbnail_id = None
     
     def get_thumbnail(self, path: str, w: int, h: int):
         """Get thumbnail for an image, using cache if available.

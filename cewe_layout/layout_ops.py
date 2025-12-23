@@ -307,10 +307,11 @@ class LayoutManager:
         
         return True    
     def swap_photos(self, pageno1, photo_idx1, pageno2, photo_idx2):
-        """Swap two photos in the layout, preserving all metadata.
+        """Swap two photos in the layout, keeping slots fixed.
         
-        This swaps the complete photo dictionaries (including position, dimensions,
-        rotation, cutout) between two slots. Can swap within same page or across pages.
+        This swaps only the image-related attributes (filename, cutout, rotation)
+        between two slots, while preserving the slot positions and dimensions.
+        This is the expected behavior for drag-and-drop photo swapping in the UI.
         
         Args:
             pageno1: Page number for first photo
@@ -334,20 +335,54 @@ class LayoutManager:
         if photo_idx2 < 0 or photo_idx2 >= len(layout2.photos):
             return False
         
+        # Attributes to swap (image-related, not position-related)
+        swap_attrs = ['filename', 'cutout_left', 'cutout_top', 'cutout_width', 
+                     'cutout_height', 'rotation', '_source_path']
+        
         if pageno1 == pageno2:
-            # Same page - simple swap within one list
-            photos = list(layout1.photos)
-            photos[photo_idx1], photos[photo_idx2] = photos[photo_idx2], photos[photo_idx1]
+            # Same page - swap attributes within one list
+            photos = [dict(p) for p in layout1.photos]  # Deep copy each dict
+            photo1 = photos[photo_idx1]
+            photo2 = photos[photo_idx2]
+            
+            # Swap only the image-related attributes
+            for attr in swap_attrs:
+                val1 = photo1.get(attr)
+                val2 = photo2.get(attr)
+                if val1 is not None or val2 is not None:
+                    if val2 is not None:
+                        photo1[attr] = val2
+                    elif attr in photo1:
+                        del photo1[attr]
+                    
+                    if val1 is not None:
+                        photo2[attr] = val1
+                    elif attr in photo2:
+                        del photo2[attr]
             
             # Push updated layout (creates undo point)
             self.push_layout(pageno1, photos, layout1.texts)
         else:
-            # Cross-page swap - swap between two separate lists
-            photos1 = list(layout1.photos)
-            photos2 = list(layout2.photos)
+            # Cross-page swap - swap attributes between two separate lists
+            photos1 = [dict(p) for p in layout1.photos]  # Deep copy
+            photos2 = [dict(p) for p in layout2.photos]  # Deep copy
+            photo1 = photos1[photo_idx1]
+            photo2 = photos2[photo_idx2]
             
-            # Swap the photo dictionaries
-            photos1[photo_idx1], photos2[photo_idx2] = photos2[photo_idx2], photos1[photo_idx1]
+            # Swap only the image-related attributes
+            for attr in swap_attrs:
+                val1 = photo1.get(attr)
+                val2 = photo2.get(attr)
+                if val1 is not None or val2 is not None:
+                    if val2 is not None:
+                        photo1[attr] = val2
+                    elif attr in photo1:
+                        del photo1[attr]
+                    
+                    if val1 is not None:
+                        photo2[attr] = val1
+                    elif attr in photo2:
+                        del photo2[attr]
             
             # Push both layouts
             self.push_layout(pageno1, photos1, layout1.texts)
