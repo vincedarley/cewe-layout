@@ -38,7 +38,7 @@ Note that on MacOS, CEWE registers the ".xmcf" directory extension with MacOS so
 You have to work _indepedently_ in QLayout vs in Cewe Creator.  In general you should only have one of the two applications open (with the same photobook) at any one time.  So close one, work in the other, repeat until your book is done... In case you forget this "work independently" instruction, you should generally not worry about file corruption - but you should worry that important layout work you've done in one tool is going to be overwritten by the other.  So you will be wasting time and effort.
 
 Here's my current workflow:
-1) Select all your favourite photos in MacOS Photos (or whatever you use to organise your master photos) and _export_ _copies_ of them to a directory. If it is easy for you to do so, before exporting tag the very best photos with either "4 star" or "5 star" as keywords, and make sure you export those keywords. Note that CEWE Creator, at least on MacOS, can't handle heif/heic (sadly), so stick to jpeg or png.
+1) Select all your favourite photos in MacOS Photos (or whatever you use to organise your master photos) and _export_ _copies_ of them to a directory. If it is easy for you to do so, before exporting tag the very best photos with either "4 star" or "5 star" as keywords, and make sure you export those keywords. CEWE Creator seems to support jpeg, png, and heif/heic (at least on MacOS), and so does QLayout.
 2) Optionally, run QLayout with "-renamephotos" to name all of the photos according to date (and according to 4/5 star keywords).  For example: python run_qlayout.py --renamephotos path/to/exported-directory "yr". This isn't _necessary_ but I find it helpful to have a clear photo naming scheme in place.
 3) Use CEWE Creator to create a new photo-book (of the size/style you want) with loads of empty pages. Save it in the older xmcf or mcf format. Quit CEWE Creator.
 4) If your photobook is called "MyBook.xmcf" then put the directory with all your photos next to it, and rename the directory to be called "MyBook-photos".
@@ -49,7 +49,7 @@ Here's my current workflow:
 - If you don't quite like any, you can delete some photos, add some new photos (or a text-box) and try again.  
 - If you want an exact grid layout (e.g. 2 rows of 4 photos, all identically sized), try the "Gridify" algorithm instead of Fan-GA.
 - Adjust edge gaps and internal gaps for a different look
-8) Hit "Save Modified" when you are done with the page.  The photos used disappear from your "-photos" directory - they've been moved into the photo album. This is very helpful, since you can then focus only on the photos you've not yet added. If there are photos I've decided I no longer want, I simply delete them from the "-photos" directory (they are exported copies, so no harm deleting them).
+8) Hit "Save Modified" when you are done with the page.  The photos used disappear from your "-photos" directory - they've been moved into the photo album. This is very helpful, since you can then focus only on the photos you've not yet added. If there are photos I've decided I no longer want, I simply delete them from the "-photos" directory (they are exported copies, so no harm deleting them). If for some reason you've added the same photo twice (to one or more pages), you will get an error on saving.
 9) Move to the next empty page and go back to step 6. If you have no more empty pages, open in CEWE Creator to add some more.
 
 Once you're done: open the book in CEWE Creator and do any fine-tuning you wish. Typically:
@@ -75,7 +75,7 @@ Finally:
 **Adding Photos to a Page**
 
 You can add new photos to the current page by:
-- **Drag-and-drop** (if tkinterdnd2 is installed): Drag JPEG files from Finder directly onto the main window
+- **Drag-and-drop** (if tkinterdnd2 is installed): Drag photo files (.jpeg, etc) from Finder directly onto the main window
 - **Keyboard shortcut**: Press `Cmd+O` to open a file picker and select photos
 
 When photos are added:

@@ -35,13 +35,13 @@ def rename_photos(directory, rename_prefix, pattern='*'):
         sys.exit(1)
     
     # Supported image extensions
-    image_exts = {'.jpg', '.jpeg', '.JPG', '.JPEG', '.PNG', '.png'}
+    image_exts = {'.jpg', '.jpeg', '.JPG', '.JPEG', '.PNG', '.png', '.HEIC', '.heic', '.heif', '.HEIF'}
     
     # Get list of all photos matching the pattern
     photos = [f for f in photo_dir.glob(pattern) if f.is_file() and f.suffix in image_exts]
     
     if not photos:
-        print(f'No JPEG photos matching "{pattern}" found in {directory}', file=sys.stderr)
+        print(f'No photos matching "{pattern}" found in {directory}', file=sys.stderr)
         sys.exit(1)
     
     print(f'Found {len(photos)} photos in {directory}')
@@ -75,8 +75,8 @@ def rename_photos(directory, rename_prefix, pattern='*'):
             elif star_rating == 4:
                 new_name += "-4star"
             
-            # Add extension
-            new_name += ".jpeg"
+            # Add extension (preserve original)
+            new_name += photo.suffix.lower()
             
             # Build new path
             new_path = photo.parent / new_name

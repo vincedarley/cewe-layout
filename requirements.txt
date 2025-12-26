@@ -4,6 +4,7 @@ opencv-python>=4.5.0
 numpy>=1.19.0
 reportlab>=3.6.0
 imagehash>=4.3.0
+pillow-heif>=0.10.0
 
 # Optional: for drag-and-drop support on macOS/Windows
 tkinterdnd2>=0.3.0

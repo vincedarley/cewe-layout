@@ -1408,8 +1408,9 @@ class LayoutViewer:
         """Prompt user to select photos to add to current page."""
         from tkinter import filedialog
         filetypes = [
-            ('Image Files', '*.jpg;*.jpeg;*.JPG;*.JPEG;*.png;*.PNG'),
+            ('Image Files', '*.jpg;*.jpeg;*.JPG;*.JPEG;*.png;*.PNG;*.HEIC;*.heic;*.heif;*.HEIF'),
             ('JPEG Images', '*.jpg;*.jpeg;*.JPG;*.JPEG'),
+            ('HEIC Images', '*.heic;*.HEIC;*.heif;*.HEIF'),
             ('PNG Images', '*.png;*.PNG'),
             ('All Files', '*.*')
         ]
@@ -1442,7 +1443,7 @@ class LayoutViewer:
             return
         
         # Filter for image files only
-        image_exts = {'.jpg', '.jpeg', '.JPG', '.JPEG', '.png', '.PNG'}
+        image_exts = {'.jpg', '.jpeg', '.JPG', '.JPEG', '.PNG', '.png', '.HEIC', '.heic', '.heif', '.HEIF'}
         photo_files = [f for f in file_paths if Path(f).suffix in image_exts]
         
         if not photo_files:
@@ -4283,7 +4284,7 @@ class LayoutViewer:
             # Check for -up- anywhere in filename or -up at end before extension
             is_improved = '-up-' in filename_lower or any(
                 filename_lower.endswith(f'-up.{ext}') 
-                for ext in ['jpg', 'jpeg', 'png']
+                for ext in ['jpg', 'jpeg', 'png', 'heif', 'heic']
             )
             if is_improved:
                 skipped_indices.append(i + 1)  # 1-based for user display

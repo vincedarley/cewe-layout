@@ -95,7 +95,7 @@ class PhotoImprover:
     
     def _load_candidates(self):
         """Load all candidate photos and compute their perceptual hashes."""
-        image_exts = {'.jpg', '.jpeg', '.JPG', '.JPEG', '.png', '.PNG'}
+        image_exts = {'.jpg', '.jpeg', '.JPG', '.JPEG', '.png', '.PNG', '.heic', '.HEIC', '.heif', '.HEIF'}
         
         logger.info(f"Loading candidate photos from {self.candidate_dir}")
         

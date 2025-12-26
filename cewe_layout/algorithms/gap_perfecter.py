@@ -86,6 +86,8 @@ class GapPerfecterAlgorithm(LayoutAlgorithm):
         # Step 1: Sort rectangles diagonally (by distance from 0,0)
         sorted_rects = self._sort_diagonally(rectangles)
         
+        debug = True  # Set to True to enable debug logging
+
         # Step 2: Process each rectangle in order
         perfected_rects = []
         for i, rect in enumerate(sorted_rects):
@@ -99,18 +101,20 @@ class GapPerfecterAlgorithm(LayoutAlgorithm):
                 preferred_size=rect.preferred_size,
                 preserve_aspect_ratio=rect.preserve_aspect_ratio
             )
-            
+            if debug:
+                print(f"Processing rect {i} (ID {new_rect.item_id}): initial pos=({new_rect.x:.1f},{new_rect.y:.1f}) size=({new_rect.width:.1f}x{new_rect.height:.1f})")   
+
             # Step 3a: Fix small overlaps with previous rects
-            self._fix_overlaps(new_rect, perfected_rects)
+            self._fix_overlaps(new_rect, perfected_rects, debug)
             
             # Step 3b: Expand top-left to meet previous rects
-            self._expand_top_left(new_rect, perfected_rects)
+            self._expand_top_left(new_rect, perfected_rects, debug)
             
             # Step 3c: Expand right if within 15mm of page edge
-            self._expand_to_right_edge_if_close(new_rect, page_width)
+            self._expand_to_right_edge_if_close(new_rect, page_width, debug)
             
             # Step 3d: Expand bottom if within 15mm of page edge
-            self._expand_to_bottom_edge_if_close(new_rect, page_height)
+            self._expand_to_bottom_edge_if_close(new_rect, page_height, debug)
             
             perfected_rects.append(new_rect)
         
@@ -133,7 +137,7 @@ class GapPerfecterAlgorithm(LayoutAlgorithm):
         
         return sorted(rectangles, key=distance_from_origin)
     
-    def _fix_overlaps(self, rect: LayoutRectangle, previous_rects: List[LayoutRectangle]) -> None:
+    def _fix_overlaps(self, rect: LayoutRectangle, previous_rects: List[LayoutRectangle], debug: bool) -> None:
         """
         Fix small overlaps (<5mm) with previous rectangles.
         
@@ -157,6 +161,8 @@ class GapPerfecterAlgorithm(LayoutAlgorithm):
             if 0 < x_overlap < self.OVERLAP_TOLERANCE and rect.x < prev.x + prev.width:
                 # Shift rect right to align with prev's right edge
                 shift = x_overlap
+                if debug:
+                    print(f"  Fixing horizontal overlap of {x_overlap:.1f} between rect ID {rect.item_id} and prev ID {prev.item_id}")
                 rect.x += shift
                 rect.width = max(1.0, rect.width - shift)  # Ensure width stays positive
             
@@ -164,10 +170,13 @@ class GapPerfecterAlgorithm(LayoutAlgorithm):
             if 0 < y_overlap < self.OVERLAP_TOLERANCE and rect.y < prev.y + prev.height:
                 # Shift rect down to align with prev's bottom edge
                 shift = y_overlap
+                if debug:
+                    print(f"  Fixing vertical overlap of {y_overlap:.1f} between rect ID {rect.item_id} and prev ID {prev.item_id}")
+                
                 rect.y += shift
                 rect.height = max(1.0, rect.height - shift)  # Ensure height stays positive
     
-    def _expand_top_left(self, rect: LayoutRectangle, previous_rects: List[LayoutRectangle]) -> None:
+    def _expand_top_left(self, rect: LayoutRectangle, previous_rects: List[LayoutRectangle], debug: bool) -> None:
         """
         Expand rectangle's top-left to meet previous rects above/left.
         
@@ -239,7 +248,7 @@ class GapPerfecterAlgorithm(LayoutAlgorithm):
                 rect.width = top_right - rect.x
                 break  # Only align to first match
     
-    def _expand_to_right_edge_if_close(self, rect: LayoutRectangle, page_width: float) -> None:
+    def _expand_to_right_edge_if_close(self, rect: LayoutRectangle, page_width: float, debug: bool) -> None:
         """
         If rectangle is within 15mm of right page edge, expand to align perfectly.
         
@@ -254,7 +263,7 @@ class GapPerfecterAlgorithm(LayoutAlgorithm):
             # Within 15mm of right edge - expand to reach it perfectly
             rect.width = page_width - rect.x  # Set width to exactly reach edge
     
-    def _expand_to_bottom_edge_if_close(self, rect: LayoutRectangle, page_height: float) -> None:
+    def _expand_to_bottom_edge_if_close(self, rect: LayoutRectangle, page_height: float, debug: bool) -> None:
         """
         If rectangle is within 15mm of bottom page edge, expand to align perfectly.
         
