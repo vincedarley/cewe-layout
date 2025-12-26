@@ -39,6 +39,10 @@ class GapPerfecterAlgorithm(LayoutAlgorithm):
     EDGE_PROXIMITY = 150.0    # 15mm
     MISALIGNMENT_REMOVAL = 35.0  # 5mm - for aligning bottoms/rights with adjacent rects
     
+    def forcesUseOfCurrentLayout(self) -> bool:
+        """Gap Perfecter requires current layout slot dimensions."""
+        return True
+    
     def generate_layout(
         self,
         page_width: float,
@@ -86,7 +90,7 @@ class GapPerfecterAlgorithm(LayoutAlgorithm):
         # Step 1: Sort rectangles diagonally (by distance from 0,0)
         sorted_rects = self._sort_diagonally(rectangles)
         
-        debug = True  # Set to True to enable debug logging
+        debug = False  # Set to True to enable debug logging
 
         # Step 2: Process each rectangle in order
         perfected_rects = []

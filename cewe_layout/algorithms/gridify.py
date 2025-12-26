@@ -35,6 +35,10 @@ class GridifyAlgorithm(LayoutAlgorithm):
         """
         self.debug = debug
     
+    def forcesUseOfCurrentLayout(self) -> bool:
+        """Gridify requires current layout slot dimensions."""
+        return True
+    
     def generate_layout(
         self,
         page_width: float,

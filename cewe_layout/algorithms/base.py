@@ -324,6 +324,21 @@ class LayoutAlgorithm(ABC):
     handles all translation between MCF units, file paths, and item dimensions.
     """
     
+    def forcesUseOfCurrentLayout(self) -> bool:
+        """
+        Return True if this algorithm requires using the current layout's slot dimensions.
+        
+        Algorithms that refine or adjust existing layouts (like Gap Perfecter, Tree Builder)
+        need the actual slot dimensions from the current layout, not the image's native dimensions.
+        
+        Layout generation algorithms (like Collage Generator, Fan Layout) work from scratch
+        and use the image's natural dimensions.
+        
+        Returns:
+            True if algorithm requires current layout slot dimensions, False otherwise.
+        """
+        return False
+    
     @abstractmethod
     def generate_layout(
         self,

@@ -24,6 +24,7 @@ from .algorithms.fan_layout import FanLayoutAlgorithm
 from .algorithms.tree_builder import TreeBuilderAlgorithm
 from .algorithms.gridify import GridifyAlgorithm
 from .algorithms.gap_perfecter import GapPerfecterAlgorithm
+from .algorithms.long_gap_perfecter import LongGapPerfecterAlgorithm
 from .photos import get_image_dimensions, get_photo_preferred_size
 from .writer import update_page_layout
 from .page_utils import determine_page_owner_of_area, page_sort_key
@@ -326,7 +327,7 @@ class LayoutViewer:
         algo_menu = ttk.OptionMenu(
             algo_frame, self.algorithm_var,
             'Fan-GA',  # default
-            'Collage-Gen', 'Fan-GA', 'Gap Perfecter', 'Gridify', 'Tree-Builder'
+            'Collage-Gen', 'Fan-GA', 'Gap Perfecter', 'Gridify', 'Long Gap Perfecter', 'Tree-Builder'
         )
         algo_menu.pack(side='left', padx=(0,4))
         
@@ -3474,6 +3475,8 @@ class LayoutViewer:
                     )
                 elif algo_name == 'Gap Perfecter':
                     algorithm = GapPerfecterAlgorithm()
+                elif algo_name == 'Long Gap Perfecter':
+                    algorithm = LongGapPerfecterAlgorithm()
                 elif algo_name == 'Gridify':
                     algorithm = GridifyAlgorithm(debug=self.debug_var.get())
                 elif algo_name == 'Tree-Builder':
@@ -3759,6 +3762,8 @@ class LayoutViewer:
                     )
                 elif algo_name == 'Gap Perfecter':
                     algorithm = GapPerfecterAlgorithm()
+                elif algo_name == 'Long Gap Perfecter':
+                    algorithm = LongGapPerfecterAlgorithm()
                 elif algo_name == 'Gridify':
                     algorithm = GridifyAlgorithm(debug=self.debug_var.get())
                 elif algo_name == 'Tree-Builder':

@@ -60,22 +60,14 @@ def generate_layout_for_page(photos, page_width_mcf, page_height_mcf, photo_dime
     if slot_aspect_ratios is None:
         slot_aspect_ratios = {}
     
-    # TreeBuilderAlgorithm, GridifyAlgorithm, and GapPerfecterAlgorithm MUST use slot dimensions
-    # TreeBuilder: operates on layout structure, not image aspect ratios
-    # Gridify: refines existing layout by snapping to grid, needs actual slot dimensions
-    # GapPerfecter: refines existing layout by eliminating gaps, needs actual slot dimensions
-    # 
-    # TODO: DESIGN ISSUE - This violates separation of concerns. The wrapper should not
-    # need to know what each algorithm requires. Instead, algorithms should declare their
-    # requirements (e.g., via a property like algorithm.requires_slot_dimensions or
-    # algorithm.requires_current_layout) and the wrapper should query those properties.
-    # Currently the wrapper must special-case TreeBuilder/Gridify/GapPerfecter behavior.
-    from .algorithms.tree_builder import TreeBuilderAlgorithm
-    from .algorithms.gridify import GridifyAlgorithm
-    from .algorithms.gap_perfecter import GapPerfecterAlgorithm
-    if isinstance(algorithm, (TreeBuilderAlgorithm, GridifyAlgorithm, GapPerfecterAlgorithm)):
-        # Force all photos to use slot dimensions from CURRENT layout
-        use_slot_aspect = {i: True for i in range(len(photos))}
+    # Some algorithms require using the current layout's slot dimensions rather than
+    # the image's natural dimensions. These algorithms refine existing layouts
+    # (Gap Perfecter, Long Gap Perfecter, Tree Builder, Gridify) rather than creating
+    # new layouts from scratch.
+    #
+    # When an algorithm forces use of current layout, we get x,y,width,height
+    # from the current layout (via transform), ignoring use_slot_aspect preferences.
+    force_use_current_layout = algorithm.forcesUseOfCurrentLayout()
     
     # Determine if this is a left page (origin_left == 0) or right page (origin_left > 0)
     is_left_page = (origin_left if origin_left else 0.0) == 0.0
@@ -87,7 +79,8 @@ def generate_layout_for_page(photos, page_width_mcf, page_height_mcf, photo_dime
     # Step 1: Translate MCF photos and texts to abstract layout rectangles
     photo_rects, error = _photos_to_rectangles(
         photos, photo_dimensions, preferred_sizes, edge_gap, internal_gap, 
-        use_slot_aspect, slot_aspect_ratios, origin_left, is_spread, is_left_page, has_full_bleed
+        use_slot_aspect, slot_aspect_ratios, origin_left, is_spread, is_left_page, has_full_bleed,
+        force_use_current_layout
     )
     if error:
         return False, [], [], error
@@ -101,6 +94,15 @@ def generate_layout_for_page(photos, page_width_mcf, page_height_mcf, photo_dime
     if not all_rectangles:
         return False, [], [], "No photos or texts to layout"
     
+    # DEBUG: Print rectangles being sent to algorithm
+    if False:
+        print(f"\nDEBUG Algorithm INPUT: {len(all_rectangles)} rectangles (page {page_width_mcf:.0f}x{page_height_mcf:.0f})")
+        for i, rect in enumerate(all_rectangles):
+            if i < 2:  # Only first 2
+                print(f"  Rect {i}: x={rect.x:.1f}, y={rect.y:.1f}, width={rect.width:.1f}, height={rect.height:.1f}")
+                if rect.x is not None and rect.width is not None:
+                    print(f"    Right edge: {rect.x + rect.width:.1f}")
+    
     # Step 2: Run the layout algorithm (operates on gap-adjusted page coordinates)
     success, positioned_rects, error_msg = algorithm.generate_layout(
         algo_page_width, algo_page_height, all_rectangles, **kwargs
@@ -108,6 +110,15 @@ def generate_layout_for_page(photos, page_width_mcf, page_height_mcf, photo_dime
     if not success:
         return False, [], [], error_msg
     
+    # DEBUG: Print rectangles returned by algorithm
+    if False:
+        print(f"\nDEBUG Algorithm OUTPUT: {len(positioned_rects)} rectangles")
+        for i, rect in enumerate(positioned_rects):
+            if i < 2:  # Only first 2
+                print(f"  Rect {i}: x={rect.x:.1f}, y={rect.y:.1f}, width={rect.width:.1f}, height={rect.height:.1f}")
+                if rect.x is not None and rect.width is not None:
+                    print(f"    Right edge: {rect.x + rect.width:.1f}")
+        
     # CRITICAL: Validate that algorithm positioned ALL items (no silent photo losses)
     if len(positioned_rects) != len(all_rectangles):
         return False, [], [], f"Algorithm error: {len(all_rectangles)} items given, only {len(positioned_rects)} positioned. Items were lost!"
@@ -207,7 +218,10 @@ def calculate_overlap(rect1, rect2, tolerance=1.0):
     
     return True, overlap_area
 
-def _photos_to_rectangles(photos, photo_dimensions, preferred_sizes=None, edge_gap=0.0, internal_gap=0.0, use_slot_aspect=None, slot_aspect_ratios=None, origin_left=0.0, is_spread=False, is_left_page=True, has_full_bleed=False):
+
+def _photos_to_rectangles(photos, photo_dimensions, preferred_sizes, edge_gap, internal_gap, 
+                          use_slot_aspect, slot_aspect_ratios, origin_left, is_spread, is_left_page, 
+                          has_full_bleed, force_use_current_layout=False):
     """
     Convert MCF photo list to abstract LayoutRectangle objects in gap-free space.
     
@@ -226,6 +240,7 @@ def _photos_to_rectangles(photos, photo_dimensions, preferred_sizes=None, edge_g
         origin_left: Origin offset for right-side pages in MCF units.
         is_spread: True if spread mode (double page), False if single page.
         is_left_page: True if left/even page, False if right/odd page.
+        force_use_current_layout: If True, get x,y,width,height from current layout, ignoring use_slot_aspect.
     
     Returns:
         Tuple (rectangles: list, error: str).
@@ -242,30 +257,49 @@ def _photos_to_rectangles(photos, photo_dimensions, preferred_sizes=None, edge_g
         fn = photo.get('filename', '')
         if not fn:
             return [], f"Photo {photo_idx} has no filename"
-        
-        # Determine dimensions based on user's aspect ratio choice
-        use_slot = use_slot_aspect.get(photo_idx, False)
+                
+        rect_x = None
+        rect_y = None
         rect_width = None
         rect_height = None
         
-        if use_slot:
-            # User wants slot aspect ratio
-            # Check if we have a custom aspect ratio for this item
-            if photo_idx in slot_aspect_ratios:
-                # Use custom aspect ratio with area from CURRENT slot
-                slot_width = photo.get('area_width', 0)
-                slot_height = photo.get('area_height', 0)
-                if slot_width > 0 and slot_height > 0:
-                    # Calculate area in gap-free space
-                    slot_area = (float(slot_width) + internal_gap) * (float(slot_height) + internal_gap)
-                    custom_aspect = slot_aspect_ratios[photo_idx]
-                    # Compute dimensions from area and aspect ratio
-                    # area = w * h, aspect = w / h
-                    # => w = sqrt(area * aspect), h = sqrt(area / aspect)
-                    import math
-                    rect_width = math.sqrt(slot_area * custom_aspect)
-                    rect_height = math.sqrt(slot_area / custom_aspect)
-                # else: fall through to use current slot dimensions
+        # If algorithm forces use of current layout, get ALL values from current layout
+        if force_use_current_layout and 'area_left' in photo and 'area_top' in photo:
+            page_left = float(photo['area_left']) - origin_left
+            page_top = float(photo['area_top'])
+            page_width = float(photo.get('area_width', 0))
+            page_height = float(photo.get('area_height', 0))
+            
+            if page_width > 0 and page_height > 0:
+                # Get x, y, width, height ALL from same transform for consistency
+                rect_x, rect_y, rect_width, rect_height = transform_item_to_gapfree(
+                    page_left, page_top, page_width, page_height,
+                    edge_gap, internal_gap, is_spread, is_left_page, has_full_bleed
+                )
+        
+        # If not forced to use current layout, or current layout missing, use normal logic
+        if rect_width is None or rect_height is None:
+            # Determine dimensions based on user's aspect ratio choice
+            use_slot = use_slot_aspect.get(photo_idx, False)
+            
+            if use_slot:
+                # User wants slot aspect ratio
+                # Check if we have a custom aspect ratio for this item
+                if photo_idx in slot_aspect_ratios:
+                    # Use custom aspect ratio with area from CURRENT slot
+                    slot_width = photo.get('area_width', 0)
+                    slot_height = photo.get('area_height', 0)
+                    if slot_width > 0 and slot_height > 0:
+                        # Calculate area in gap-free space
+                        slot_area = (float(slot_width) + internal_gap) * (float(slot_height) + internal_gap)
+                        custom_aspect = slot_aspect_ratios[photo_idx]
+                        # Compute dimensions from area and aspect ratio
+                        # area = w * h, aspect = w / h
+                        # => w = sqrt(area * aspect), h = sqrt(area / aspect)
+                        import math
+                        rect_width = math.sqrt(slot_area * custom_aspect)
+                        rect_height = math.sqrt(slot_area / custom_aspect)
+                    # else: fall through to use current slot dimensions
             
             # If no custom aspect ratio or calculation failed, use current slot dimensions
             if rect_width is None or rect_height is None:
@@ -288,16 +322,8 @@ def _photos_to_rectangles(photos, photo_dimensions, preferred_sizes=None, edge_g
             rect_width = float(img_width)
             rect_height = float(img_height)
         
-        # Create LayoutRectangle
-        item_id = str(photo_idx)
-        preferred_size = 1.0
-        if preferred_sizes and fn in preferred_sizes:
-            preferred_size = preferred_sizes[fn]
-        
-        # Extract position from CURRENT layout (always use current photo, never original_photos)
-        rect_x = None
-        rect_y = None
-        if 'area_left' in photo and 'area_top' in photo:
+        # Extract position from CURRENT layout (if not already set by force_current_layout_positions)
+        if rect_x is None and 'area_left' in photo and 'area_top' in photo:
             # Transform from MCF coordinates to gap-free coordinates
             # First adjust for origin_left to get page-relative MCF coordinates
             page_left = float(photo['area_left']) - origin_left
@@ -310,6 +336,12 @@ def _photos_to_rectangles(photos, photo_dimensions, preferred_sizes=None, edge_g
                 edge_gap, internal_gap, is_spread, is_left_page, has_full_bleed
             )
         
+        # Create LayoutRectangle
+        item_id = str(photo_idx)
+        preferred_size = 1.0
+        if preferred_sizes and fn in preferred_sizes:
+            preferred_size = preferred_sizes[fn]
+        
         # Use determined dimensions (either image or slot)
         rect = LayoutRectangle(
             item_id=item_id,
@@ -321,6 +353,15 @@ def _photos_to_rectangles(photos, photo_dimensions, preferred_sizes=None, edge_g
             preserve_aspect_ratio=True  # Photos must preserve aspect ratio
         )
         rectangles.append(rect)
+    
+    # DEBUG: Print all gap-free rectangles
+    if False:
+        print(f"\nDEBUG _photos_to_rectangles output: {len(rectangles)} rectangles")
+        for i, rect in enumerate(rectangles):
+            if i < 2:  # Only first 2
+                print(f"  Rect {i}: x={rect.x:.1f}, y={rect.y:.1f}, width={rect.width:.1f}, height={rect.height:.1f}")
+                if rect.x is not None and rect.width is not None:
+                    print(f"    Right edge: {rect.x + rect.width:.1f}")
     
     return rectangles, ""
 

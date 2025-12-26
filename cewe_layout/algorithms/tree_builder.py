@@ -461,6 +461,10 @@ class TreeBuilderAlgorithm(LayoutAlgorithm):
         self.tolerance = tolerance
         self.final_tree = None
     
+    def forcesUseOfCurrentLayout(self) -> bool:
+        """Tree Builder requires current layout slot dimensions."""
+        return True
+    
     def generate_layout(
         self,
         page_width: float,
