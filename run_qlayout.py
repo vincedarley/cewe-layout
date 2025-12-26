@@ -38,6 +38,8 @@ if __name__ == '__main__':
                        help='Enable debug mode (saves composite images during segmentation)')
     parser.add_argument('--insidecovers', action='store_true',
                        help='PDF includes inside cover pages (page 1 = inside front, page N-1 = inside back)')
+    parser.add_argument('--profile', action='store_true',
+                       help='Enable profiling with cProfile (outputs to profile.stats)')
     
     args = parser.parse_args()
     
@@ -128,4 +130,35 @@ if __name__ == '__main__':
 
         from cewe_layout.parser import resolve_mcf_path
         real = resolve_mcf_path(args.cewe)
-        launch_gui(real, pdf_content, insidecovers=args.insidecovers)
+        
+        if args.profile:
+            # Run with profiling
+            import cProfile
+            import pstats
+            from pstats import SortKey
+            
+            print("Running with profiling enabled...")
+            profiler = cProfile.Profile()
+            profiler.enable()
+            
+            try:
+                launch_gui(real, pdf_content, insidecovers=args.insidecovers)
+            finally:
+                profiler.disable()
+                
+                # Save stats to file
+                profiler.dump_stats('profile.stats')
+                print("\nProfile data saved to profile.stats")
+                print("View with: python -m pstats profile.stats")
+                print("Or programmatically:")
+                print("  >>> import pstats")
+                print("  >>> p = pstats.Stats('profile.stats')")
+                print("  >>> p.sort_stats('cumulative').print_stats(30)")
+                
+                # Print top 20 functions by cumulative time
+                print("\nTop 20 functions by cumulative time:")
+                stats = pstats.Stats(profiler)
+                stats.sort_stats(SortKey.CUMULATIVE)
+                stats.print_stats(20)
+        else:
+            launch_gui(real, pdf_content, insidecovers=args.insidecovers)

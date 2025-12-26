@@ -8,6 +8,7 @@ from pathlib import Path
 import logging
 import re
 import html
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from cewe_layout.colour_utils import getBackgroundAndFrameColour
 
@@ -119,6 +120,9 @@ class PageRenderer:
         self.cache_full_images = True
         self.thumb_cache = {}  # For thumbnail mode: (base_filename, file_size, w, h) -> thumbnail
         self.full_image_cache = {}  # For full image mode: (base_filename, file_size) -> full PIL Image
+        
+        # Persistent thread pool for parallel thumbnail loading (avoids shutdown overhead)
+        self.thumbnail_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="thumbnail_loader")
     
     def render_pages(self, 
                     page_data_list: list,  # List of PageRenderData
@@ -375,6 +379,83 @@ class PageRenderer:
             logger.error(traceback.format_exc())
             raise  # Re-raise the exception instead of silently failing
     
+    def _preload_thumbnails_parallel(self, photos, frame_x, frame_y, scale, origin_left, start_number):
+        """Preload all thumbnails for a page in parallel using threads.
+        
+        Args:
+            photos: List of photo dictionaries
+            frame_x, frame_y: Frame offset coordinates
+            scale: Scaling factor
+            origin_left: Left origin for page positioning
+            start_number: Starting photo number
+            
+        Returns:
+            Dict mapping photo index -> PIL Image (thumbnail)
+        """
+        thumbnail_map = {}
+        
+        # Build list of (index, path, width, height, mcf_filename) tuples
+        load_tasks = []
+        for i, p in enumerate(photos, start=start_number):
+            fn = p.get('filename') or ''
+            if not fn:
+                continue
+            
+            # Calculate thumbnail dimensions
+            left = p.get('area_left') or 0
+            top = p.get('area_top') or 0
+            w = p.get('area_width') or 0
+            h = p.get('area_height') or 0
+            local_left = left - origin_left
+            x0 = frame_x + local_left * scale
+            y0 = frame_y + top * scale
+            x1 = frame_x + (local_left + w) * scale
+            y1 = frame_y + (top + h) * scale
+            thumb_w = int(x1 - x0)
+            thumb_h = int(y1 - y0)
+            
+            # Resolve image path
+            if '_source_path' in p:
+                img_path = p['_source_path']
+            else:
+                from .file_utils import split_safecontainer_prefix
+                prefix, clean_fn = split_safecontainer_prefix(fn)
+                
+                if self.image_folder_attr:
+                    img_path = os.path.join(self.mcf_base_folder, self.image_folder_attr, clean_fn)
+                else:
+                    img_path = os.path.join(self.mcf_base_folder, clean_fn)
+                
+                # Try alternative location if not found
+                if not os.path.exists(img_path):
+                    alt_path = os.path.join(self.mcf_base_folder, clean_fn)
+                    if os.path.exists(alt_path):
+                        img_path = alt_path
+                    else:
+                        img_path = None
+            
+            if img_path and os.path.exists(img_path):
+                load_tasks.append((i, img_path, thumb_w, thumb_h, fn))
+        
+        # Load thumbnails in parallel using ThreadPoolExecutor
+        def load_one(task):
+            idx, path, w, h, mcf_fn = task
+            try:
+                thumb = self.get_thumbnail(path, w, h, mcf_filename=mcf_fn)
+                return (idx, thumb)
+            except Exception as e:
+                logger.error(f"Failed to load thumbnail {idx}: {e}")
+                return (idx, None)
+        
+        # Use persistent thread pool (no shutdown overhead)
+        futures = [self.thumbnail_executor.submit(load_one, task) for task in load_tasks]
+        for future in as_completed(futures):
+            idx, thumb = future.result()
+            if thumb is not None:
+                thumbnail_map[idx] = thumb
+        
+        return thumbnail_map
+    
     def _render_photos(self, img, draw, photos, frame_x, frame_y, scale, origin_left, 
                       start_number, pageno, delete_button_info, page_bg_color, swap_callback=None):
         """Render photos for a single page.
@@ -388,6 +469,9 @@ class PageRenderer:
             label_font = ImageFont.truetype('Arial', 16)
         except:
             label_font = None
+        
+        # Preload all thumbnails in parallel
+        thumbnail_map = self._preload_thumbnails_parallel(photos, frame_x, frame_y, scale, origin_left, start_number)
         
         for i, p in enumerate(photos, start=start_number):
             left = p.get('area_left') or 0
@@ -406,67 +490,33 @@ class PageRenderer:
             # draw image thumbnail if available
             fn = p.get('filename') or ''
             if fn:
-                # Check if this is a staged photo (has _source_path)
-                if '_source_path' in p:
-                    img_path = p['_source_path']
-                    logger.debug(f"Photo {i}: Using staged path: {img_path}")
-                else:
-                    # Resolve photo path from mcf_base_folder
-                    # Strip safecontainer prefix but keep the full filename with -szN-pgN suffixes
-                    from .file_utils import split_safecontainer_prefix
-                    prefix, clean_fn = split_safecontainer_prefix(fn)
-                    logger.debug(f"Photo {i}: filename={fn} -> clean={clean_fn}")
+                # Get preloaded thumbnail
+                thumb = thumbnail_map.get(i)
+                
+                if thumb is not None:
+                    # Draw grey background first
+                    # NOTE: Grey borders appear when the image is smaller than the slot because:
+                    # 1. PIL's thumbnail() preserves aspect ratio and never upscales
+                    # 2. If image pixels < slot pixels, the thumbnail stays at original size
+                    # 3. We center the smaller thumbnail, leaving grey borders visible
+                    # This commonly happens with segmented photos whose pixel dimensions
+                    # don't match the MCF area_width/area_height values.
+                    draw.rectangle([x0, y0, x1, y1], fill='#cccccc')
                     
-                    if self.image_folder_attr:
-                        img_path = os.path.join(self.mcf_base_folder, self.image_folder_attr, clean_fn)
-                        logger.debug(f"Photo {i}: Trying path with image_folder_attr: {img_path}")
-                    else:
-                        img_path = os.path.join(self.mcf_base_folder, clean_fn)
-                        logger.debug(f"Photo {i}: Trying path without image_folder_attr: {img_path}")
+                    # Center the thumbnail in the slot
+                    thumb_w, thumb_h = thumb.size
+                    slot_w = int(x1 - x0)
+                    slot_h = int(y1 - y0)
                     
-                    # Try alternative locations if not found
-                    if not os.path.exists(img_path):
-                        logger.warning(f"Photo {i}: Image not found at {img_path}")
-                        # Try without imagedir
-                        alt_path = os.path.join(self.mcf_base_folder, clean_fn)
-                        if os.path.exists(alt_path):
-                            logger.info(f"Photo {i}: Found at alternative path: {alt_path}")
-                            img_path = alt_path
-                        else:
-                            logger.error(f"Photo {i}: Image not found at alternative path: {alt_path}")
-                            img_path = None
-                    else:
-                        logger.debug(f"Photo {i}: Found image at {img_path}")
-
-                if img_path is not None and os.path.exists(img_path):
-                    thumb = self.get_thumbnail(img_path, int(x1-x0), int(y1-y0))
-                    if thumb is not None:
-                        # Draw grey background first
-                        # NOTE: Grey borders appear when the image is smaller than the slot because:
-                        # 1. PIL's thumbnail() preserves aspect ratio and never upscales
-                        # 2. If image pixels < slot pixels, the thumbnail stays at original size
-                        # 3. We center the smaller thumbnail, leaving grey borders visible
-                        # This commonly happens with segmented photos whose pixel dimensions
-                        # don't match the MCF area_width/area_height values.
-                        draw.rectangle([x0, y0, x1, y1], fill='#cccccc')
-                        
-                        # Center the thumbnail in the slot
-                        thumb_w, thumb_h = thumb.size
-                        slot_w = int(x1 - x0)
-                        slot_h = int(y1 - y0)
-                        
-                        # Calculate centered position
-                        paste_x = int(x0 + (slot_w - thumb_w) / 2)
-                        paste_y = int(y0 + (slot_h - thumb_h) / 2)
-                        
-                        img.paste(thumb, (paste_x, paste_y))
-                        logger.debug(f"Photo {i}: Successfully rendered thumbnail {thumb_w}x{thumb_h} centered in {slot_w}x{slot_h} slot")
-                    else:
-                        logger.error(f"Photo {i}: get_thumbnail returned None for {img_path}")
-                        draw.rectangle([x0, y0, x1, y1], fill='#eeeeee')
+                    # Calculate centered position
+                    paste_x = int(x0 + (slot_w - thumb_w) / 2)
+                    paste_y = int(y0 + (slot_h - thumb_h) / 2)
+                    
+                    img.paste(thumb, (paste_x, paste_y))
+                    logger.debug(f"Photo {i}: Successfully rendered thumbnail {thumb_w}x{thumb_h} centered in {slot_w}x{slot_h} slot")
                 else:
-                    # draw a light placeholder for missing file
-                    logger.error(f"Photo {i}: No valid image path found (original filename: {fn})")
+                    # draw a light placeholder for missing/failed thumbnail
+                    logger.error(f"Photo {i}: Thumbnail not found in preload map (filename: {fn})")
                     draw.rectangle([x0, y0, x1, y1], fill='#eeeeee')
 
             # wireframe overlay
@@ -1079,7 +1129,7 @@ class PageRenderer:
         self.drag_hover_rect_id = None
         self.drag_thumbnail_id = None
     
-    def get_thumbnail(self, path: str, w: int, h: int):
+    def get_thumbnail(self, path: str, w: int, h: int, mcf_filename: str = None):
         """Get thumbnail for an image, using cache if available.
         
         Two modes:
@@ -1090,6 +1140,7 @@ class PageRenderer:
             path: Path to the image file
             w: Thumbnail width in pixels
             h: Thumbnail height in pixels
+            mcf_filename: MCF filename (e.g., safecontainer:/path/img.jpg) for dimension caching
         
         Returns:
             PIL Image of size (w, h), or None if load fails
@@ -1129,6 +1180,13 @@ class PageRenderer:
                     # Convert to RGB if needed (handles RGBA, grayscale, etc.)
                     if im.mode != 'RGB':
                         im = im.convert('RGB')
+                    
+                    # Cache dimensions to avoid reloading image later
+                    # Use MCF filename if provided (matches key used in update_weights_display)
+                    cache_key_dim = mcf_filename if mcf_filename else filename
+                    if cache_key_dim not in self.photo_dimensions:
+                        self.photo_dimensions[cache_key_dim] = im.size
+                    
                     self.full_image_cache[cache_key] = im
                     logger.debug(f"get_thumbnail: Cached full image {path}, size={im.size}")
                 except Exception as e:
@@ -1168,6 +1226,13 @@ class PageRenderer:
                     im = ImageOps.exif_transpose(im)
                     if im.mode != 'RGB':
                         im = im.convert('RGB')
+                    
+                    # Cache dimensions BEFORE thumbnail modifies the image
+                    # Use MCF filename if provided (matches key used in update_weights_display)
+                    cache_key_dim = mcf_filename if mcf_filename else filename
+                    if cache_key_dim not in self.photo_dimensions:
+                        self.photo_dimensions[cache_key_dim] = im.size
+                    
                     im.thumbnail((w, h), Image.Resampling.LANCZOS)
                     self.thumb_cache[cache_key] = im
                 except Exception as e:
