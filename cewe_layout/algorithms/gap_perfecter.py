@@ -35,9 +35,9 @@ class GapPerfecterAlgorithm(LayoutAlgorithm):
     """
     
     # Tolerance in MCF units (0.1mm)
-    OVERLAP_TOLERANCE = 50.0  # 5mm
+    OVERLAP_REMOVAL = 70.0  # 5mm
     EDGE_PROXIMITY = 150.0    # 15mm
-    ALIGNMENT_TOLERANCE = 50.0  # 5mm - for aligning bottoms/rights with adjacent rects
+    MISALIGNMENT_REMOVAL = 35.0  # 5mm - for aligning bottoms/rights with adjacent rects
     
     def generate_layout(
         self,
@@ -156,25 +156,29 @@ class GapPerfecterAlgorithm(LayoutAlgorithm):
             # Calculate overlap amounts
             x_overlap = min(rect.x + rect.width, prev.x + prev.width) - max(rect.x, prev.x)
             y_overlap = min(rect.y + rect.height, prev.y + prev.height) - max(rect.y, prev.y)
+            if debug:
+                print(f"  Overlap of {x_overlap:.1f}x{y_overlap:.1f} between rect ID {rect.item_id} and prev ID {prev.item_id}")
             
-            # Fix horizontal overlap if it's small (<5mm) and rect is to the right of prev
-            if 0 < x_overlap < self.OVERLAP_TOLERANCE and rect.x < prev.x + prev.width:
-                # Shift rect right to align with prev's right edge
-                shift = x_overlap
-                if debug:
-                    print(f"  Fixing horizontal overlap of {x_overlap:.1f} between rect ID {rect.item_id} and prev ID {prev.item_id}")
-                rect.x += shift
-                rect.width = max(1.0, rect.width - shift)  # Ensure width stays positive
-            
-            # Fix vertical overlap if it's small (<5mm) and rect is below prev
-            if 0 < y_overlap < self.OVERLAP_TOLERANCE and rect.y < prev.y + prev.height:
-                # Shift rect down to align with prev's bottom edge
-                shift = y_overlap
-                if debug:
-                    print(f"  Fixing vertical overlap of {y_overlap:.1f} between rect ID {rect.item_id} and prev ID {prev.item_id}")
-                
-                rect.y += shift
-                rect.height = max(1.0, rect.height - shift)  # Ensure height stays positive
+            # Fix the smaller overlap dimension - that will automatically take care of the other.
+            if (x_overlap < y_overlap):
+                # Fix horizontal overlap if it's small (<5mm) and rect is to the right of prev
+                if 0 < x_overlap < self.OVERLAP_REMOVAL and rect.x < prev.x + prev.width:
+                    # Shift rect right to align with prev's right edge
+                    shift = x_overlap
+                    if debug:
+                        print(f"  Fixing horizontal overlap of {x_overlap:.1f} between rect ID {rect.item_id} and prev ID {prev.item_id}")
+                    rect.x += shift
+                    rect.width = max(1.0, rect.width - shift)  # Ensure width stays positive
+            else:                    
+                # Fix vertical overlap if it's small (<5mm) and rect is below prev
+                if 0 < y_overlap < self.OVERLAP_REMOVAL and rect.y < prev.y + prev.height:
+                    # Shift rect down to align with prev's bottom edge
+                    shift = y_overlap
+                    if debug:
+                        print(f"  Fixing vertical overlap of {y_overlap:.1f} between rect ID {rect.item_id} and prev ID {prev.item_id}")
+                    
+                    rect.y += shift
+                    rect.height = max(1.0, rect.height - shift)  # Ensure height stays positive
     
     def _expand_top_left(self, rect: LayoutRectangle, previous_rects: List[LayoutRectangle], debug: bool) -> None:
         """
@@ -184,7 +188,7 @@ class GapPerfecterAlgorithm(LayoutAlgorithm):
         expand this rect to fill the gap (move top-left corner, increase width/height).
         Only expands to page edges (0,0) if within 15mm.
         
-        Also aligns bottom edge with left neighbor and right edge with top neighbor if within 5mm.
+        Also aligns bottom edge with left or right neighbor and right edge with top or bottom neighbor if within 5mm.
         
         Args:
             rect: Rectangle to expand (modified in place).
@@ -204,7 +208,8 @@ class GapPerfecterAlgorithm(LayoutAlgorithm):
         if target_left < rect.x:
             gap = rect.x - target_left
             if gap < self.EDGE_PROXIMITY:
-                # Within 15mm - expand to fill the gap
+                if debug:
+                    print(f".   Expanding left from {rect.x} to {target_left}")
                 rect.width += gap  # Increase width
                 rect.x = max(0.0, target_left)  # Move left, but not below 0
         
@@ -214,9 +219,28 @@ class GapPerfecterAlgorithm(LayoutAlgorithm):
             our_bottom = rect.y + rect.height
             bottom_diff = abs(our_bottom - left_bottom)
             
-            if bottom_diff < self.ALIGNMENT_TOLERANCE:
-                # Align our bottom with this neighbor's bottom
+            if bottom_diff < self.MISALIGNMENT_REMOVAL:
+                if debug:
+                    print(f".   Aligning bottom edge from {our_bottom} to (left side) {left_bottom}")
                 rect.height = left_bottom - rect.y
+                break  # Only align to first match
+        
+        # Find right neighbors (with Y overlap) and align bottom edge if within 5mm
+        right_neighbors = []
+        for prev in previous_rects:
+            if self._has_vertical_overlap(rect, prev) and prev.x >= rect.x + rect.width:
+                # Previous rect is to our right and has vertical overlap
+                right_neighbors.append(prev)
+        
+        for right_neighbor in right_neighbors:
+            right_bottom = right_neighbor.y + right_neighbor.height
+            our_bottom = rect.y + rect.height
+            bottom_diff = abs(our_bottom - right_bottom)
+            
+            if bottom_diff < self.MISALIGNMENT_REMOVAL:
+                if debug:
+                    print(f".   Aligning bottom edge from {our_bottom} to (right side) {right_bottom}")
+                rect.height = right_bottom - rect.y
                 break  # Only align to first match
         
         # Find the bottommost edge of any previous rect above us (with X overlap)
@@ -234,7 +258,8 @@ class GapPerfecterAlgorithm(LayoutAlgorithm):
             gap = rect.y - target_top
             if gap < self.EDGE_PROXIMITY:
                 # Within 15mm - expand to fill the gap
-                rect.height += gap  # Increase height
+                if debug:
+                    print(f".   Expanding top from {rect.y} to {target_top}")
                 rect.y = max(0.0, target_top)  # Move up, but not below 0
         
         # Align right edge with any top neighbor if within 5mm
@@ -243,9 +268,29 @@ class GapPerfecterAlgorithm(LayoutAlgorithm):
             our_right = rect.x + rect.width
             right_diff = abs(our_right - top_right)
             
-            if right_diff < self.ALIGNMENT_TOLERANCE:
+            if right_diff < self.MISALIGNMENT_REMOVAL:
+                if debug:
+                    print(f".   Aligning right edge from {our_right} to (top side) {top_right}")
                 # Align our right with this neighbor's right
                 rect.width = top_right - rect.x
+                break  # Only align to first match
+        
+        # Find bottom neighbors (with X overlap) and align right edge if within 5mm
+        bottom_neighbors = []
+        for prev in previous_rects:
+            if self._has_horizontal_overlap(rect, prev) and prev.y >= rect.y + rect.height:
+                # Previous rect is below us and has horizontal overlap
+                bottom_neighbors.append(prev)
+        
+        for bottom_neighbor in bottom_neighbors:
+            bottom_right = bottom_neighbor.x + bottom_neighbor.width
+            our_right = rect.x + rect.width
+            right_diff = abs(our_right - bottom_right)
+            
+            if right_diff < self.MISALIGNMENT_REMOVAL:
+                if debug:
+                    print(f".   Aligning right edge from {our_right} to (bottom side) {bottom_right}")
+                rect.width = bottom_right - rect.x
                 break  # Only align to first match
     
     def _expand_to_right_edge_if_close(self, rect: LayoutRectangle, page_width: float, debug: bool) -> None:
@@ -260,7 +305,8 @@ class GapPerfecterAlgorithm(LayoutAlgorithm):
         distance_to_edge = page_width - right_edge
         
         if 0 <= distance_to_edge < self.EDGE_PROXIMITY:
-            # Within 15mm of right edge - expand to reach it perfectly
+            if debug:
+                print(f"Expanding right from {rect.x + rect.width} to {page_width}")
             rect.width = page_width - rect.x  # Set width to exactly reach edge
     
     def _expand_to_bottom_edge_if_close(self, rect: LayoutRectangle, page_height: float, debug: bool) -> None:
@@ -275,7 +321,8 @@ class GapPerfecterAlgorithm(LayoutAlgorithm):
         distance_to_edge = page_height - bottom_edge
         
         if 0 <= distance_to_edge < self.EDGE_PROXIMITY:
-            # Within 15mm of bottom edge - expand to reach it perfectly
+            if debug:
+                print(f"Expanding bottom from {rect.y + rect.height} to {page_height}")
             rect.height = page_height - rect.y  # Set height to exactly reach edge
     
     def _rectangles_overlap(self, rect1: LayoutRectangle, rect2: LayoutRectangle) -> bool:

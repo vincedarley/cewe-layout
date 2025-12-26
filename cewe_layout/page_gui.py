@@ -11,15 +11,15 @@ import html
 
 from cewe_layout.colour_utils import getBackgroundAndFrameColour
 
+logger = logging.getLogger(__name__)
+
 # Register HEIF/HEIC support if available
 try:
     from pillow_heif import register_heif_opener
     register_heif_opener()
-    logging.info("HEIF/HEIC support enabled via pillow-heif")
+    logger.info("HEIF/HEIC support enabled via pillow-heif")
 except ImportError:
-    logging.info("pillow-heif not available - HEIC files will not be supported")
-
-logger = logging.getLogger(__name__)
+    logger.info("pillow-heif not available - HEIC files will not be supported")
 
 def _extract_text_from_html(html_text):
     """Extract plain text from HTML CDATA content.
