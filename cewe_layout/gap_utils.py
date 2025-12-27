@@ -298,9 +298,9 @@ def report_gap_variations(analysis: GapAnalysis, pageno: int = None) -> None:
             exceptions_mm = [e / 10.0 for e in exceptions]
             exception_str = ", ".join(f"{e:.1f}" for e in exceptions_mm)
             count_modal = sum(1 for g in analysis.internal_gaps if abs(g - modal_internal) <= TOLERANCE)
-            print(f"{page_context}Internal gaps: {count_modal} gaps are {modal_mm:.1f}mm, other gaps are {exception_str}mm")
+            page_context += f"Internal gaps: {count_modal} gaps are {modal_mm:.1f}mm, other gaps are {exception_str}mm"
         else:
-            print(f"{page_context}Internal gaps: all equal at {modal_internal/10.0:.1f}mm")
+            page_context += f"Internal gaps: all equal at {modal_internal/10.0:.1f}mm"
     
     # Check edge gap variations
     has_edge_variations = False
@@ -313,9 +313,11 @@ def report_gap_variations(analysis: GapAnalysis, pageno: int = None) -> None:
             exceptions_mm = [e / 10.0 for e in exceptions]
             exception_str = ", ".join(f"{e:.1f}" for e in exceptions_mm)
             count_modal = sum(1 for g in analysis.edge_gaps if abs(g - modal_edge) <= TOLERANCE)
-            print(f"{page_context}Edge gaps: {count_modal} gaps are {modal_mm:.1f}mm, other gaps are {exception_str}mm")
+            page_context += f"; Edge gaps: {count_modal} gaps are {modal_mm:.1f}mm, other gaps are {exception_str}mm"
         else:
-            print(f"{page_context}Edge gaps: all equal at {modal_edge/10.0:.1f}mm")
+            page_context += f"; Edge gaps: all equal at {modal_edge/10.0:.1f}mm"
+    
+    print(f"{page_context}")
 
 
 def transform_page_to_gapfree(page_width: float, page_height: float,

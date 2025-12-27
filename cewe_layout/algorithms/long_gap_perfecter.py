@@ -18,6 +18,9 @@ Algorithm:
 Result: A layout where every major line has photos/texts perfectly aligned to it.
 """
 
+import logging
+logger = logging.getLogger(__name__)
+
 from typing import List, Tuple, Optional, Set
 from dataclasses import dataclass
 from enum import Enum
@@ -290,8 +293,8 @@ class LongGapPerfecterAlgorithm(LayoutAlgorithm):
                 touching_items=touching_items
             )
             # Validate line is within page bounds, with tiny rounding allowed
-            if not (-0.5 <= y_pos <= page_height+0.5):
-                raise ValueError(f"ERROR: Created horizontal line at y={y_pos:.1f} outside page bounds (page_height={page_height:.1f})! Source: {source_id}")
+            if not (0.0 <= y_pos <= page_height):
+                logger.warning(f"Error on input: Created horizontal line at y={y_pos:.1f} outside page bounds (page_height={page_height:.1f})! Source: {source_id}")
             
             return line
         
@@ -375,9 +378,9 @@ class LongGapPerfecterAlgorithm(LayoutAlgorithm):
                 end=final_y_end,
                 touching_items=touching_items
             )
-            # Validate line is within page bounds, with tiny rounding allowed
-            if not (-0.5 <= x_pos <= page_width+0.5):
-                raise ValueError(f"ERROR: Created vertical line at x={x_pos:.1f} outside page bounds (page_width={page_width:.1f})! Source: {source_id}")
+            # Validate line is within page bounds
+            if not (0.0 <= x_pos <= page_width):
+                logger.warning(f"Error on input: Created vertical line at x={x_pos:.1f} outside page bounds (page_width={page_width:.1f})! Source: {source_id}")
             return line
         
         return None
