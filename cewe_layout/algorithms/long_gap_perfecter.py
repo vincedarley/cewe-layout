@@ -102,7 +102,7 @@ class LongGapPerfecterAlgorithm(LayoutAlgorithm):
             if rect.x is None or rect.y is None:
                 return False, [], f"Long Gap Perfecter requires all rectangles to have x,y positions set. Rectangle {rect.item_id} has x={rect.x}, y={rect.y}"
         
-        debug = False
+        debug = True
         
         if debug:
             print(f"\n=== Long Gap Perfecter: Processing {len(rectangles)} rectangles ===")
@@ -273,12 +273,6 @@ class LongGapPerfecterAlgorithm(LayoutAlgorithm):
             if rect_right > x_end:  # Rectangle could be in the rightward path
                 # Does the line cut through this rectangle?
                 cuts_through = self._line_cuts_through_horizontal(y_pos, rect)
-                if debug and abs(y_pos - 913.9) < 1.0 and rect_left < 3000:
-                    print(f"    Extending right from x={x_end:.1f} at y={y_pos:.1f}, checking Rect {rect.item_id}")
-                    print(f"      Rect: x={rect.x:.1f} to {rect.x + rect.width:.1f}, y={rect.y:.1f} to {rect.y + rect.height:.1f}")
-                    print(f"      Cuts through? {cuts_through}")
-                    if cuts_through:
-                        print(f"      -> Blocking at x={rect_left:.1f}")
                 if cuts_through:
                     # Yes - this terminates the line
                     final_x_end = min(final_x_end, rect_left)
@@ -295,14 +289,9 @@ class LongGapPerfecterAlgorithm(LayoutAlgorithm):
                 end=final_x_end,
                 touching_items=touching_items
             )
-            # Validate line is within page bounds
-            if not (0 <= y_pos <= page_height):
+            # Validate line is within page bounds, with tiny rounding allowed
+            if not (-0.5 <= y_pos <= page_height+0.5):
                 raise ValueError(f"ERROR: Created horizontal line at y={y_pos:.1f} outside page bounds (page_height={page_height:.1f})! Source: {source_id}")
-            
-            # TEMPORARY DEBUG: Catch unexpectedly long lines in the problem area
-            line_length = final_x_end - final_x_start
-            if 800 <= y_pos <= 1000 and line_length > 3000:
-                raise ValueError(f"ERROR: Created unexpectedly long horizontal line at y={y_pos:.1f}, x={final_x_start:.1f}→{final_x_end:.1f} (len={line_length:.1f}) from source Rect {source_id}! This line should be blocked by a photo.")
             
             return line
         
@@ -386,8 +375,8 @@ class LongGapPerfecterAlgorithm(LayoutAlgorithm):
                 end=final_y_end,
                 touching_items=touching_items
             )
-            # Validate line is within page bounds
-            if not (0 <= x_pos <= page_width):
+            # Validate line is within page bounds, with tiny rounding allowed
+            if not (-0.5 <= x_pos <= page_width+0.5):
                 raise ValueError(f"ERROR: Created vertical line at x={x_pos:.1f} outside page bounds (page_width={page_width:.1f})! Source: {source_id}")
             return line
         

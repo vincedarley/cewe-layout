@@ -181,7 +181,7 @@ def analyze_gap_details(photos: List[Dict[str, Any]], page_width: float, page_he
                         closest_right_gap = gap
         
         # Record the gap if it's positive and significant (>1mm)
-        if closest_right_gap is not None and closest_right_gap > 10:
+        if closest_right_gap is not None: 
             internal_gaps.append(closest_right_gap)
         
         # Find closest photo below (with sufficient X-overlap)
@@ -210,7 +210,7 @@ def analyze_gap_details(photos: List[Dict[str, Any]], page_width: float, page_he
                         closest_below_gap = gap
         
         # Record the gap if it's positive and significant (>1mm)
-        if closest_below_gap is not None and closest_below_gap > 10:
+        if closest_below_gap is not None: 
             internal_gaps.append(closest_below_gap)
     
     # Helper to find modal value (most common value)
@@ -299,6 +299,8 @@ def report_gap_variations(analysis: GapAnalysis, pageno: int = None) -> None:
             exception_str = ", ".join(f"{e:.1f}" for e in exceptions_mm)
             count_modal = sum(1 for g in analysis.internal_gaps if abs(g - modal_internal) <= TOLERANCE)
             print(f"{page_context}Internal gaps: {count_modal} gaps are {modal_mm:.1f}mm, other gaps are {exception_str}mm")
+        else:
+            print(f"{page_context}Internal gaps: all equal at {modal_internal/10.0:.1f}mm")
     
     # Check edge gap variations
     has_edge_variations = False
@@ -312,17 +314,9 @@ def report_gap_variations(analysis: GapAnalysis, pageno: int = None) -> None:
             exception_str = ", ".join(f"{e:.1f}" for e in exceptions_mm)
             count_modal = sum(1 for g in analysis.edge_gaps if abs(g - modal_edge) <= TOLERANCE)
             print(f"{page_context}Edge gaps: {count_modal} gaps are {modal_mm:.1f}mm, other gaps are {exception_str}mm")
-    
-    # If no variations detected, report that all gaps are equal
-    if not has_internal_variations and not has_edge_variations:
-        if (not analysis.internal_gaps and not analysis.edge_gaps):
-            print(f"{page_context}No gaps detected.")
-        elif analysis.internal_gaps and not analysis.edge_gaps:
-            print(f"{page_context}Equal internal gaps ({analysis.internal_gaps[0]/10.0:.1f}mm), no edge gaps.")
-        elif analysis.edge_gaps and not analysis.internal_gaps:
-            print(f"{page_context}Equal edge gaps ({analysis.edge_gaps[0]/10.0:.1f}mm), no internal gaps.")
         else:
-            print(f"{page_context}Equal edge gaps ({analysis.edge_gaps[0]/10.0:.1f}mm) and equal internal gaps ({analysis.internal_gaps[0]/10.0:.1f}mm)")
+            print(f"{page_context}Edge gaps: all equal at {modal_edge/10.0:.1f}mm")
+
 
 def transform_page_to_gapfree(page_width: float, page_height: float,
                                edge_gap: Dict[str, float], internal_gap: float, is_spread: bool,

@@ -463,10 +463,19 @@ def _rectangles_to_photos(photos, rectangles, edge_gap=0.0, internal_gap=0.0, is
                 rect.x, rect.y, rect.width, rect.height,
                 edge_gap, internal_gap, is_spread, is_left_page, has_full_bleed
             )
-            photo['area_left'] = left
-            photo['area_top'] = top
-            photo['area_width'] = width
-            photo['area_height'] = height
+            # Round to integer MCF coordinates (0.1mm resolution)
+            # Round corner positions, then derive dimensions from rounded corners
+            left_rounded = round(left)
+            top_rounded = round(top)
+            right_rounded = round(left + width)
+            bottom_rounded = round(top + height)
+            width_rounded = right_rounded - left_rounded
+            height_rounded = bottom_rounded - top_rounded
+            
+            photo['area_left'] = left_rounded
+            photo['area_top'] = top_rounded
+            photo['area_width'] = width_rounded
+            photo['area_height'] = height_rounded
             # CRITICAL: Preserve original preferred_size - do NOT use rect.preferred_size
             # which may have been modified by the algorithm
             # Preferred sizes can only be changed by user, never by algorithm
@@ -509,10 +518,19 @@ def _rectangles_to_texts(texts, rectangles, edge_gap=0.0, internal_gap=0.0, is_s
                 rect.x, rect.y, rect.width, rect.height,
                 edge_gap, internal_gap, is_spread, is_left_page, has_full_bleed
             )
-            text['area_left'] = left
-            text['area_top'] = top
-            text['area_width'] = width
-            text['area_height'] = height
+            # Round to integer MCF coordinates (0.1mm resolution)
+            # Round corner positions, then derive dimensions from rounded corners
+            left_rounded = round(left)
+            top_rounded = round(top)
+            right_rounded = round(left + width)
+            bottom_rounded = round(top + height)
+            width_rounded = right_rounded - left_rounded
+            height_rounded = bottom_rounded - top_rounded
+            
+            text['area_left'] = left_rounded
+            text['area_top'] = top_rounded
+            text['area_width'] = width_rounded
+            text['area_height'] = height_rounded
             updated_texts[text_idx] = text
     
     return updated_texts
