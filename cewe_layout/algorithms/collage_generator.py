@@ -175,6 +175,9 @@ class CollageGeneratorAlgorithm(LayoutAlgorithm):
         self._best_collage_tree = None
         self._rectangles = None
     
+    def getName(self) -> str:
+        return "Collage-Gen"
+    
     def generate_layout(
         self,
         page_width: float,

@@ -61,7 +61,7 @@ Once you're done: open the book in CEWE Creator and do any fine-tuning you wish.
 ...or of course if you want rotated photos or any other creative manual layout.
 
 Optional additional steps in QLayout:
-- Use the "Gap Perfecter" algorithm to ensure all edge gaps and internal gaps on a page are identical - fixing minor imperfections or overlaps.
+- Use the "Photo Gap Perfecter" algorithms to ensure all edge gaps and internal gaps on a page are identical - fixing minor imperfections or overlaps. The "Long Gap Perfecter" aligns photos/texts along long straight lines that approximately exist in your layout - making them exactly straight. The "Photo Gap Perfecter" just looks locally at each photo and its neighbours. 
 - Adjust the "Edge Gap" and "Internal Gap" - on some pages you might want a large gap, on others no gap at all.  Note that an edge-gap of -3.0mm is what CEWE suggests for full-page layouts. The 3.0mm bleed ensures a neat edge to the page.
 - Export PDF - this is a quick export of just a single page of photos (no texts) so you can examine carefully.
 

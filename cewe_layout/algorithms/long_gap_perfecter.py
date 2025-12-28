@@ -74,6 +74,9 @@ class LongGapPerfecterAlgorithm(LayoutAlgorithm):
     PROXIMITY_THRESHOLD = 100.0  # 10mm - parallel lines within this distance are merged
     ALIGNMENT_TOLERANCE = 50.0  # 5mm - photos within this distance are considered "touching"
     
+    def getName(self) -> str:
+        return "Long Gap Perfecter"
+    
     def forcesUseOfCurrentLayout(self) -> bool:
         """Long Gap Perfecter requires current layout slot dimensions."""
         return True

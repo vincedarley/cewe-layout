@@ -367,6 +367,9 @@ class FanLayoutAlgorithm(LayoutAlgorithm):
         self.elite_size = elite_size
         self.undersized_threshold = undersized_threshold
         self.undersized_penalty = undersized_penalty
+    
+    def getName(self) -> str:
+        return "Genetic Algorithm (Fan)"
         
         # Store best tree from last run
         self.best_tree = None

@@ -35,6 +35,9 @@ class GridifyAlgorithm(LayoutAlgorithm):
         """
         self.debug = debug
     
+    def getName(self) -> str:
+        return "Gridify"
+    
     def forcesUseOfCurrentLayout(self) -> bool:
         """Gridify requires current layout slot dimensions."""
         return True

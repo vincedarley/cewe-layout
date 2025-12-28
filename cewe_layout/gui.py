@@ -320,27 +320,68 @@ class LayoutViewer:
                                        state='disabled' if is_spread_disabled else 'normal')
         spread_check.pack(side='left', padx=(8,0))
         
+        # Collect all available algorithms
+        all_algorithms = [
+            CollageGeneratorAlgorithm(),
+            FanLayoutAlgorithm(),
+            GapPerfecterAlgorithm(),
+            LongGapPerfecterAlgorithm(),
+            GridifyAlgorithm(),
+            TreeBuilderAlgorithm()
+        ]
+        
+        # Separate into layout generators and fine-tuning algorithms
+        layout_algorithms = [algo for algo in all_algorithms if not algo.forcesUseOfCurrentLayout()]
+        fine_tuning_algorithms = [algo for algo in all_algorithms if algo.forcesUseOfCurrentLayout()]
+        
+        # Build dynamic registry mapping algorithm names to classes
+        # This avoids hard-coded string comparisons and is robust to name changes
+        self.algorithm_registry = {}
+        for algo in all_algorithms:
+            self.algorithm_registry[algo.getName()] = type(algo)
+        
+        # Get names for layout algorithm dropdown
+        layout_algo_names = [algo.getName() for algo in layout_algorithms]
+        
         # Row 1: Algorithm selection and Generate button - pack in single frame
         algo_frame = ttk.Frame(self.ctrlWin)
         algo_frame.grid(row=1, column=0, columnspan=2, sticky='w', padx=4, pady=4)
         ttk.Label(algo_frame, text='Algorithm:').pack(side='left', padx=(0,4))
+        
+        # Set default to last layout algorithm
+        default_algo = layout_algo_names[-1] if layout_algo_names else 'Fan-GA'
         algo_menu = ttk.OptionMenu(
             algo_frame, self.algorithm_var,
-            'Fan-GA',  # default
-            'Collage-Gen', 'Fan-GA', 'Gap Perfecter', 'Gridify', 'Long Gap Perfecter', 'Tree-Builder'
+            default_algo,
+            *layout_algo_names
         )
         algo_menu.pack(side='left', padx=(0,4))
         
         # Generate button (uses selected algorithm)
         mod_sym = get_modifier_symbol()
-        self.gen_btn = ttk.Button(algo_frame, text=f'Generate Layout ({mod_sym}R)', command=self.generate_layout)
+        self.gen_btn = ttk.Button(algo_frame, text=f'Generate Layout ({mod_sym}R)', command=self._generate_layout)
         self.gen_btn.pack(side='left', padx=(0,4))
         
         # Debug checkbox next to Generate button
         debug_check = ttk.Checkbutton(algo_frame, text='Debug', variable=self.debug_var)
         debug_check.pack(side='left')
         
-        # Row 2: PDF controls (only shown if pdf_content is available)
+        # Row 1.5: Fine-tuning buttons
+        fine_tuning_frame = ttk.Frame(self.ctrlWin)
+        fine_tuning_frame.grid(row=2, column=0, columnspan=2, sticky='w', padx=4, pady=(0,4))
+        ttk.Label(fine_tuning_frame, text='Fine-tuning:').pack(side='left', padx=(0,4))
+        
+        for algo in fine_tuning_algorithms:
+            algo_name = algo.getName()
+            btn = ttk.Button(
+                fine_tuning_frame, 
+                text=algo_name,
+                command=lambda name=algo_name: self._run_fine_tuning(name)
+            )
+            btn.pack(side='left', padx=(0,2))
+        
+        # Row 3: PDF controls (only shown if pdf_content is available)
+        pdf_row = 3
         if self.pdf_content:
             pdf_frame = ttk.Frame(self.ctrlWin)
             pdf_frame.grid(row=2, column=0, columnspan=2, sticky='w', padx=4, pady=4)
@@ -707,10 +748,10 @@ class LayoutViewer:
         self.ctrlWin.bind(f'<{modifier}-Z>', lambda e: self.undo_layout())
         
         # Cmd/Ctrl+R: Generate Layout
-        self.root.bind(f'<{modifier}-r>', lambda e: self.generate_layout())
-        self.root.bind(f'<{modifier}-R>', lambda e: self.generate_layout())
-        self.ctrlWin.bind(f'<{modifier}-r>', lambda e: self.generate_layout())
-        self.ctrlWin.bind(f'<{modifier}-R>', lambda e: self.generate_layout())
+        self.root.bind(f'<{modifier}-r>', lambda e: self._generate_layout())
+        self.root.bind(f'<{modifier}-R>', lambda e: self._generate_layout())
+        self.ctrlWin.bind(f'<{modifier}-r>', lambda e: self._generate_layout())
+        self.ctrlWin.bind(f'<{modifier}-R>', lambda e: self._generate_layout())
         
         # Cmd/Ctrl+Shift+N: New Text Box
         self.root.bind(f'<{modifier}-Shift-n>', lambda e: self.add_text_box())
@@ -3343,7 +3384,71 @@ class LayoutViewer:
         
         logger.info(f"Debug dump written to {debug_file}")
 
-    def generate_layout(self):
+    def _create_algorithm_instance(self, algo_name: str):
+        """Create algorithm instance with appropriate parameters.
+        
+        Uses the algorithm registry to dynamically instantiate the correct algorithm class
+        with parameters from the current GUI state.
+        
+        Args:
+            algo_name: Name of algorithm (from getName())
+            
+        Returns:
+            Algorithm instance, or None if algorithm not found
+        """
+        algo_class = self.algorithm_registry.get(algo_name)
+        if algo_class is None:
+            return None
+        
+        # Instantiate with class-specific parameters
+        if algo_class is CollageGeneratorAlgorithm:
+            return CollageGeneratorAlgorithm(temperature=1.0)
+        elif algo_class is FanLayoutAlgorithm:
+            return FanLayoutAlgorithm(
+                size_importance=self.size_importance,
+                undersized_threshold=self.undersized_threshold,
+                undersized_penalty=self.undersized_penalty
+            )
+        elif algo_class is GridifyAlgorithm:
+            return GridifyAlgorithm(debug=self.debug_var.get())
+        elif algo_class is TreeBuilderAlgorithm:
+            return TreeBuilderAlgorithm(tolerance=60.0)
+        else:
+            # GapPerfecterAlgorithm and LongGapPerfecterAlgorithm take no parameters
+            return algo_class()
+    
+    def _run_fine_tuning(self, algo_name: str):
+        """Run a fine-tuning algorithm on the current page layout.
+        
+        Fine-tuning algorithms refine existing layouts (Gap Perfecter, Long Gap Perfecter, etc.)
+        and always use the current layout's slot dimensions.
+        
+        Args:
+            algo_name: Name of the fine-tuning algorithm to run
+        """
+        self._generate_layout(algo_name)
+
+    def _generate_layout(self, algo_name: str = None):
+        """Create algorithm instance and run generate_layout.
+        
+        Args:
+            algo_name: Name of algorithm to run, or None to use current selection
+        """
+        # Get algorithm name from parameter or current selection
+        if algo_name is None:
+            algo_name = self.algorithm_var.get()
+        
+        # Create algorithm instance using registry
+        algorithm = self._create_algorithm_instance(algo_name)
+        
+        # Fallback to CollageGenerator if algorithm not found
+        if algorithm is None:
+            logger.warning(f"Algorithm '{algo_name}' not found in registry, using CollageGenerator as fallback")
+            algorithm = CollageGeneratorAlgorithm(temperature=1.0)
+        
+        self.generate_layout(algorithm)
+
+    def generate_layout(self, algorithm: LayoutAlgorithm):
         """Run layout algorithm on current page(s) in a background thread.
 
         In spread mode, combines photos from both pages, runs algorithm on double-width
@@ -3462,28 +3567,7 @@ class LayoutViewer:
                     for i, t in enumerate(texts_for_page):
                         text_id = f'TEXT_{i}'
                         preferred_sizes[text_id] = self.layout_mgr.get_size(pageno, text_id)
-                
-                # Create algorithm instance
-                algo_name = self.algorithm_var.get()
-                if algo_name == 'Collage-Gen':
-                    algorithm = CollageGeneratorAlgorithm(temperature=1.0)
-                elif algo_name == 'Fan-GA':
-                    algorithm = FanLayoutAlgorithm(
-                        size_importance=self.size_importance,
-                        undersized_threshold=self.undersized_threshold,
-                        undersized_penalty=self.undersized_penalty
-                    )
-                elif algo_name == 'Gap Perfecter':
-                    algorithm = GapPerfecterAlgorithm()
-                elif algo_name == 'Long Gap Perfecter':
-                    algorithm = LongGapPerfecterAlgorithm()
-                elif algo_name == 'Gridify':
-                    algorithm = GridifyAlgorithm(debug=self.debug_var.get())
-                elif algo_name == 'Tree-Builder':
-                    algorithm = TreeBuilderAlgorithm(tolerance=60.0)
-                else:
-                    algorithm = CollageGeneratorAlgorithm(temperature=1.0)
-                
+
                 # Collect checkbox states and slot aspect ratios (combine from both pages)
                 use_slot_aspect_for_photos = {}
                 slot_aspect_ratios_combined = {}
@@ -3666,7 +3750,7 @@ class LayoutViewer:
                     except Exception as e:
                         logger.error(f"Failed to re-enable Generate Layout button: {e}")
                     
-                    self.show_status(f'Layout generated successfully using {self.algorithm_var.get()} (spread)')
+                    self.show_status(f'Layout generated successfully using {algorithm.getName()} (spread)')
                     
                     self.layout_mgr.push_layout(page_numbers[0], photos_page0, texts_page0)
                     self.layout_mgr.push_layout(page_numbers[1], photos_page1, texts_page1)
@@ -3749,28 +3833,7 @@ class LayoutViewer:
 
                 # Get texts for this page (from current layout, not original)
                 texts = current_layout.texts if current_layout else info.get('texts', [])
-                
-                # Create algorithm instance based on selection
-                algo_name = self.algorithm_var.get()
-                if algo_name == 'Collage-Gen':
-                    algorithm = CollageGeneratorAlgorithm(temperature=1.0)
-                elif algo_name == 'Fan-GA':
-                    algorithm = FanLayoutAlgorithm(
-                        size_importance=self.size_importance,
-                        undersized_threshold=self.undersized_threshold,
-                        undersized_penalty=self.undersized_penalty
-                    )
-                elif algo_name == 'Gap Perfecter':
-                    algorithm = GapPerfecterAlgorithm()
-                elif algo_name == 'Long Gap Perfecter':
-                    algorithm = LongGapPerfecterAlgorithm()
-                elif algo_name == 'Gridify':
-                    algorithm = GridifyAlgorithm(debug=self.debug_var.get())
-                elif algo_name == 'Tree-Builder':
-                    algorithm = TreeBuilderAlgorithm(tolerance=60.0)
-                else:
-                    algorithm = CollageGeneratorAlgorithm(temperature=1.0)  # fallback
-                
+
                 # Collect checkbox states for photos on this page
                 use_slot_aspect_for_photos = {}
                 for photo_idx in range(len(photos)):
@@ -3817,7 +3880,7 @@ class LayoutViewer:
                         photos=photos,
                         texts=texts,
                         preferred_sizes=preferred_sizes,
-                        algorithm_name=algo_name,
+                        algorithm_name=algorithm.getName(),
                         use_slot_aspect_for_photos=use_slot_aspect_for_photos,
                         slot_aspect_ratios=slot_aspect_ratios_for_page
                     )
@@ -3871,7 +3934,7 @@ class LayoutViewer:
                         self.show_status(f'Layout generation failed: {error_msg}', error=True)
                         return
                     
-                    self.show_status(f'Layout generated successfully using {self.algorithm_var.get()}')
+                    self.show_status(f'Layout generated successfully using {algorithm.getName()}')
 
                     # Push new layout (both photos and texts) to manager and refresh view
                     self.layout_mgr.push_layout(pageno, updated_photos, updated_texts)

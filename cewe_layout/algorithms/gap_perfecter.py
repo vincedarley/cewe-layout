@@ -39,6 +39,9 @@ class GapPerfecterAlgorithm(LayoutAlgorithm):
     EDGE_PROXIMITY = 150.0    # 15mm
     MISALIGNMENT_REMOVAL = 35.0  # 5mm - for aligning bottoms/rights with adjacent rects
     
+    def getName(self) -> str:
+        return "Photo Gap Perfecter"
+    
     def forcesUseOfCurrentLayout(self) -> bool:
         """Gap Perfecter requires current layout slot dimensions."""
         return True

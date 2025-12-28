@@ -91,13 +91,58 @@ def _calculate_cutout(slot_width_mcf, slot_height_mcf, image_width_px, image_hei
     return (scale, cutout_left, cutout_top)
 
 
-def _next_backup_name(path: str) -> str:
+def _manage_single_backup(path: str) -> tuple:
+    """Manage a single backup file strategy.
+    
+    Renames files to maintain only one backup:
+    1. data-1.mcf → data-2.mcf (temporary, if exists)
+    2. data.mcf → data-1.mcf (the backup)
+    
+    Returns tuple of (backup_path, temp_path) where:
+    - backup_path: path-1.ext (the backup)
+    - temp_path: path-2.ext (temporary old backup, or None)
+    """
     base, ext = os.path.splitext(path)
-    for i in range(1, 10000):
-        cand = f"{base}-{i}{ext}"
-        if not os.path.exists(cand):
-            return cand
-    raise RuntimeError('Unable to find backup name')
+    backup_path = f"{base}-1{ext}"
+    temp_path = f"{base}-2{ext}"
+    
+    # Step 1: Move existing backup to temporary location if it exists
+    actual_temp = None
+    if os.path.exists(backup_path):
+        os.rename(backup_path, temp_path)
+        actual_temp = temp_path
+    
+    # Step 2: Move current file to backup
+    if os.path.exists(path):
+        os.rename(path, backup_path)
+    
+    return backup_path, actual_temp
+
+
+def _cleanup_single_backup(temp_path: str):
+    """Delete the temporary old backup after successful save."""
+    if temp_path and os.path.exists(temp_path):
+        os.remove(temp_path)
+
+
+def _restore_single_backup(path: str, backup_path: str, temp_path: str):
+    """Restore files after failed save.
+    
+    Undoes the renames:
+    - backup_path (data-1.mcf) → path (data.mcf)
+    - temp_path (data-2.mcf) → backup_path (data-1.mcf)
+    """
+    # Restore backup to original
+    if backup_path and os.path.exists(backup_path):
+        if os.path.exists(path):
+            os.remove(path)  # Remove failed write
+        os.rename(backup_path, path)
+    
+    # Restore temp to backup
+    if temp_path and os.path.exists(temp_path):
+        if os.path.exists(backup_path):
+            os.remove(backup_path)
+        os.rename(temp_path, backup_path)
 
 
 def _getXmlPageForUiPage(root, uiPage: Any, single_page_mode: bool):
@@ -883,11 +928,11 @@ def update_page_layout(path: str, uiPage: Any, photos: List[Dict[str, Any]],
             areas_parent.append(new_area)
             added_texts += 1
     
-    # Backup original file if requested
+    # Backup original file if requested (single backup strategy)
     backup_path = None
+    temp_path = None
     if make_backup:
-        backup_path = _next_backup_name(path)
-        os.rename(path, backup_path)
+        backup_path, temp_path = _manage_single_backup(path)
     
     # Validate that we processed all expected photos
     warnings = []
@@ -902,10 +947,13 @@ def update_page_layout(path: str, uiPage: Any, photos: List[Dict[str, Any]],
     # Use pretty_print=False to preserve manual whitespace formatting
     try:
         tree.write(path, encoding='utf-8', xml_declaration=True, pretty_print=False)
+        # Success - cleanup old backup
+        if make_backup:
+            _cleanup_single_backup(temp_path)
     except Exception as e:
         # Restore backup if write failed
-        if backup_path and os.path.exists(backup_path):
-            os.rename(backup_path, path)
+        if make_backup:
+            _restore_single_backup(path, backup_path, temp_path)
         raise RuntimeError(f"Failed to write MCF file: {e}") from e
     
     # Validate the saved XML matches expectations

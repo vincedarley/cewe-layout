@@ -324,6 +324,15 @@ class LayoutAlgorithm(ABC):
     handles all translation between MCF units, file paths, and item dimensions.
     """
     
+    @abstractmethod
+    def getName(self) -> str:
+        """Return the display name for this algorithm in the UI.
+        
+        Returns:
+            Human-readable name for the algorithm (e.g., "Gap Perfecter", "Fan Layout")
+        """
+        pass
+    
     def forcesUseOfCurrentLayout(self) -> bool:
         """
         Return True if this algorithm requires using the current layout's slot dimensions.

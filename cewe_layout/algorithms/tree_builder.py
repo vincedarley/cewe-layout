@@ -459,6 +459,9 @@ class TreeBuilderAlgorithm(LayoutAlgorithm):
                       Default 20.0 = 2.0mm.
         """
         self.tolerance = tolerance
+    
+    def getName(self) -> str:
+        return "Tree-Builder"
         self.final_tree = None
     
     def forcesUseOfCurrentLayout(self) -> bool:
