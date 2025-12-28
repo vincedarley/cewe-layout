@@ -818,7 +818,7 @@ class LayoutViewer:
             # Layout menu
             layout_menu = tk.Menu(menubar, tearoff=0)
             menubar.add_cascade(label='Layout', menu=layout_menu)
-            layout_menu.add_command(label='Generate Layout', accelerator='Cmd+R', command=self.generate_layout)
+            layout_menu.add_command(label='Generate Layout', accelerator='Cmd+R', command=self._generate_layout)
             layout_menu.add_command(label='New Text Box', accelerator='Cmd+Shift+N', command=self.add_text_box)
             
             # Window menu (standard macOS menu)
