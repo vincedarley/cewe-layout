@@ -160,7 +160,6 @@ class LayoutViewer:
         # initialize layout manager with originals from file
         for pageno, info in self.pages:
             self.layout_mgr.set_original(pageno, info.get('photos', []), info.get('texts', []))
-            # Initialize default preferred sizes from current layout areas (scaled by 10× for readability)
             photos = info.get('photos', [])
             texts = info.get('texts', [])
             all_items = photos + texts
@@ -185,7 +184,7 @@ class LayoutViewer:
                         # Use size from filename (already in 10× scale)
                         preferred = size_from_filename
                     else:
-                        # Fallback: use gap-free area normalized to 10× scale
+                        # Fallback: use gap-free area normalized to 10× scale for readability
                         area = ((p.get('area_width', 0) or 0) + gap) * ((p.get('area_height', 0) or 0) + gap)
                         preferred = (area / total_area) * 10.0
                     # Always use base filename (without -sz-pg) as the key
@@ -955,19 +954,19 @@ class LayoutViewer:
         
         return page_data_list
     
-    def _handle_delete_button_click(self, item_type, page_index, pageno, identifier):
+    def _handle_delete_button_click(self, item_type, item_index, pageno, identifier):
         """Handle delete button click from PageRenderer.
         
         Args:
             item_type: 'photo' or 'text'
-            page_index: 0-based index within page's photos or texts
+            item_index: 0-based index within page's photos or texts
             pageno: Page number
             identifier: filename for photos, None for texts
         """
         if item_type == 'photo':
-            self._delete_photo(page_index, pageno, identifier)
+            self._delete_photo(item_index, pageno, identifier)
         else:  # 'text'
-            self._delete_text(page_index, pageno)
+            self._delete_text(item_index, pageno)
     
     def _ui_page_to_pdf_page(self, ui_pageno):
         """Map UI page number to PDF page index.
@@ -1021,10 +1020,7 @@ class LayoutViewer:
         """Orchestrate page rendering - control logic here, rendering delegated to PageRenderer."""
         # Clear status message when changing pages
         self.status_var.set('')
-        
-        # Determine pages to render based on spread mode
-        in_spread_mode = self.spread_mode.get()
-        
+
         if not self.pages:
             # Update page number display
             if self.is_canvas:
@@ -1041,7 +1037,103 @@ class LayoutViewer:
             self.current_spread_pages = []
             return
         
-        # Determine which page indices to render
+        # Determine which page indices to render (1 or 2 if in spread mode)
+        page_indices = self._getPagesToRender()
+
+        # Collect all photos/texts for window title
+        all_photos = []
+        all_texts = []
+        
+        for page_idx in page_indices:
+            pageno_i, info_i = self.pages[page_idx]
+            current_layout_i = self.layout_mgr.get_current(pageno_i)
+            photos_i = current_layout_i.photos if current_layout_i else info_i.get('photos', [])
+            texts_i = current_layout_i.texts if current_layout_i else info_i.get('texts', [])
+            all_photos.extend(photos_i)
+            all_texts.extend(texts_i)
+        
+        # Get page dimensions for title
+        # For spreads, use first page's dimensions and double the width
+        first_page_info = self.pages[page_indices[0]][1]
+        page_width_mcf = first_page_info.get('page_width')
+        page_height_mcf = first_page_info.get('page_height')
+
+        title = self._getPageWinTitle(page_indices, all_photos, all_texts, page_width_mcf, page_height_mcf)
+        self.root.title(title)
+        
+        # Update PDF photo count field if PDF content is available
+        if self.pdf_content:
+            self.pdf_photo_count_var.set(str(len(all_photos)))
+        
+        # Get canvas dimensions and build render data
+        canvas_w, canvas_h = self._get_canvas_dimensions()
+        page_data_list = self._build_page_render_data(page_indices)
+        
+        # Check if any rendered pages are protected inside covers
+        protected_pages = []
+        for page_idx in page_indices:
+            pageno_i, _ = self.pages[page_idx]
+            if pageno_i in self.protected_inside_covers:
+                protected_pages.append(pageno_i)
+        
+        # Delegate rendering to PageRenderer
+        show_composite = self.show_pdf_composite_var.get() if self.pdf_content else False
+        
+        self.page_renderer.render_pages(
+            page_data_list=page_data_list,
+            canvas_w=canvas_w,
+            canvas_h=canvas_h,
+            margin_mcf=self.margin_mcf,
+            delete_callback=self._handle_delete_button_click,
+            show_pdf_composite=show_composite,
+            protected_inside_covers=protected_pages,
+            swap_callback=self._on_photo_swap
+        )
+        
+        # Update control widgets
+        self._update_page_range_display()
+        self.update_weights_display()
+
+    def _getPageWinTitle(self, page_indices: list[int], all_photos: list[Any], all_texts: list[Any], page_width_mcf,
+                         page_height_mcf) -> str:
+        # Convert to cm (MCF / 100) and format to 1 decimal place
+        if len(page_indices) == 2:
+            # Spread: double the width
+            width_cm = (page_width_mcf * 2) / 100.0
+        else:
+            # Single page
+            width_cm = page_width_mcf / 100.0
+        height_cm = page_height_mcf / 100.0
+        dimensions_str = f'{width_cm:.1f}cm x {height_cm:.1f}cm'
+
+        # Update window title with photobook/canvas/calendar name and page info
+        text_label = 'text' if len(all_texts) == 1 else 'texts'
+        if self.is_canvas:
+            # Canvas mode: show as "Canvas" not "Page"
+            if all_texts:
+                title = f'{self.photobook_name} - Canvas, {dimensions_str} : {len(all_photos)} photos, {len(all_texts)} {text_label}'
+            else:
+                title = f'{self.photobook_name} - Canvas, {dimensions_str} : {len(all_photos)} photos'
+        elif self.is_calendar:
+            # Calendar mode: show as "Month" not "Page"
+            if all_texts:
+                title = f'{self.photobook_name} - Month {self.current_spread_pages[0]}, {dimensions_str} : {len(all_photos)} photos, {len(all_texts)} {text_label}'
+            else:
+                title = f'{self.photobook_name} - Month {self.current_spread_pages[0]}, {dimensions_str} : {len(all_photos)} photos'
+        elif len(self.current_spread_pages) == 2:
+            if all_texts:
+                title = f'{self.photobook_name} - Pages {self.current_spread_pages[0]}-{self.current_spread_pages[1]}, {dimensions_str} : {len(all_photos)} photos, {len(all_texts)} {text_label}'
+            else:
+                title = f'{self.photobook_name} - Pages {self.current_spread_pages[0]}-{self.current_spread_pages[1]}, {dimensions_str} : {len(all_photos)} photos'
+        else:
+            if all_texts:
+                title = f'{self.photobook_name} - Page {self.current_spread_pages[0]}, {dimensions_str} : {len(all_photos)} photos, {len(all_texts)} {text_label}'
+            else:
+                title = f'{self.photobook_name} - Page {self.current_spread_pages[0]}, {dimensions_str} : {len(all_photos)} photos'
+        return title
+
+    def _getPagesToRender(self) -> list[int]:
+
         # Canvas mode: always treat as single page (no spread navigation)
         # Calendar mode: treat as single pages (no spreads), but allow navigation
         # Photobook mode: determine which pages to render based on spread mode
@@ -1053,14 +1145,20 @@ class LayoutViewer:
             # Calendar: single page view only (no spreads)
             page_indices = [self.index]
             self.current_spread_pages = [self.pages[self.index][0]]
-        elif in_spread_mode:
-            # Spread mode: handle covers specially
+        elif not self.spread_mode.get():
+            # Single page mode
+            page_indices = [self.index]
+            self.current_spread_pages = [self.pages[self.index][0]]
+        else:
+            # Spread mode: handle covers specially. This chunk of code is ridiculously over-complicated
+            # should really simplify it a lot.  It tries to cope with edge-cases that don't exist.
+
             # Covers (page 0 and max page) can form a spread with each other
             # but NOT with normal pages (1...N)
             current_pageno = self.pages[self.index][0]
             current_info = self.pages[self.index][1]
             is_current_cover = current_info.get('is_cover', False)
-            
+
             # Find max normal page and covers
             if is_current_cover:
                 # Current page is a cover ("F" or "B")
@@ -1071,7 +1169,7 @@ class LayoutViewer:
                         if pn == "B" and info.get('is_cover', False):
                             back_cover_idx = i
                             break
-                    
+
                     if back_cover_idx is not None:
                         # Show front and back cover as spread (back on left, front on right)
                         page_indices = [back_cover_idx, self.index]
@@ -1087,7 +1185,7 @@ class LayoutViewer:
                         if pn == "F" and info.get('is_cover', False):
                             front_cover_idx = i
                             break
-                    
+
                     if front_cover_idx is not None:
                         # Show front and back cover as spread (back on left, front on right)
                         page_indices = [self.index, front_cover_idx]
@@ -1142,11 +1240,7 @@ class LayoutViewer:
                     # Non-integer page number that's not a cover - shouldn't happen, show alone
                     page_indices = [self.index]
                     self.current_spread_pages = [current_pageno]
-        else:
-            # Single page mode
-            page_indices = [self.index]
-            self.current_spread_pages = [self.pages[self.index][0]]
-        
+
         # Update page number display
         if self.is_canvas:
             self.page_num_var.set('Canvas:')
@@ -1156,95 +1250,8 @@ class LayoutViewer:
             self.page_num_var.set(f'Pages {self.current_spread_pages[0]}-{self.current_spread_pages[1]}:')
         else:
             self.page_num_var.set(f'Page {self.current_spread_pages[0]}:')
-        
-        # Collect all photos/texts for window title
-        all_photos = []
-        all_texts = []
-        
-        for page_idx in page_indices:
-            pageno_i, info_i = self.pages[page_idx]
-            current_layout_i = self.layout_mgr.get_current(pageno_i)
-            photos_i = current_layout_i.photos if current_layout_i else info_i.get('photos', [])
-            texts_i = current_layout_i.texts if current_layout_i else info_i.get('texts', [])
-            all_photos.extend(photos_i)
-            all_texts.extend(texts_i)
-        
-        # Get page dimensions for title
-        # For spreads, use first page's dimensions and double the width
-        first_page_info = self.pages[page_indices[0]][1]
-        page_width_mcf = first_page_info.get('page_width')
-        page_height_mcf = first_page_info.get('page_height')
-        
-        # Convert to cm (MCF / 100) and format to 1 decimal place
-        if len(page_indices) == 2:
-            # Spread: double the width
-            width_cm = (page_width_mcf * 2) / 100.0
-        else:
-            # Single page
-            width_cm = page_width_mcf / 100.0
-        height_cm = page_height_mcf / 100.0
-        dimensions_str = f'{width_cm:.1f}cm x {height_cm:.1f}cm'
-        
-        # Update window title with photobook/canvas/calendar name and page info
-        text_label = 'text' if len(all_texts) == 1 else 'texts'
-        if self.is_canvas:
-            # Canvas mode: show as "Canvas" not "Page"
-            if all_texts:
-                title = f'{self.photobook_name} - Canvas, {dimensions_str} : {len(all_photos)} photos, {len(all_texts)} {text_label}'
-            else:
-                title = f'{self.photobook_name} - Canvas, {dimensions_str} : {len(all_photos)} photos'
-        elif self.is_calendar:
-            # Calendar mode: show as "Month" not "Page"
-            if all_texts:
-                title = f'{self.photobook_name} - Month {self.current_spread_pages[0]}, {dimensions_str} : {len(all_photos)} photos, {len(all_texts)} {text_label}'
-            else:
-                title = f'{self.photobook_name} - Month {self.current_spread_pages[0]}, {dimensions_str} : {len(all_photos)} photos'
-        elif len(self.current_spread_pages) == 2:
-            if all_texts:
-                title = f'{self.photobook_name} - Pages {self.current_spread_pages[0]}-{self.current_spread_pages[1]}, {dimensions_str} : {len(all_photos)} photos, {len(all_texts)} {text_label}'
-            else:
-                title = f'{self.photobook_name} - Pages {self.current_spread_pages[0]}-{self.current_spread_pages[1]}, {dimensions_str} : {len(all_photos)} photos'
-        else:
-            if all_texts:
-                title = f'{self.photobook_name} - Page {self.current_spread_pages[0]}, {dimensions_str} : {len(all_photos)} photos, {len(all_texts)} {text_label}'
-            else:
-                title = f'{self.photobook_name} - Page {self.current_spread_pages[0]}, {dimensions_str} : {len(all_photos)} photos'
-        self.root.title(title)
-        
-        # Update PDF photo count field if PDF content is available
-        if self.pdf_content:
-            self.pdf_photo_count_var.set(str(len(all_photos)))
-        
-        # Get canvas dimensions and build render data
-        canvas_w, canvas_h = self._get_canvas_dimensions()
-        page_data_list = self._build_page_render_data(page_indices)
-        
-        # Check if any rendered pages are protected inside covers
-        protected_pages = []
-        for page_idx in page_indices:
-            pageno_i, _ = self.pages[page_idx]
-            if pageno_i in self.protected_inside_covers:
-                protected_pages.append(pageno_i)
-        
-        # Delegate rendering to PageRenderer
-        show_composite = self.show_pdf_composite_var.get() if self.pdf_content else False
-        
-        self.page_renderer.render_pages(
-            page_data_list=page_data_list,
-            canvas_w=canvas_w,
-            canvas_h=canvas_h,
-            margin_mcf=self.margin_mcf,
-            is_canvas=self.is_canvas,
-            delete_callback=self._handle_delete_button_click,
-            show_pdf_composite=show_composite,
-            protected_inside_covers=protected_pages,
-            swap_callback=self._on_photo_swap
-        )
-        
-        # Update control widgets
-        self._update_page_range_display()
-        self.update_weights_display()
-    
+        return page_indices
+
     def _on_photo_swap(self, source_pageno, source_photo_idx, dest_pageno, dest_photo_idx):
         """Handle photo swap request from PageRenderer.
         
@@ -3448,10 +3455,8 @@ class LayoutViewer:
             
             # Start overall timing
             t_start = time()
-            
-            in_spread_mode = self.spread_mode.get()
-            
-            if in_spread_mode and len(self.current_spread_pages) == 2:
+
+            if self.spread_mode.get() and len(self.current_spread_pages) == 2:
                 # Spread mode: work with both pages combined
                 page_indices = [self.index, self.index + 1]
                 page_numbers = self.current_spread_pages

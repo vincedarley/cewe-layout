@@ -92,7 +92,7 @@ When photos are added:
 - Validate we have bleed/margins correct for front and back cover ("special pages").
 - More/better layout clean-up/fine-tuning algorithms? (Gap Perfecter, Gridify, and Tree Builder all have their good and bad aspects in improving layouts).
 
-**Other capabilities**
+**Other capabilities (partially or completely implemented) **
 
 Drag-n-drop to swap 2 photos in the layout. Fairly intuitive approach for this simple manual layout adjustment.
 
@@ -115,7 +115,7 @@ QLayout does a few things to help lower the risk of problems when editing your p
 3. When removing photos from the photo-book, QLayout moves them out of the CEWE directory into your "Album-photos" directory. So their files are not deleted from your disk.
 
 Details for the technically minded:
-- Saving a modified page layout in QLayout will successfully modify the data.mcf xml file inside your Cewe book project. BUT, if that book is already open in Cewe Creator (CC) application, then CC will NOT notice that the layout has changed. You will need to close the project and re-open it for CC to notice the layout changes.  Unfortunately this means that the workflow you adopt cannot efficiently include making adjustments to a Page in both QLayout and CC while moving back and forth between the two applications.
+- Saving a modified page layout in QLayout will successfully modify the data.mcf xml file inside your Cewe book project. BUT, if that book is already open in Cewe Creator (CC) application, then CC will NOT notice that the layout has changed. You will need to close the project and re-open it for CC to notice the layout changes.  Unfortunately this means that the workflow you adopt cannot _efficiently_ include making adjustments to a Page in both QLayout and CC while moving back and forth between the two applications - you need to quit and restart each application...
 - Similarly if you modify+save a page in QLayout and modify anything else in CC (even things completely unrelated to the earlier page) and "Save" the book in CC, the "Save" in CC will overwrite the changes you have just made from QLayout. Clearly CC maintains an in-memory copy of the book and writes the entire book to disk afresh every time you "Save".
 - So, in short, while working with QLayout you are best not to have the book open in CC.  So: Close CC. Work with QLayout. Then open CC.  (If you absolutely have to have CC open, treat it as a read-only tool, and do NOT accidentally "Save" else your QLayout changes will be overwritten).
 - Note that while QLayout is designed only to modify the location and size of photos and text blocks on pages in the data.mcf xml file, it does also rewrite the entire xml file. Its approach is to generically load the large xml file (most of which it does not understand!), and only manipulate the location/size portions of the file, and then generically save the entire xml file (while also making a backup of the original)

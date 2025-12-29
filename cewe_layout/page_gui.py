@@ -129,7 +129,6 @@ class PageRenderer:
                     canvas_w: int,
                     canvas_h: int,
                     margin_mcf: float,
-                    is_canvas: bool,
                     delete_callback,
                     show_pdf_composite: bool = False,
                     protected_inside_covers: list = None,
@@ -140,9 +139,8 @@ class PageRenderer:
             page_data_list: List of PageRenderData objects (1 for single, 2 for spread)
             canvas_w, canvas_h: Canvas dimensions in pixels
             margin_mcf: Display margin in MCF units
-            is_canvas: Whether this is canvas mode (affects crease line)
             delete_callback: Function to call when delete button clicked
-                           Signature: (item_type, page_index, pageno, identifier)
+                           Signature: (item_type, item_index, pageno, identifier)
                            where item_type is 'photo' or 'text'
             protected_inside_covers: List of page numbers that are protected (inside covers)
             swap_callback: Optional callback for photo swap completion
@@ -553,7 +551,7 @@ class PageRenderer:
             if fn:  # Only add delete button if photo has a filename
                 delete_button_info.append({
                     'photo_index': i - 1,  # Convert to 0-based (within combined list)
-                    'page_index': i - start_number,  # 0-based index within this page's photos
+                    'item_index': i - start_number,  # 0-based index within this page's photos
                     'pageno': pageno,  # Which page this photo belongs to
                     'filename': fn,
                     'x': int(x1) - 20,  # 20px from right edge
@@ -694,7 +692,7 @@ class PageRenderer:
             # Store delete button position info for text boxes
             delete_button_info.append({
                 'text_index': i - 1,  # Convert to 0-based (within combined list)
-                'page_index': i - start_number,  # 0-based index within this page's texts
+                'item_index': i - start_number,  # 0-based index within this page's texts
                 'pageno': pageno,  # Which page this text belongs to
                 'x': int(x1) - 20,  # 20px from right edge
                 'y': int(y0) + 2,   # 2px from top edge
@@ -861,7 +859,7 @@ class PageRenderer:
                 - 'photo_index', 'filename', 'x', 'y' for photos
                 - 'text_index', 'x', 'y' for text boxes
             delete_callback: Function to call when button clicked
-                           Signature: (item_type, page_index, pageno, identifier)
+                           Signature: (item_type, item_index, pageno, identifier)
         """
         # Destroy any existing delete buttons from previous render
         self.clear_delete_buttons()
@@ -873,14 +871,14 @@ class PageRenderer:
             
             # Determine if this is a photo or text box
             if 'photo_index' in info:
-                page_idx = info['page_index']
+                item_idx = info['item_index']
                 pn = info['pageno']
                 filename = info['filename']
-                cmd = lambda idx=page_idx, pageno=pn, fn=filename: delete_callback('photo', idx, pageno, fn)
+                cmd = lambda idx=item_idx, pageno=pn, fn=filename: delete_callback('photo', idx, pageno, fn)
             else:  # text_index
-                page_idx = info['page_index']
+                item_idx = info['item_index']
                 pn = info['pageno']
-                cmd = lambda idx=page_idx, pageno=pn: delete_callback('text', idx, pageno, None)
+                cmd = lambda idx=item_idx, pageno=pn: delete_callback('text', idx, pageno, None)
             
             # Create small white X button with red text and precise pixel sizing
             btn = tk.Button(
@@ -924,7 +922,7 @@ class PageRenderer:
             x1 = info['rect_x1']
             y1 = info['rect_y1']
             pageno = info['pageno']
-            photo_idx = info['page_index']  # Use page_index (0-based within page)
+            photo_idx = info['item_index']  # Use item_index (0-based within page)
             
             # Create invisible rectangle (no fill, no outline initially)
             rect_id = self.canvas.create_rectangle(
