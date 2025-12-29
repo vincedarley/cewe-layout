@@ -9,7 +9,7 @@ from pathlib import Path
 import threading
 import shutil
 import logging
-from typing import Literal
+from typing import Literal, Any
 
 from .pdf2cewe.pdf_extractor import performSegmentationOnPage
 
@@ -1836,7 +1836,7 @@ class LayoutViewer:
         internal_gap = self.layout_mgr.get_internal_gap(pageno)
         
         # Check if this page has full bleed (covers)
-        has_full_bleed = info.get('has_full_bleed', False)
+        has_full_bleed = info.get('has_full_bleed', False) or self.spread_mode.get()
         
         # Build LayoutRectangle list from CURRENT layout (photos and texts)
         # This is what we evaluate (algorithm output or original)
@@ -1859,7 +1859,7 @@ class LayoutViewer:
             base_fn, _, _ = extract_metadata_from_filename(fn)
             preferred_size = self.layout_mgr.get_size(pageno, base_fn)
             gf_left, gf_top, gf_width, gf_height = transform_item_to_gapfree(
-                left, top, w, h, edge_gap, internal_gap, self.spread_mode.get(), is_left_page, has_full_bleed
+                left, top, w, h, edge_gap, internal_gap, is_left_page, has_full_bleed
             )
             
             rect = LayoutRectangle(
@@ -1887,7 +1887,7 @@ class LayoutViewer:
             text_id = f'TEXT_{i}'
             preferred_size = self.layout_mgr.get_size(pageno, text_id)
             gf_left, gf_top, gf_width, gf_height = transform_item_to_gapfree(
-                left, top, w, h, edge_gap, internal_gap, self.spread_mode.get(), is_left_page, has_full_bleed
+                left, top, w, h, edge_gap, internal_gap, is_left_page, has_full_bleed
             )
             
             rect = LayoutRectangle(
@@ -1905,7 +1905,7 @@ class LayoutViewer:
         
         # Evaluate in gap-free coordinate space using centralized transformation
         eval_page_w, eval_page_h = transform_page_to_gapfree(
-            page_w, page_h, edge_gap, internal_gap, self.spread_mode.get(), has_full_bleed
+            page_w, page_h, edge_gap, internal_gap, has_full_bleed
         )
         
         # DEBUG: Print evaluation inputs if debug flag is set
@@ -2585,8 +2585,8 @@ class LayoutViewer:
             # Determine spread mode for transformation
             new_left, new_top, new_width, new_height = transform_item_for_gap_change(
                 page_left, top, width, height, page_w, page_h,
-                old_edge_gap, old_internal_gap, new_edge_gap, new_internal_gap, self.spread_mode.get(),
-                origin_left == 0.0  # Is left page
+                old_edge_gap, old_internal_gap, new_edge_gap, new_internal_gap,
+                origin_left == 0.0, self.spread_mode.get()
             )
             
             # Convert back to spread-relative coordinates
@@ -2612,8 +2612,8 @@ class LayoutViewer:
             page_left = spread_left - origin_left
             new_left, new_top, new_width, new_height = transform_item_for_gap_change(
                 page_left, top, width, height, page_w, page_h,
-                old_edge_gap, old_internal_gap, new_edge_gap, new_internal_gap, self.spread_mode.get(),
-                origin_left == 0.0  # Is left page
+                old_edge_gap, old_internal_gap, new_edge_gap, new_internal_gap,
+                origin_left == 0.0, self.spread_mode.get()
             )
             
             # Convert back to spread-relative coordinates
@@ -3546,31 +3546,9 @@ class LayoutViewer:
                         text_id = f'TEXT_{i}'
                         preferred_sizes[text_id] = self.layout_mgr.get_size(pageno, text_id)
 
-                # Collect checkbox states and slot aspect ratios (combine from both pages)
-                use_slot_aspect_for_photos = {}
-                slot_aspect_ratios_combined = {}
-                photo_offset = 0
-                text_offset = 0
-                
-                for page_idx, (pageno, _) in enumerate(page_infos):
-                    current_layout = self.layout_mgr.get_current(pageno)
-                    photos_for_page = current_layout.photos if current_layout else page_infos[page_idx][1].get('photos', [])
-                    texts_for_page = current_layout.texts if current_layout else page_infos[page_idx][1].get('texts', [])
-                    
-                    for local_photo_idx in range(len(photos_for_page)):
-                        checkbox_key = (pageno, local_photo_idx)
-                        if checkbox_key in self.use_slot_aspect:
-                            use_slot_aspect_for_photos[photo_offset + local_photo_idx] = self.use_slot_aspect[checkbox_key].get()
-                    
-                    num_items = len(photos_for_page) + len(texts_for_page)
-                    for local_item_idx in range(num_items):
-                        ar_key = (pageno, local_item_idx)
-                        if ar_key in self.slot_aspect_ratios:
-                            slot_aspect_ratios_combined[photo_offset + text_offset + local_item_idx] = self.slot_aspect_ratios[ar_key]
-                    
-                    photo_offset += len(photos_for_page)
-                    text_offset += len(texts_for_page)
-                
+                # Get slot aspect ratio info for all items.
+                slot_aspect_ratios_combined, use_slot_aspect_for_photos =_collect_slot_aspect_ratio_info (page_infos)
+
                 # Run algorithm on combined spread
                 algo_start = time()
                 # Check if this is a cover spread (page 0 and back cover)
@@ -3584,8 +3562,7 @@ class LayoutViewer:
                     slot_aspect_ratios=slot_aspect_ratios_combined,
                     origin_left=0.0,  # Spread starts at 0
                     pageno=pageno0,  # For logging
-                    is_spread=True,  # Spread mode: two pages side-by-side
-                    has_full_bleed=has_full_bleed
+                    has_full_bleed=True # Spread mode: two pages side-by-side
                 )
                 algo_time = time() - algo_start
                 print(f"Algorithm: {algo_time:.3f}s")
@@ -3762,8 +3739,11 @@ class LayoutViewer:
                     self.show_status('Layout generation failed: No photos or texts on page')
                     return
 
-                # Collect checkbox states for photos on this page
-                use_slot_aspect_for_photos = {}
+                # Get slot aspect ratio info for all items.
+                # Pass a list containing a single (pageno, info) tuple so the helper
+                # which expects a list of page_infos works correctly.
+                slot_aspect_ratios_for_page, use_slot_aspect_for_photos = _collect_slot_aspect_ratio_info([(pageno, info)])
+
                 for photo_idx in range(len(photos)):
                     checkbox_key = (pageno, photo_idx)
                     if checkbox_key in self.use_slot_aspect:
@@ -3815,7 +3795,7 @@ class LayoutViewer:
                 
                 algo_start = time()
                 # Check if this is a cover page
-                has_full_bleed = info.get('has_full_bleed', False)
+                has_full_bleed = info.get('has_full_bleed', False) or self.spread_mode.get()
                 success, updated_photos, updated_texts, error_msg = generate_layout_for_page(
                     photos, page_w, page_h, self.photo_dimensions,
                     algorithm=algorithm, edge_gap=edge_gap, internal_gap=internal_gap, texts=texts,
@@ -3823,7 +3803,6 @@ class LayoutViewer:
                     use_slot_aspect=use_slot_aspect_for_photos, 
                     slot_aspect_ratios=slot_aspect_ratios_for_page,
                     origin_left=info.get('origin_left', 0.0), pageno=pageno,
-                    is_spread=self.spread_mode.get(),  # Use GUI checkbox state
                     has_full_bleed=has_full_bleed
                 )
                 algo_time = time() - algo_start
@@ -3879,6 +3858,35 @@ class LayoutViewer:
                     print(f"UI update: {total_ui_time:.3f}s")
 
                 self.root.after(0, on_done)
+
+        def _collect_slot_aspect_ratio_info(page_infos: list[Any]) -> tuple[dict[Any, Any], dict[Any, Any]]:
+            # Collect checkbox states and slot aspect ratios (combine from both pages)
+            use_slot_aspect_for_photos = {}
+            slot_aspect_ratios_combined = {}
+            photo_offset = 0
+            text_offset = 0
+
+            for page_idx, (pageno, _) in enumerate(page_infos):
+                current_layout = self.layout_mgr.get_current(pageno)
+                photos_for_page = current_layout.photos if current_layout else page_infos[page_idx][1].get('photos', [])
+                texts_for_page = current_layout.texts if current_layout else page_infos[page_idx][1].get('texts', [])
+
+                for local_photo_idx in range(len(photos_for_page)):
+                    checkbox_key = (pageno, local_photo_idx)
+                    if checkbox_key in self.use_slot_aspect:
+                        use_slot_aspect_for_photos[photo_offset + local_photo_idx] = self.use_slot_aspect[
+                            checkbox_key].get()
+
+                num_items = len(photos_for_page) + len(texts_for_page)
+                for local_item_idx in range(num_items):
+                    ar_key = (pageno, local_item_idx)
+                    if ar_key in self.slot_aspect_ratios:
+                        slot_aspect_ratios_combined[photo_offset + text_offset + local_item_idx] = \
+                        self.slot_aspect_ratios[ar_key]
+
+                photo_offset += len(photos_for_page)
+                text_offset += len(texts_for_page)
+            return slot_aspect_ratios_combined, use_slot_aspect_for_photos
 
         t = threading.Thread(target=worker, daemon=True)
         t.start()

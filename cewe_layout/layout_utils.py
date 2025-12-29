@@ -88,7 +88,8 @@ def evaluate_layout_from_photos_texts(photos, texts, page_w, page_h, origin_left
     
     # Build rectangles for evaluation
     eval_rects = []
-    
+    is_left_page = origin_left == 0
+
     for p in photos:
         fn = p.get('filename', '')
         if not fn:
@@ -102,7 +103,7 @@ def evaluate_layout_from_photos_texts(photos, texts, page_w, page_h, origin_left
         
         # Transform to gap-free
         gf_left, gf_top, gf_width, gf_height = transform_item_to_gapfree(
-            left, top, w, h, edge_gap, internal_gap, is_spread, True  # is_left_page=True for single pages
+            left, top, w, h, edge_gap, internal_gap, is_left_page, is_spread
         )
         
         rect = LayoutRectangle(fn, gf_width, gf_height, preferred_sizes.get(fn, 1.0))
@@ -121,7 +122,7 @@ def evaluate_layout_from_photos_texts(photos, texts, page_w, page_h, origin_left
         
         # Transform to gap-free
         gf_left, gf_top, gf_width, gf_height = transform_item_to_gapfree(
-            left, top, w, h, edge_gap, internal_gap, is_spread, True
+            left, top, w, h, edge_gap, internal_gap, is_left_page, is_spread
         )
         
         rect = LayoutRectangle(text_id, gf_width, gf_height, preferred_sizes.get(text_id, 1.0), preserve_aspect_ratio=False)
