@@ -496,9 +496,8 @@ def transform_item_for_gap_change(
         old_internal_gap: Previous internal gap in MCF units
         new_edge_gap: New edge gap dict
         new_internal_gap: New internal gap in MCF units
-        is_spread: True if spread mode, False if single page mode.
         is_left_page: True if left page, False if right page.
-        has_full_bleed: True if this is a cover page with bleed on all 4 sides.
+        has_full_bleed: True if this is a spread or cover page with bleed on all 4 sides.
     
     Returns:
         Tuple (new_left, new_top, new_width, new_height) in MCF units with new gaps

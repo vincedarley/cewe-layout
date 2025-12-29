@@ -2577,16 +2577,28 @@ class LayoutViewer:
         page_w = info.get('page_width')
         page_h = info.get('page_height')
         origin_left = info.get('origin_left', 0.0)
-        
+
+        transformed_photos = self._transformItemsForGapChange(current_layout.photos, new_internal_gap, new_edge_gap,
+                                                              old_internal_gap, old_edge_gap, origin_left, page_w,
+                                                              page_h)
+        transformed_texts = self._transformItemsForGapChange(current_layout.texts, new_internal_gap, new_edge_gap,
+                                                              old_internal_gap, old_edge_gap, origin_left, page_w,
+                                                              page_h)
+
+        # Push transformed layout (replaces current layout)
+        self.layout_mgr.push_layout(pageno, transformed_photos, transformed_texts)
+
+    def _transformItemsForGapChange(self, items: list[dict], new_internal_gap, new_edge_gap, old_internal_gap,
+                                    old_edge_gap, origin_left, page_w, page_h) -> list[Any]:
         # Transform photos using centralized helper
-        transformed_photos = []
-        for p in current_layout.photos:
+        transformed_items = []
+        for i in items:
             # Coordinates in MCF file are spread-relative (origin_left offset for right pages)
-            spread_left = p.get('area_left', 0)
-            top = p.get('area_top', 0)
-            width = p.get('area_width', 0)
-            height = p.get('area_height', 0)
-            
+            spread_left = i.get('area_left', 0)
+            top = i.get('area_top', 0)
+            width = i.get('area_width', 0)
+            height = i.get('area_height', 0)
+
             # Convert to page-relative coordinates for transformation
             page_left = spread_left - origin_left
             # Determine spread mode for transformation
@@ -2595,47 +2607,18 @@ class LayoutViewer:
                 old_edge_gap, old_internal_gap, new_edge_gap, new_internal_gap,
                 origin_left == 0.0, self.spread_mode.get()
             )
-            
+
             # Convert back to spread-relative coordinates
             new_spread_left = new_left + origin_left
-            
-            updated_photo = p.copy()
-            updated_photo['area_left'] = new_spread_left
-            updated_photo['area_top'] = new_top
-            updated_photo['area_width'] = new_width
-            updated_photo['area_height'] = new_height
-            transformed_photos.append(updated_photo)
-        
-        # Transform texts using centralized helper
-        transformed_texts = []
-        for t in current_layout.texts:
-            # Coordinates in MCF file are spread-relative (origin_left offset for right pages)
-            spread_left = t.get('area_left', 0)
-            top = t.get('area_top', 0)
-            width = t.get('area_width', 0)
-            height = t.get('area_height', 0)
-            
-            # Convert to page-relative coordinates for transformation
-            page_left = spread_left - origin_left
-            new_left, new_top, new_width, new_height = transform_item_for_gap_change(
-                page_left, top, width, height, page_w, page_h,
-                old_edge_gap, old_internal_gap, new_edge_gap, new_internal_gap,
-                origin_left == 0.0, self.spread_mode.get()
-            )
-            
-            # Convert back to spread-relative coordinates
-            new_spread_left = new_left + origin_left
-            
-            updated_text = t.copy()
-            updated_text['area_left'] = new_spread_left
-            updated_text['area_top'] = new_top
-            updated_text['area_width'] = new_width
-            updated_text['area_height'] = new_height
-            transformed_texts.append(updated_text)
-        
-        # Push transformed layout (replaces current layout)
-        self.layout_mgr.push_layout(pageno, transformed_photos, transformed_texts)
-    
+
+            updated_item = i.copy()
+            updated_item['area_left'] = new_spread_left
+            updated_item['area_top'] = new_top
+            updated_item['area_width'] = new_width
+            updated_item['area_height'] = new_height
+            transformed_items.append(updated_item)
+        return transformed_items
+
     def on_size_importance_changed(self):
         """Handle size importance parameter change."""
         try:
@@ -3987,9 +3970,7 @@ class LayoutViewer:
                 # Ensure all photos have image_width and image_height before saving
                 for photo in photos:
                     filename = photo.get('filename', '')
-                    if not filename:
-                        continue
-                    
+
                     # Skip if already has dimensions
                     if 'image_width' in photo and 'image_height' in photo:
                         continue
@@ -4030,9 +4011,7 @@ class LayoutViewer:
                 renamed_new_photos = {}  # old_filename -> new_filename for photos in new_photos
                 for photo in photos:
                     old_filename = photo.get('filename', '')
-                    if not old_filename:
-                        continue
-                    
+
                     # Get base filename (without any -sz or -pg suffixes)
                     base_filename, _, _ = extract_metadata_from_filename(old_filename)
                     
@@ -4170,7 +4149,7 @@ class LayoutViewer:
                 # Write to MCF file (makes backup automatically on first save)
                 result = update_page_layout(
                     self.mcf_file_path, pageno, photos, texts, 
-                    make_backup=(total_saved == 0),  # Only backup on first page
+                    make_backup=(total_saved == 0),  # Only backup MCF when saving first new page
                     new_photos=list(new_photos_final), deleted_photos=list(deleted_photos),
                     rename_map=rename_map
                 )
