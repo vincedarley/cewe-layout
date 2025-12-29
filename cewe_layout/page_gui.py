@@ -190,7 +190,28 @@ class PageRenderer:
         photo_counter = 1
         text_counter = 1
         
-        # Render each page
+        # Render each page background first (avoids issues where photos overlap spread)
+        # Skip if showing PDF composite (composite serves as background)
+        if not show_pdf_composite:
+            for page_offset, page_data in enumerate(page_data_list):
+                # Get background and frame colors for this specific page
+                page_bg_color, frame_color = getBackgroundAndFrameColour(page_data.background_id)
+                
+                # Calculate frame position for this page
+                # In spread mode, second page is offset by page_w
+                page_x_offset = page_offset * page_w if len(page_data_list) == 2 else 0
+                frame_x = margin_mcf * scale + page_x_offset * scale
+                frame_y = margin_mcf * scale
+                frame_w = page_w * scale
+                frame_h = page_h * scale
+                
+                # Draw the page background rectangle for this page
+                draw.rectangle(
+                    [frame_x, frame_y, frame_x + frame_w, frame_y + frame_h],
+                    fill=page_bg_color
+                )
+
+        # Render contents and framing of each page
         for page_offset, page_data in enumerate(page_data_list):
             # Get background and frame colors for this specific page
             page_bg_color, frame_color = getBackgroundAndFrameColour(page_data.background_id)
@@ -200,16 +221,6 @@ class PageRenderer:
             page_x_offset = page_offset * page_w if len(page_data_list) == 2 else 0
             frame_x = margin_mcf * scale + page_x_offset * scale
             frame_y = margin_mcf * scale
-            frame_w = page_w * scale
-            frame_h = page_h * scale
-            
-            # Draw the page background rectangle for this page
-            # Skip if showing PDF composite (composite serves as background)
-            if not show_pdf_composite:
-                draw.rectangle(
-                    [frame_x, frame_y, frame_x + frame_w, frame_y + frame_h],
-                    fill=page_bg_color
-                )
             
             # Render photos for this page
             self._render_photos(img, draw, page_data.photos, frame_x, frame_y, scale, 
@@ -223,7 +234,9 @@ class PageRenderer:
                               delete_button_info)
             text_counter += len(page_data.texts)
             
-            # Draw page frame for this page
+            frame_w = page_w * scale
+            frame_h = page_h * scale
+            # Lastly, draw page frame for this page
             self._draw_page_frame(draw, frame_x, frame_y, frame_w, frame_h, frame_color)
         
         # In spread mode, draw dotted line down the crease (center)

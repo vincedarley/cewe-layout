@@ -3488,8 +3488,10 @@ class LayoutViewer:
                     all_photos.extend(valid_photos)
                     all_texts.extend(texts)
                 
-                if not all_photos:
+                if not all_photos and not all_texts:
+                    # re-enable on main thread
                     self.root.after(0, lambda: self.gen_btn.config(state='normal'))
+                    self.show_status('Layout generation failed: No photos or texts on spread')
                     return
                 
                 # Use first page's dimensions (they should be identical)
@@ -3747,10 +3749,6 @@ class LayoutViewer:
 
                 # Filter out empty photo slots (photos with no filename)
                 photos = [p for p in photos if p.get('filename')]
-                if not photos:
-                    # re-enable on main thread
-                    self.root.after(0, lambda: self.gen_btn.config(state='normal'))
-                    return
 
                 page_w = info.get('page_width')
                 page_h = info.get('page_height')
@@ -3761,6 +3759,12 @@ class LayoutViewer:
 
                 # Get texts for this page (from current layout, not original)
                 texts = current_layout.texts if current_layout else info.get('texts', [])
+
+                if not photos and not texts:
+                    # re-enable on main thread
+                    self.root.after(0, lambda: self.gen_btn.config(state='normal'))
+                    self.show_status('Layout generation failed: No photos or texts on page')
+                    return
 
                 # Collect checkbox states for photos on this page
                 use_slot_aspect_for_photos = {}
