@@ -3671,28 +3671,24 @@ class LayoutViewer:
                     self.root.after(0, on_error)
                     return
                 
-                # Same for texts - match by index since texts don't have filenames
+                # Reconstruct texts for both pages by iterating the combined original
+                # text list in the same order that was given to the algorithm. This
+                # ensures texts moved between pages by the algorithm are handled
+                # (previous code iterated the two page lists separately which could
+                # drop texts that moved from page0->page1).
                 updated_texts_by_idx = {i: t for i, t in enumerate(updated_texts)}
-                text_idx = 0
-                for orig_text in original_texts_by_page[pageno0]:
+                combined_original_texts = list(original_texts_by_page[pageno0]) + list(original_texts_by_page[pageno1])
+                for text_idx, _orig_text in enumerate(combined_original_texts):
                     if text_idx in updated_texts_by_idx:
                         updated_text = updated_texts_by_idx[text_idx]
                         area_left = updated_text.get('area_left', 0)
                         owner = determine_page_owner_of_area(area_left, page_w, pageno0, pageno1)
                         if owner == pageno0:
                             texts_page0.append(updated_text)
-                    text_idx += 1
-                
-                for orig_text in original_texts_by_page[pageno1]:
-                    if text_idx in updated_texts_by_idx:
-                        updated_text = updated_texts_by_idx[text_idx]
-                        area_left = updated_text.get('area_left', 0)
-                        owner = determine_page_owner_of_area(area_left, page_w, pageno0, pageno1)
-                        if owner == pageno1:
+                        else:
                             text_copy = dict(updated_text)
                             text_copy['area_left'] = (area_left - page_w) + origin_left_1
                             texts_page1.append(text_copy)
-                    text_idx += 1
                 
                 # Validation: Check text reconstruction produced correct counts
                 if len(texts_page0) + len(texts_page1) != expected_text_count:
