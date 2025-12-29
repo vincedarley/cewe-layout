@@ -9,6 +9,7 @@ from pathlib import Path
 import threading
 import shutil
 import logging
+from typing import Literal
 
 from .pdf2cewe.pdf_extractor import performSegmentationOnPage
 
@@ -2681,10 +2682,7 @@ class LayoutViewer:
                     pageno, info = self.pages[i]
                     if not info.get('is_cover', False) and isinstance(pageno, int) and pageno % 2 == 0:
                         # Found last normal even page
-                        self.index = i
-                        self.show_status(f'Loading page {pageno}...')
-                        self.root.update_idletasks()
-                        self.render_page()
+                        self._goto_page(i, f'Loading page {pageno}...')
                         return
                 # No normal even pages, stay on cover
                 return
@@ -2693,20 +2691,14 @@ class LayoutViewer:
             for i in range(self.index - 1, -1, -1):
                 pageno, info = self.pages[i]
                 if not info.get('is_cover', False) and isinstance(pageno, int) and pageno % 2 == 0:
-                    self.index = i
-                    self.show_status(f'Loading pages {pageno}-{pageno+1}...')
-                    self.root.update_idletasks()
-                    self.render_page()
+                    self._goto_page(i, f'Loading pages {pageno}-{pageno+1}...')
                     return
             
             # No more even pages before - check for front cover
             for i in range(len(self.pages)):
                 pageno, info = self.pages[i]
                 if pageno == "F" and info.get('is_cover', False):
-                    self.index = i
-                    self.show_status('Loading covers...')
-                    self.root.update_idletasks()
-                    self.render_page()
+                    self._goto_page(i, 'Loading covers...')
                     return
             
             # No even page found before current - stay where we are
@@ -2714,11 +2706,8 @@ class LayoutViewer:
         else:
             # Single page mode: move to previous page in list
             if self.index > 0:
-                self.index -= 1
-                pageno = self.pages[self.index][0]
-                self.show_status(f'Loading page {pageno}...')
-                self.root.update_idletasks()
-                self.render_page()
+                pageno = self.pages[self.index-1][0]
+                self._goto_page(self.index -1, f'Loading page {pageno}...')
             else:
                 return
 
@@ -2735,10 +2724,7 @@ class LayoutViewer:
                     pageno, info = self.pages[i]
                     if not info.get('is_cover', False):
                         # Found first normal page
-                        self.index = i
-                        self.show_status(f'Loading page {pageno}...')
-                        self.root.update_idletasks()
-                        self.render_page()
+                        self._goto_page(i, f'Loading page {pageno}...')
                         return
                 # No normal pages, stay on cover
                 self.show_status('Last page of book')
@@ -2754,29 +2740,23 @@ class LayoutViewer:
             for i in range(start_search, len(self.pages)):
                 pageno, info = self.pages[i]
                 if not info.get('is_cover', False) and isinstance(pageno, int) and pageno % 2 == 0:
-                    self.index = i
+                    msg = f'Loading page {pageno}...'
+
                     # Check if there's an odd page following
                     if i < len(self.pages) - 1:
                         next_pageno = self.pages[i + 1][0]
                         next_info = self.pages[i + 1][1]
                         if not next_info.get('is_cover', False):
-                            self.show_status(f'Loading pages {pageno}-{next_pageno}...')
-                        else:
-                            self.show_status(f'Loading page {pageno}...')
-                    else:
-                        self.show_status(f'Loading page {pageno}...')
-                    self.root.update_idletasks()
-                    self.render_page()
+                            msg = f'Loading pages {pageno}-{next_pageno}...'
+
+                    self._goto_page(i, msg)
                     return
             
             # No more normal even pages - check for back cover
             for i in range(len(self.pages)):
                 pageno, info = self.pages[i]
                 if pageno == "B" and info.get('is_cover', False):
-                    self.index = i
-                    self.show_status('Loading covers...')
-                    self.root.update_idletasks()
-                    self.render_page()
+                    self._goto_page(i, 'Loading covers...')
                     return
             
             # No more even pages - we're at the end
@@ -2785,11 +2765,8 @@ class LayoutViewer:
         else:
             # Single page mode: move to next page in list
             if self.index < len(self.pages) - 1:
-                self.index += 1
-                pageno = self.pages[self.index][0]
-                self.show_status(f'Loading page {pageno}...')
-                self.root.update_idletasks()
-                self.render_page()
+                pageno = self.pages[self.index+1][0]
+                self._goto_page(self.index+1,f'Loading page {pageno}...')
             else:
                 self.show_status('Last page of book')
                 return
@@ -2812,11 +2789,14 @@ class LayoutViewer:
         # find index for page number
         for i,(pn,_) in enumerate(self.pages):
             if pn == v:
-                self.index = i
-                self.show_status(f'Loading page {v}...')
-                self.root.update_idletasks()
-                self.render_page()
+                self._goto_page(i, f'Loading page {v}...')
                 return
+
+    def _goto_page(self, i: int, msg: str):
+        self.index = i
+        self.show_status(msg)
+        self.root.update_idletasks()
+        self.render_page()
 
     def quit(self):
         self.root.quit()
@@ -3443,9 +3423,8 @@ class LayoutViewer:
         
         # Fallback to CollageGenerator if algorithm not found
         if algorithm is None:
-            logger.warning(f"Algorithm '{algo_name}' not found in registry, using CollageGenerator as fallback")
-            algorithm = CollageGeneratorAlgorithm(temperature=1.0)
-        
+            logger.error(f"Algorithm '{algo_name}' not found in registry")
+
         self.generate_layout(algorithm)
 
     def generate_layout(self, algorithm: LayoutAlgorithm):
@@ -3459,11 +3438,8 @@ class LayoutViewer:
         without a popup.
         """
         # disable the button immediately to prevent double clicks
-        try:
-            self.gen_btn.config(state='disabled')
-        except Exception as e:
-            logger.error(f"Failed to disable Generate Layout button: {e}")
-        
+        self.gen_btn.config(state='disabled')
+
         # Show "Running..." status
         self.show_status('Running...')
 
@@ -3614,10 +3590,7 @@ class LayoutViewer:
                 
                 if not success:
                     def on_error():
-                        try:
-                            self.gen_btn.config(state='normal')
-                        except Exception as e:
-                            logger.error(f"Failed to re-enable Generate Layout button: {e}")
+                        self.gen_btn.config(state='normal')
                         self.show_status(f'Layout generation failed: {error_msg}', error=True)
                     self.root.after(0, on_error)
                     return
@@ -3647,10 +3620,7 @@ class LayoutViewer:
                     error_msg = f"Algorithm photo count mismatch: expected {expected_photo_count}, got {actual_photo_count}"
                     logger.error(error_msg)
                     def on_error():
-                        try:
-                            self.gen_btn.config(state='normal')
-                        except Exception as e:
-                            logger.error(f"Failed to re-enable Generate Layout button: {e}")
+                        self.gen_btn.config(state='normal')
                         self.show_status(error_msg, error=True)
                     self.root.after(0, on_error)
                     return
@@ -3662,10 +3632,7 @@ class LayoutViewer:
                     error_msg = f"Algorithm text count mismatch: expected {expected_text_count}, got {actual_text_count}"
                     logger.error(error_msg)
                     def on_error():
-                        try:
-                            self.gen_btn.config(state='normal')
-                        except Exception as e:
-                            logger.error(f"Failed to re-enable Generate Layout button: {e}")
+                        self.gen_btn.config(state='normal')
                         self.show_status(error_msg, error=True)
                     self.root.after(0, on_error)
                     return
@@ -3697,10 +3664,7 @@ class LayoutViewer:
                     error_msg = f"Photo reconstruction mismatch: input={expected_photo_count}, output page {pageno0}={len(photos_page0)} + page {pageno1}={len(photos_page1)}"
                     logger.error(error_msg)
                     def on_error():
-                        try:
-                            self.gen_btn.config(state='normal')
-                        except Exception as e:
-                            logger.error(f"Failed to re-enable Generate Layout button: {e}")
+                        self.gen_btn.config(state='normal')
                         self.show_status(error_msg, error=True)
                     self.root.after(0, on_error)
                     return
@@ -3733,10 +3697,7 @@ class LayoutViewer:
                     error_msg = f"Text reconstruction mismatch: input={expected_text_count}, output page {pageno0}={len(texts_page0)} + page {pageno1}={len(texts_page1)}"
                     logger.error(error_msg)
                     def on_error():
-                        try:
-                            self.gen_btn.config(state='normal')
-                        except Exception as e:
-                            logger.error(f"Failed to re-enable Generate Layout button: {e}")
+                        self.gen_btn.config(state='normal')
                         self.show_status(error_msg, error=True)
                     self.root.after(0, on_error)
                     return
@@ -3745,52 +3706,16 @@ class LayoutViewer:
                 def on_spread_done():
                     ui_update_start = time()
                     
-                    try:
-                        self.gen_btn.config(state='normal')
-                    except Exception as e:
-                        logger.error(f"Failed to re-enable Generate Layout button: {e}")
-                    
+                    self.gen_btn.config(state='normal')
                     self.show_status(f'Layout generated successfully using {algorithm.getName()} (spread)')
                     
                     self.layout_mgr.push_layout(page_numbers[0], photos_page0, texts_page0)
                     self.layout_mgr.push_layout(page_numbers[1], photos_page1, texts_page1)
-                    
-                    # Rebuild new photo tracking for both pages after algorithm split
-                    # A photo is "new" to a page if it wasn't on that page in the original XML
-                    # This includes both genuinely new photos AND photos that moved from the other page
-                    
-                    # Clear existing tracking
-                    self.layout_mgr.clear_new_photos(page_numbers[0])
-                    self.layout_mgr.clear_new_photos(page_numbers[1])
-                    
-                    # Get original XML photos for each page (what was in XML before any algorithms)
-                    original_page0_photos = original_xml_photos_by_page.get(page_numbers[0], set())
-                    original_page1_photos = original_xml_photos_by_page.get(page_numbers[1], set())
-                    
-                    logger.info(f"Rebuilding new photo tracking:")
-                    logger.info(f"  Page {page_numbers[0]} original XML photos: {sorted(original_page0_photos)}")
-                    logger.info(f"  Page {page_numbers[1]} original XML photos: {sorted(original_page1_photos)}")
-                    logger.info(f"  Page {page_numbers[0]} current photos: {[p.get('filename') for p in photos_page0]}")
-                    logger.info(f"  Page {page_numbers[1]} current photos: {[p.get('filename') for p in photos_page1]}")
-                    
-                    for photo in photos_page0:
-                        filename = photo.get('filename', '')
-                        if filename and filename not in original_page0_photos:
-                            # Photo is new to page 0 (either genuinely new or moved from page 1)
-                            logger.info(f"  Marking {filename} as new to page {page_numbers[0]}")
-                            self.layout_mgr.mark_photo_as_new(page_numbers[0], filename)
-                    
-                    for photo in photos_page1:
-                        filename = photo.get('filename', '')
-                        if filename and filename not in original_page1_photos:
-                            # Photo is new to page 1 (either genuinely new or moved from page 0)
-                            logger.info(f"  Marking {filename} as new to page {page_numbers[1]}")
-                            self.layout_mgr.mark_photo_as_new(page_numbers[1], filename)
-                    
-                    self.modified_pages.add(page_numbers[0])
-                    self.modified_pages.add(page_numbers[1])
-                    self._update_modified_pages_display()
-                    
+
+                    # Unlike with a single page, optimising a spread means we can be moving
+                    # photos between pages which changes what is "new" for each individual page.
+                    self._rebuildNewPhotoTrackingForSpread(page_numbers, original_xml_photos_by_page, photos_page0, photos_page1)
+
                     # Analyze and report gap variations for both pages
                     for pn, photos_list, texts_list in [(page_numbers[0], photos_page0, texts_page0), 
                                                          (page_numbers[1], photos_page1, texts_page1)]:
@@ -3803,12 +3728,15 @@ class LayoutViewer:
                                 all_items = photos_list + texts_list
                                 analysis = analyze_gap_details(all_items, page_w, page_h, origin_left, self.spread_mode.get())
                                 report_gap_variations(analysis, pn)
-                    
+
+                    # Mark page(s) as modified
+                    self._mark_current_pages_modified()
+
                     self.render_page()
                     
                     total_ui_time = time() - ui_update_start
                     print(f"UI update: {total_ui_time:.3f}s")
-                
+
                 self.root.after(0, on_spread_done)
                 
             else:
@@ -3925,10 +3853,7 @@ class LayoutViewer:
                     ui_update_start = time()
                     
                     # re-enable button
-                    try:
-                        self.gen_btn.config(state='normal')
-                    except Exception as e:
-                        logger.error(f"Failed to re-enable Generate Layout button: {e}")
+                    self.gen_btn.config(state='normal')
 
                     if not success:
                         self.show_status(f'Layout generation failed: {error_msg}', error=True)
@@ -4404,6 +4329,39 @@ class LayoutViewer:
             on_photo_replaced,
             scope='page'
         )
+
+    def _rebuildNewPhotoTrackingForSpread(self, page_numbers, original_xml_photos_by_page, photos_page0, photos_page1):
+        # Rebuild new photo tracking for both pages after algorithm split
+        # A photo is "new" to a page if it wasn't on that page in the original XML
+        # This includes both genuinely new photos AND photos that moved from the other page
+
+        # Clear existing tracking
+        self.layout_mgr.clear_new_photos(page_numbers[0])
+        self.layout_mgr.clear_new_photos(page_numbers[1])
+
+        # Get original XML photos for each page (what was in XML before any algorithms)
+        original_page0_photos = original_xml_photos_by_page.get(page_numbers[0], set())
+        original_page1_photos = original_xml_photos_by_page.get(page_numbers[1], set())
+
+        logger.info(f"Rebuilding new photo tracking:")
+        logger.info(f"  Page {page_numbers[0]} original XML photos: {sorted(original_page0_photos)}")
+        logger.info(f"  Page {page_numbers[1]} original XML photos: {sorted(original_page1_photos)}")
+        logger.info(f"  Page {page_numbers[0]} current photos: {[p.get('filename') for p in photos_page0]}")
+        logger.info(f"  Page {page_numbers[1]} current photos: {[p.get('filename') for p in photos_page1]}")
+
+        for photo in photos_page0:
+            filename = photo.get('filename', '')
+            if filename and filename not in original_page0_photos:
+                # Photo is new to page 0 (either genuinely new or moved from page 1)
+                logger.info(f"  Marking {filename} as new to page {page_numbers[0]}")
+                self.layout_mgr.mark_photo_as_new(page_numbers[0], filename)
+
+        for photo in photos_page1:
+            filename = photo.get('filename', '')
+            if filename and filename not in original_page1_photos:
+                # Photo is new to page 1 (either genuinely new or moved from page 0)
+                logger.info(f"  Marking {filename} as new to page {page_numbers[1]}")
+                self.layout_mgr.mark_photo_as_new(page_numbers[1], filename)
 
 
 def launch_gui(mcf_path, pdf_content, insidecovers=False):
