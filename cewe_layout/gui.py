@@ -488,37 +488,53 @@ class LayoutViewer:
         
         ttk.Label(photo_frame, text='Item', font=('TkDefaultFont', 9, 'bold')).grid(row=0, column=0, padx=2, pady=(2,0))
         
-        # Aspect Ratio parent header spanning all 3 sub-columns
-        # Center it properly over the 3 columns by using a label with sticky='ew' in a grid
-        ttk.Label(photo_frame, text='Aspect Ratio', font=('TkDefaultFont', 9, 'bold'), anchor='center').grid(row=0, column=1, columnspan=3, pady=(2,0), sticky='ew')
-        
+        # DPI header (new) and Aspect Ratio parent header spanning its 3 sub-columns
+        ttk.Label(photo_frame, text='DPI', font=('TkDefaultFont', 9, 'bold')).grid(row=0, column=1, padx=2, pady=(2,0))
+        # Center Aspect Ratio header over the three sub-columns (slot, use slot, photo)
+        ttk.Label(photo_frame, text='Aspect Ratio', font=('TkDefaultFont', 9, 'bold'), anchor='center').grid(row=0, column=2, columnspan=3, pady=(2,0), sticky='ew')
+
         # Sub-headers in row 1, directly above their respective data columns
-        ttk.Label(photo_frame, text='Slot', font=('TkDefaultFont', 8)).grid(row=1, column=1, padx=2, pady=(0,2))
-        ttk.Label(photo_frame, text='Use\nslot', font=('TkDefaultFont', 8), justify='center').grid(row=1, column=2, padx=2, pady=(0,2))
-        ttk.Label(photo_frame, text='Photo', font=('TkDefaultFont', 8)).grid(row=1, column=3, padx=2, pady=(0,2))
+        ttk.Label(photo_frame, text='Slot', font=('TkDefaultFont', 8)).grid(row=1, column=2, padx=2, pady=(0,2))
+        ttk.Label(photo_frame, text='Use\nslot', font=('TkDefaultFont', 8), justify='center').grid(row=1, column=3, padx=2, pady=(0,2))
+        ttk.Label(photo_frame, text='Photo', font=('TkDefaultFont', 8)).grid(row=1, column=4, padx=2, pady=(0,2))
         
         # Preferred header with Equal/Original buttons in row 1, centered over column 4
         pref_header = ttk.Label(photo_frame, text='Preferred', font=('TkDefaultFont', 9, 'bold'))
-        pref_header.grid(row=0, column=4, padx=2, pady=(2,0))
+        pref_header.grid(row=0, column=5, padx=2, pady=(2,0))
         # Center the label within its cell
-        photo_frame.columnconfigure(4, weight=0)
+        photo_frame.columnconfigure(5, weight=0)
         btn_frame = ttk.Frame(photo_frame)
-        btn_frame.grid(row=1, column=4, padx=2, pady=(0,2), sticky='w')
+        # Make the button frame expand horizontally and center its contents
+        btn_frame.grid(row=1, column=5, padx=2, pady=(0,2), sticky='ew')
+        btn_frame.columnconfigure(0, weight=1)
+        btn_frame.columnconfigure(3, weight=1)
         # Use tk.Button with transparent pixel for precise compact sizing
-        tk.Button(btn_frame, text='Equal', command=self.equal_sizes, 
-                  font=('TkDefaultFont', 7), width=30, height=12,
-                  image=self.button_pixel, compound='center',
-                  padx=0, pady=0, bd=1, highlightthickness=0).pack(side='left', padx=0)
-        tk.Button(btn_frame, text='Original', command=self.stored_sizes, 
-                  font=('TkDefaultFont', 7), width=38, height=12,
-                  image=self.button_pixel, compound='center',
-                  padx=0, pady=0, bd=1, highlightthickness=0).pack(side='left', padx=0)
+        eq_btn = tk.Button(btn_frame, text='Equal', command=self.equal_sizes,
+                   font=('TkDefaultFont', 7), width=30, height=12,
+                   image=self.button_pixel, compound='center',
+                   padx=0, pady=0, bd=1, highlightthickness=0)
+        eq_btn.grid(row=0, column=1, padx=0)
+        orig_btn = tk.Button(btn_frame, text='Original', command=self.stored_sizes,
+                     font=('TkDefaultFont', 7), width=38, height=12,
+                     image=self.button_pixel, compound='center',
+                     padx=0, pady=0, bd=1, highlightthickness=0)
+        orig_btn.grid(row=0, column=2, padx=0)
         
         # Actual header
-        ttk.Label(photo_frame, text='Actual', font=('TkDefaultFont', 9, 'bold')).grid(row=0, column=5, padx=2, pady=(2,0), sticky='w')
+        ttk.Label(photo_frame, text='Actual', font=('TkDefaultFont', 9, 'bold')).grid(row=0, column=6, padx=2, pady=(2,0), sticky='w')
         
         # Item (photo/text) weight rows will be added dynamically to photo_frame
         self.photo_frame = photo_frame
+
+        # Configure narrow columns so Item/DPI don't expand too much;
+        # let the 'Preferred' column take remaining space.
+        photo_frame.columnconfigure(0, minsize=40, weight=0)   # Item label (P1..)
+        photo_frame.columnconfigure(1, minsize=48, weight=0)   # DPI
+        photo_frame.columnconfigure(2, minsize=48, weight=0)   # Slot AR
+        photo_frame.columnconfigure(3, minsize=28, weight=0)   # Use slot checkbox
+        photo_frame.columnconfigure(4, minsize=44, weight=0)   # Photo AR
+        photo_frame.columnconfigure(5, minsize=120, weight=1)  # Preferred (expandable)
+        photo_frame.columnconfigure(6, minsize=60, weight=0)   # Actual
         
         # Add text box button (will be positioned below weight rows)
         mod_sym = get_modifier_symbol()
@@ -1974,7 +1990,40 @@ class LayoutViewer:
             type_prefix = 'P' if item_type == 'photo' else 'T'
             item_label = ttk.Label(self.photo_frame, text=f'{type_prefix}{item_idx+1}', font=('TkDefaultFont', 9))
             item_label.grid(row=row, column=0, padx=2, pady=1)
-            
+
+            # DPI column (photos only) - small font and colour coded
+            dpi_text = ''
+            dpi_color = 'black'
+            if item_type == 'photo':
+                # Compute DPI using slot dimensions in MCF units
+                photo = photos[item_idx]
+                slot_w = photo.get('area_width', 0)
+                slot_h = photo.get('area_height', 0)
+                dpi_val = self._calculate_photo_dpi(photo, slot_w, slot_h)
+                if dpi_val is None:
+                    dpi_text = '--'
+                    dpi_color = 'black'
+                else:
+                    dpi_text = f'{dpi_val}'
+                    if dpi_val < 100:
+                        dpi_color = 'red'
+                    elif dpi_val < 200:
+                        dpi_color = 'yellow'
+                    elif dpi_val < 300:
+                        dpi_color = 'yellowgreen'
+                    else:
+                        dpi_color = 'green'
+            else:
+                dpi_text = ''
+
+            dpi_label = ttk.Label(self.photo_frame, text=dpi_text, font=('TkDefaultFont', 8))
+            dpi_label.grid(row=row, column=1, padx=4, pady=1)
+            if dpi_text:
+                try:
+                    dpi_label.config(foreground=dpi_color)
+                except Exception:
+                    pass
+
             # Initialize slot aspect ratio from current layout if not already set
             ar_key = (pageno, item_idx)
             if ar_key not in self.slot_aspect_ratios:
@@ -2003,14 +2052,14 @@ class LayoutViewer:
                     else:
                         self.slot_aspect_ratios[ar_key] = 2.0  # Default for text
             
-            # Column 1: Slot aspect ratio (editable)
+            # Column 2: Slot aspect ratio (editable)
             slot_ar_var = tk.StringVar(value=f'{self.slot_aspect_ratios[ar_key]:.2f}')
             slot_ar_entry = ttk.Entry(self.photo_frame, textvariable=slot_ar_var, width=4)
-            slot_ar_entry.grid(row=row, column=1, padx=2, pady=1)
+            slot_ar_entry.grid(row=row, column=2, padx=2, pady=1)
             slot_ar_entry.bind('<Return>', lambda e, pg=pageno, idx=item_idx, var=slot_ar_var: self.on_slot_aspect_changed(pg, idx, var))
             slot_ar_entry.bind('<FocusOut>', lambda e, pg=pageno, idx=item_idx, var=slot_ar_var: self.on_slot_aspect_changed(pg, idx, var))
-            
-            # Column 2: "Use slot" checkbox
+
+            # Column 3: "Use slot" checkbox
             checkbox_widget = None
             if item_type == 'photo':
                 # Get or create checkbox state
@@ -2037,14 +2086,14 @@ class LayoutViewer:
                     self.use_slot_aspect[checkbox_key] = tk.BooleanVar(value=should_auto_check)
                 
                 checkbox_widget = ttk.Checkbutton(self.photo_frame, variable=self.use_slot_aspect[checkbox_key])
-                checkbox_widget.grid(row=row, column=2, padx=2, pady=1)
+                checkbox_widget.grid(row=row, column=3, padx=2, pady=1)
             else:
                 # For text blocks, always use slot aspect (checkbox always checked, disabled)
                 checkbox_key = (pageno, item_idx)
                 if checkbox_key not in self.use_slot_aspect:
                     self.use_slot_aspect[checkbox_key] = tk.BooleanVar(value=True)
                 checkbox_widget = ttk.Checkbutton(self.photo_frame, variable=self.use_slot_aspect[checkbox_key], state='disabled')
-                checkbox_widget.grid(row=row, column=2, padx=2, pady=1)
+                checkbox_widget.grid(row=row, column=3, padx=2, pady=1)
             
             # Column 3: Photo/Image aspect ratio (read-only, empty for text blocks)
             photo_ar_label = None
@@ -2061,12 +2110,12 @@ class LayoutViewer:
                 # Empty for text blocks
                 photo_ar_label = ttk.Label(self.photo_frame, text='', font=('TkDefaultFont', 9))
             
-            photo_ar_label.grid(row=row, column=3, padx=2, pady=1)
+            photo_ar_label.grid(row=row, column=4, padx=2, pady=1)
             
             # Column 4: Desired weight entry (editable)
             desired_var = tk.StringVar(value=f'{rect.preferred_size:.1f}')
             desired_entry = ttk.Entry(self.photo_frame, textvariable=desired_var, width=6)
-            desired_entry.grid(row=row, column=4, padx=2, pady=1)
+            desired_entry.grid(row=row, column=5, padx=2, pady=1)
             
             # Bind entry changes to update weights in layout manager
             desired_entry.bind('<Return>', lambda e, pg=pageno, iid=item_id, var=desired_var: self.on_size_changed(pg, iid, var))
@@ -2081,13 +2130,13 @@ class LayoutViewer:
             # Simpler: just show the area fraction as percentage of page
             actual_pct = actual_fraction * 100
             actual_label = ttk.Label(self.photo_frame, text=f'{actual_pct:.1f}%', font=('TkDefaultFont', 9))
-            actual_label.grid(row=row, column=5, padx=2, pady=1)
+            actual_label.grid(row=row, column=6, padx=2, pady=1)
             
-            self.weight_widgets.append((item_label, slot_ar_entry, checkbox_widget, photo_ar_label, desired_entry, actual_label))
+            self.weight_widgets.append((item_label, dpi_label, slot_ar_entry, checkbox_widget, photo_ar_label, desired_entry, actual_label))
         
         # Position "Add text box" button below all items (skip row 0 and 1 for headers)
         next_row = 2 + len(rectangles)
-        self.add_text_btn.grid(row=next_row, column=0, columnspan=2, padx=2, pady=4, sticky='w')
+        self.add_text_btn.grid(row=next_row, column=0, columnspan=7, padx=2, pady=4, sticky='w')
         
         # Report gap variations for current layout
         if photos or texts:
@@ -2115,6 +2164,49 @@ class LayoutViewer:
         if img_h == 0 or img_w == 0: return None
 
         return self.photo_dimensions[fn]
+
+    def _calculate_photo_dpi(self, photo: dict, slot_width_mcf: float, slot_height_mcf: float) -> int:
+        """Calculate rendered DPI for a photo in the given slot dimensions.
+
+        Args:
+            photo: photo dict (may contain 'filename' or 'image_width'/'image_height')
+            slot_width_mcf: slot width in MCF units (1 unit = 0.1 mm)
+            slot_height_mcf: slot height in MCF units
+
+        Returns:
+            DPI as int (rounded), or None if not computable
+        """
+        # Get pixel dimensions from cache or from photo dict
+        dims = None
+        # Prefer explicit image dimensions stored on staged photos
+        if 'image_width' in photo and 'image_height' in photo and photo.get('image_width') and photo.get('image_height'):
+            dims = (int(photo.get('image_width')), int(photo.get('image_height')))
+        else:
+            fn = photo.get('filename')
+            dims = self._get_photo_dimensions(fn) if fn else None
+
+        if not dims:
+            return None
+        pix_w, pix_h = dims
+
+        # Guard against zero slot sizes
+        try:
+            if slot_width_mcf <= 0 or slot_height_mcf <= 0:
+                return None
+        except Exception:
+            return None
+
+        # Convert MCF units (0.1 mm per unit) to inches: inches = (units * 0.1) / 25.4
+        inches_w = (slot_width_mcf * 0.1) / 25.4
+        inches_h = (slot_height_mcf * 0.1) / 25.4
+        if inches_w <= 0 or inches_h <= 0:
+            return None
+
+        dpi_w = pix_w / inches_w
+        dpi_h = pix_h / inches_h
+
+        dpi = min(dpi_w, dpi_h)
+        return int(round(dpi))
 
     def _write_debug_dump(self, pageno, page_w, page_h, origin_left, is_left_page, edge_gap, internal_gap,
                          photos, texts, preferred_sizes, algorithm_name, use_slot_aspect_for_photos, slot_aspect_ratios):
