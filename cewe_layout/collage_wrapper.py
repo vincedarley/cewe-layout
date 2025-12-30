@@ -254,9 +254,7 @@ def _photos_to_rectangles(photos, photo_dimensions, preferred_sizes, edge_gap, i
     
     for photo_idx, photo in enumerate(photos):
         fn = photo.get('filename', '')
-        if not fn:
-            return [], f"Photo {photo_idx} has no filename"
-                
+
         rect_x = None
         rect_y = None
         rect_width = None

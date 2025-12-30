@@ -1053,12 +1053,11 @@ class LayoutViewer:
             all_texts.extend(texts_i)
         
         # Get page dimensions for title
-        # For spreads, use first page's dimensions and double the width
         first_page_info = self.pages[page_indices[0]][1]
         page_width_mcf = first_page_info.get('page_width')
         page_height_mcf = first_page_info.get('page_height')
 
-        title = self._getPageWinTitle(page_indices, all_photos, all_texts, page_width_mcf, page_height_mcf)
+        title = self._getPageWinTitle(all_photos, all_texts, page_width_mcf, page_height_mcf)
         self.root.title(title)
         
         # Update PDF photo count field if PDF content is available
@@ -1094,64 +1093,41 @@ class LayoutViewer:
         self._update_page_range_display()
         self.update_weights_display()
 
-    def _getPageWinTitle(self, page_indices: list[int], all_photos: list[Any], all_texts: list[Any], page_width_mcf,
+    def _getPageWinTitle(self, all_photos: list[Any], all_texts: list[Any], page_width_mcf,
                          page_height_mcf) -> str:
         # Convert to cm (MCF / 100) and format to 1 decimal place
-        if len(page_indices) == 2:
-            # Spread: double the width
-            width_cm = (page_width_mcf * 2) / 100.0
-        else:
-            # Single page
-            width_cm = page_width_mcf / 100.0
+        # We have either 1 or 2 pages. Multiply the width by this.
+        width_cm = (page_width_mcf * len(self.current_spread_pages)) / 100.0
         height_cm = page_height_mcf / 100.0
         dimensions_str = f'{width_cm:.1f}cm x {height_cm:.1f}cm'
-
-        # Update window title with photobook/canvas/calendar name and page info
         text_label = 'text' if len(all_texts) == 1 else 'texts'
+
+        title = f'{self.photobook_name} - '
+        # Update window title with photobook/canvas/calendar name and page info
         if self.is_canvas:
-            # Canvas mode: show as "Canvas" not "Page"
-            if all_texts:
-                title = f'{self.photobook_name} - Canvas, {dimensions_str} : {len(all_photos)} photos, {len(all_texts)} {text_label}'
-            else:
-                title = f'{self.photobook_name} - Canvas, {dimensions_str} : {len(all_photos)} photos'
+            title += 'Canvas' # Canvas mode: show as "Canvas" not "Page"
         elif self.is_calendar:
-            # Calendar mode: show as "Month" not "Page"
-            if all_texts:
-                title = f'{self.photobook_name} - Month {self.current_spread_pages[0]}, {dimensions_str} : {len(all_photos)} photos, {len(all_texts)} {text_label}'
-            else:
-                title = f'{self.photobook_name} - Month {self.current_spread_pages[0]}, {dimensions_str} : {len(all_photos)} photos'
+            title += f'Month {self.current_spread_pages[0]}' # Calendar mode: show as "Month" not "Page"
         elif len(self.current_spread_pages) == 2:
-            if all_texts:
-                title = f'{self.photobook_name} - Pages {self.current_spread_pages[0]}-{self.current_spread_pages[1]}, {dimensions_str} : {len(all_photos)} photos, {len(all_texts)} {text_label}'
-            else:
-                title = f'{self.photobook_name} - Pages {self.current_spread_pages[0]}-{self.current_spread_pages[1]}, {dimensions_str} : {len(all_photos)} photos'
+            title += f'Pages {self.current_spread_pages[0]}-{self.current_spread_pages[1]}'
         else:
-            if all_texts:
-                title = f'{self.photobook_name} - Page {self.current_spread_pages[0]}, {dimensions_str} : {len(all_photos)} photos, {len(all_texts)} {text_label}'
-            else:
-                title = f'{self.photobook_name} - Page {self.current_spread_pages[0]}, {dimensions_str} : {len(all_photos)} photos'
+            title += f'Page {self.current_spread_pages[0]}'
+
+        title += f', {dimensions_str} : {len(all_photos)} photos'
+        if all_texts: title += f', {len(all_texts)} {text_label}'
         return title
 
     def _getPagesToRender(self) -> list[int]:
-
         # Canvas mode: always treat as single page (no spread navigation)
         # Calendar mode: treat as single pages (no spreads), but allow navigation
         # Photobook mode: determine which pages to render based on spread mode
-        if self.is_canvas:
-            # Canvas: single page, always shown in full
-            page_indices = [self.index]
-            self.current_spread_pages = [self.pages[self.index][0]]
-        elif self.is_calendar:
-            # Calendar: single page view only (no spreads)
-            page_indices = [self.index]
-            self.current_spread_pages = [self.pages[self.index][0]]
-        elif not self.spread_mode.get():
-            # Single page mode
+        if self.is_canvas or self.is_calendar or not self.spread_mode.get():
+            # Single page modes
             page_indices = [self.index]
             self.current_spread_pages = [self.pages[self.index][0]]
         else:
             # Spread mode: handle covers specially. This chunk of code is ridiculously over-complicated
-            # should really simplify it a lot.  It tries to cope with edge-cases that don't exist.
+            # We should really simplify it a lot.  It tries to cope with edge-cases that don't exist.
 
             # Covers (page 0 and max page) can form a spread with each other
             # but NOT with normal pages (1...N)
@@ -2049,29 +2025,14 @@ class LayoutViewer:
                     if slot_width > 0 and slot_height > 0:
                         slot_aspect = slot_width / slot_height
                         # Load image to get its actual aspect ratio
-                        fn = photo.get('filename', '')
-                        if fn:
-                            # Check cache first, or load if not cached
-                            if fn not in self.photo_dimensions:
-                                safefn = fn.replace('safecontainer:/', '').lstrip('/')
-                                img_path = Path(self.mcf_base_folder) / safefn
-                                if img_path.exists():
-                                    try:
-                                        dims = get_image_dimensions(img_path)
-                                        if dims is not None:
-                                            self.photo_dimensions[fn] = dims
-                                    except Exception:
-                                        pass
-                            
-                            # Now check if we have dimensions (from cache or just loaded)
-                            if fn in self.photo_dimensions:
-                                img_w, img_h = self.photo_dimensions[fn]
-                                if img_h > 0:
-                                    img_aspect = img_w / img_h
-                                    # Auto-check if aspect ratios differ by more than 30%
-                                    aspect_diff = abs(img_aspect - slot_aspect) / slot_aspect
-                                    if aspect_diff > 0.30:
-                                        should_auto_check = True
+                        dims = self._get_photo_dimensions(photo.get('filename', ''))
+                        if dims:
+                            img_w, img_h = dims
+                            img_aspect = img_w / img_h
+                            # Auto-check if aspect ratios differ by more than 30%
+                            aspect_diff = abs(img_aspect - slot_aspect) / slot_aspect
+                            if aspect_diff > 0.30:
+                                should_auto_check = True
                     
                     self.use_slot_aspect[checkbox_key] = tk.BooleanVar(value=should_auto_check)
                 
@@ -2089,37 +2050,11 @@ class LayoutViewer:
             photo_ar_label = None
             if item_type == 'photo':
                 photo = photos[item_idx]
-                fn = photo.get('filename', '')
-                if fn:
-                    # Check cache first
-                    if fn in self.photo_dimensions:
-                        img_w, img_h = self.photo_dimensions[fn]
-                        if img_h > 0:
-                            img_aspect = img_w / img_h
-                            photo_ar_label = ttk.Label(self.photo_frame, text=f'{img_aspect:.2f}', font=('TkDefaultFont', 9))
-                        else:
-                            photo_ar_label = ttk.Label(self.photo_frame, text='--', font=('TkDefaultFont', 9))
-                    else:
-                        # Load and cache dimensions
-                        safefn = fn.replace('safecontainer:/', '').lstrip('/')
-                        img_path = Path(self.mcf_base_folder) / safefn
-                        if img_path.exists():
-                            try:
-                                dims = get_image_dimensions(img_path)
-                                if dims is not None:
-                                    img_w, img_h = dims
-                                    self.photo_dimensions[fn] = (img_w, img_h)
-                                    if img_h > 0:
-                                        img_aspect = img_w / img_h
-                                        photo_ar_label = ttk.Label(self.photo_frame, text=f'{img_aspect:.2f}', font=('TkDefaultFont', 9))
-                                    else:
-                                        photo_ar_label = ttk.Label(self.photo_frame, text='--', font=('TkDefaultFont', 9))
-                                else:
-                                    photo_ar_label = ttk.Label(self.photo_frame, text='--', font=('TkDefaultFont', 9))
-                            except Exception:
-                                photo_ar_label = ttk.Label(self.photo_frame, text='--', font=('TkDefaultFont', 9))
-                        else:
-                            photo_ar_label = ttk.Label(self.photo_frame, text='--', font=('TkDefaultFont', 9))
+                dims = self._get_photo_dimensions(photo.get('filename', ''))
+                if dims:
+                    img_w, img_h = dims
+                    img_aspect = img_w / img_h
+                    photo_ar_label = ttk.Label(self.photo_frame, text=f'{img_aspect:.2f}', font=('TkDefaultFont', 9))
                 else:
                     photo_ar_label = ttk.Label(self.photo_frame, text='--', font=('TkDefaultFont', 9))
             else:
@@ -2159,7 +2094,28 @@ class LayoutViewer:
             all_items = photos + texts
             analysis = analyze_gap_details(all_items, page_w, page_h, origin_left, self.spread_mode.get())
             report_gap_variations(analysis, pageno)
-    
+
+    # Use cache where possible, and add to the cache if not currently there.
+    def _get_photo_dimensions(self, fn: str or None) -> Tuple[int, int]:
+        if not fn: return None
+        # If not cached, then find it and cache.
+        if fn not in self.photo_dimensions:
+            # Load and cache dimensions
+            safefn = fn.replace('safecontainer:/', '').lstrip('/')
+            img_path = Path(self.mcf_base_folder) / safefn
+            if img_path.exists():
+                try:
+                    dims = get_image_dimensions(img_path)
+                    if dims is None: return None
+                    self.photo_dimensions[fn] = dims
+                except Exception:
+                    return None
+        # Use the cache.
+        img_w, img_h = self.photo_dimensions[fn]
+        if img_h == 0 or img_w == 0: return None
+
+        return self.photo_dimensions[fn]
+
     def _write_debug_dump(self, pageno, page_w, page_h, origin_left, is_left_page, edge_gap, internal_gap,
                          photos, texts, preferred_sizes, algorithm_name, use_slot_aspect_for_photos, slot_aspect_ratios):
         """Write debug dump file with all data needed to reproduce layout generation.
@@ -3539,9 +3495,6 @@ class LayoutViewer:
 
                 # Run algorithm on combined spread
                 algo_start = time()
-                # Check if this is a cover spread (page 0 and back cover)
-                is_cover_spread = any(info.get('is_cover', False) for _, info in page_infos)
-                has_full_bleed = is_cover_spread
                 success, updated_photos, updated_texts, error_msg = generate_layout_for_page(
                     all_photos, spread_w, page_h, self.photo_dimensions,
                     algorithm=algorithm, edge_gap=edge_gap, internal_gap=internal_gap, texts=all_texts,
@@ -3782,8 +3735,8 @@ class LayoutViewer:
                     )
                 
                 algo_start = time()
-                # Check if this is a cover page
-                has_full_bleed = info.get('has_full_bleed', False) or self.spread_mode.get()
+                # Check if this is a special page
+                has_full_bleed = info.get('has_full_bleed', False)
                 success, updated_photos, updated_texts, error_msg = generate_layout_for_page(
                     photos, page_w, page_h, self.photo_dimensions,
                     algorithm=algorithm, edge_gap=edge_gap, internal_gap=internal_gap, texts=texts,
