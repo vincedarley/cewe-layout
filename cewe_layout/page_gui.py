@@ -103,7 +103,12 @@ class PageRenderer:
         self.canvas_image_id = None  # Canvas image item ID
         self.delete_button_pixel = tk.PhotoImage(width=1, height=1)
         self.delete_buttons = []  # Currently displayed delete button widgets
+        self.delete_button_info_list = []  # List of button info for hover state management
         self.drag_rectangles = []  # Currently displayed drag rectangle canvas items
+        
+        # Hover state for delete button visibility
+        self.hovered_item_idx = None  # Index of currently hovered item (or None)
+        self.hide_button_timer = None  # Timer ID for delayed button hiding
         
         # Cropping/scaling mode
         self.draw_cropped = False  # If True, apply cutout/scale transformations
@@ -266,9 +271,8 @@ class PageRenderer:
         self._show_image(img)
         self._create_delete_buttons(delete_button_info, delete_callback)
         
-        # Create invisible drag rectangles for photos if swap_callback provided
-        if swap_callback:
-            self._create_drag_rectangles(delete_button_info)
+        # Create invisible hover rectangles for all items (always needed for delete button hover)
+        self._create_drag_rectangles(delete_button_info)
 
     def render_empty_page(self, canvas_w: int, canvas_h: int, message: str) -> None:
         """Render empty page with message.
@@ -285,9 +289,16 @@ class PageRenderer:
     
     def clear_delete_buttons(self) -> None:
         """Clear all delete button widgets."""
+        # Cancel any pending hide timers
+        if self.hide_button_timer:
+            self.canvas.after_cancel(self.hide_button_timer)
+            self.hide_button_timer = None
+        
         for btn in self.delete_buttons:
             btn.destroy()
         self.delete_buttons.clear()
+        self.delete_button_info_list.clear()
+        self.hovered_item_idx = None
     
     def clear_caches(self) -> None:
         """Clear all image caches."""
@@ -879,8 +890,11 @@ class PageRenderer:
         # Destroy any existing delete buttons from previous render
         self.clear_delete_buttons()
         
-        # Create new delete buttons
-        for info in button_info:
+        # Store button info for hover state management
+        self.delete_button_info_list = button_info
+        
+        # Create new delete buttons (initially hidden)
+        for idx, info in enumerate(button_info):
             x = info['x']
             y = info['y']
             
@@ -915,7 +929,16 @@ class PageRenderer:
                 pady=0,
                 command=cmd
             )
+            # Place button at position (makes it visible)
             btn.place(x=x, y=y)
+            
+            # Immediately hide it (will be shown on hover)
+            btn.place_forget()
+            
+            # Bind hover events to button itself to keep it visible when mouse moves onto it
+            btn.bind('<Enter>', lambda e, i=idx: self._on_button_enter(i))
+            btn.bind('<Leave>', lambda e, i=idx: self._on_button_leave(i))
+            
             self.delete_buttons.append(btn)
     
     def _create_drag_rectangles(self, button_info):
@@ -927,32 +950,49 @@ class PageRenderer:
         # Clear any existing drag rectangles
         self.clear_drag_rectangles()
         
-        # Create invisible rectangles for each photo
-        for info in button_info:
-            if 'photo_index' not in info:
-                continue  # Skip text boxes
+        # Create invisible rectangles for each photo and text box
+        for idx, info in enumerate(button_info):
+            x0 = info.get('rect_x0')
+            y0 = info.get('rect_y0')
+            x1 = info.get('rect_x1')
+            y1 = info.get('rect_y1')
             
-            x0 = info['rect_x0']
-            y0 = info['rect_y0']
-            x1 = info['rect_x1']
-            y1 = info['rect_y1']
-            pageno = info['pageno']
-            photo_idx = info['item_index']  # Use item_index (0-based within page)
+            # For text boxes, rect coordinates may not be stored, calculate from x/y position
+            if x0 is None or x1 is None:
+                # Text box - estimate rectangle from button position
+                # Button is at top-right, so we need to guess the text box area
+                # This is approximate, but good enough for hover detection
+                btn_x = info['x']
+                btn_y = info['y']
+                # Assume text box is roughly 200px wide and 100px tall, button at top-right
+                x0 = btn_x - 200
+                y0 = btn_y
+                x1 = btn_x + 20  # Include button width
+                y1 = btn_y + 100
             
             # Create invisible rectangle (no fill, no outline initially)
             rect_id = self.canvas.create_rectangle(
                 x0, y0, x1, y1,
                 outline='',
                 width=0,
-                tags=('photo_drag', f'photo_{pageno}_{photo_idx}')
+                tags=('item_hover', f'item_{idx}')
             )
-            self.canvas.tag_raise(f'photo_{pageno}_{photo_idx}')  # Bring to front
+            self.canvas.tag_raise(f'item_{idx}')  # Bring to front
 
-            # Bind drag events to this rectangle
-            self.canvas.tag_bind(f'photo_{pageno}_{photo_idx}', '<ButtonPress-1>',
-                                lambda e, pn=pageno, idx=photo_idx: self._on_drag_press(pn, idx, e))
-            self.canvas.tag_bind(f'photo_{pageno}_{photo_idx}', '<B1-Motion>',
-                                lambda e, pn=pageno, idx=photo_idx: self._on_drag_motion(pn, idx, e))
+            # Bind hover events for delete button visibility
+            self.canvas.tag_bind(f'item_{idx}', '<Enter>',
+                                lambda e, i=idx: self._on_photo_enter(i))
+            self.canvas.tag_bind(f'item_{idx}', '<Leave>',
+                                lambda e, i=idx: self._on_photo_leave(i))
+            
+            # Bind drag events only for photos (not text boxes)
+            if 'photo_index' in info:
+                pageno = info['pageno']
+                photo_idx = info['item_index']
+                self.canvas.tag_bind(f'item_{idx}', '<ButtonPress-1>',
+                                    lambda e, pn=pageno, idx=photo_idx: self._on_drag_press(pn, idx, e))
+                self.canvas.tag_bind(f'item_{idx}', '<B1-Motion>',
+                                    lambda e, pn=pageno, idx=photo_idx: self._on_drag_motion(pn, idx, e))
             
             self.drag_rectangles.append(rect_id)
         
@@ -1154,6 +1194,83 @@ class PageRenderer:
         self.drag_hover_photo_idx = None
         self.drag_hover_rect_id = None
         self.drag_thumbnail_id = None
+    
+    # ========== Delete button hover management ==========
+    
+    def _on_photo_enter(self, idx):
+        """Handle mouse entering a photo/text rectangle - show delete button.
+        
+        Args:
+            idx: Index in delete_button_info_list
+        """
+        self.hovered_item_idx = idx
+        self._show_delete_button(idx)
+    
+    def _on_photo_leave(self, idx):
+        """Handle mouse leaving a photo/text rectangle - hide delete button with delay.
+        
+        Args:
+            idx: Index in delete_button_info_list
+        """
+        # Only clear hover state if we're leaving the currently hovered item
+        if self.hovered_item_idx == idx:
+            self.hovered_item_idx = None
+            # Delay hiding slightly to allow mouse to reach button
+            self.hide_button_timer = self.canvas.after(50, lambda: self._check_and_hide_button(idx))
+    
+    def _on_button_enter(self, idx):
+        """Handle mouse entering a delete button - keep it visible.
+        
+        Args:
+            idx: Index in delete_button_info_list
+        """
+        self.hovered_item_idx = idx  # Keep button visible
+        # Cancel any pending hide timer
+        if self.hide_button_timer:
+            self.canvas.after_cancel(self.hide_button_timer)
+            self.hide_button_timer = None
+    
+    def _on_button_leave(self, idx):
+        """Handle mouse leaving a delete button - hide it.
+        
+        Args:
+            idx: Index in delete_button_info_list
+        """
+        self.hovered_item_idx = None
+        self._hide_delete_button(idx)
+    
+    def _show_delete_button(self, idx):
+        """Show delete button at specified index.
+        
+        Args:
+            idx: Index in delete_button_info_list and delete_buttons
+        """
+        if 0 <= idx < len(self.delete_buttons):
+            btn = self.delete_buttons[idx]
+            info = self.delete_button_info_list[idx]
+            btn.place(x=info['x'], y=info['y'])
+    
+    def _hide_delete_button(self, idx):
+        """Hide delete button at specified index.
+        
+        Args:
+            idx: Index in delete_button_info_list and delete_buttons
+        """
+        if 0 <= idx < len(self.delete_buttons):
+            self.delete_buttons[idx].place_forget()
+    
+    def _check_and_hide_button(self, idx):
+        """Check if button should be hidden (delayed hide callback).
+        
+        Args:
+            idx: Index in delete_button_info_list
+        """
+        # Hide button if we're not hovering over this specific item anymore
+        if self.hovered_item_idx != idx:
+            self._hide_delete_button(idx)
+        
+        # Clear timer reference
+        self.hide_button_timer = None
     
     def get_thumbnail(self, path: str, w: int, h: int, mcf_filename: str = None,
                      cutout_left: float = None, cutout_top: float = None, cutout_scale: float = None,

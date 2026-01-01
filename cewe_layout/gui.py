@@ -2173,18 +2173,35 @@ class LayoutViewer:
         return self.photo_dimensions[fn]
 
     def _calculate_photo_dpi(self, photo: dict, slot_width_mcf: float, slot_height_mcf: float) -> int:
-        """Calculate rendered DPI for a photo in the given slot dimensions. Note that this does not
-        take account of any scaling (zoom in) done in CEWE. 
+        """Calculate rendered DPI for a photo in the given slot dimensions, accounting for
+        cutout/scale (zoom) if available.
 
         Args:
-            photo: photo dict (may contain 'filename' or 'image_width'/'image_height')
+            photo: photo dict (may contain 'filename', 'image_width'/'image_height', 'cutout_scale')
             slot_width_mcf: slot width in MCF units (1 unit = 0.1 mm)
             slot_height_mcf: slot height in MCF units
 
         Returns:
             DPI as int (rounded), or None if not computable
         """
-        # Get pixel dimensions from cache or from photo dict
+        # Guard against zero slot sizes
+        try:
+            if slot_width_mcf <= 0 or slot_height_mcf <= 0:
+                return None
+        except Exception:
+            return None
+        
+        # If we have cutout_scale from MCF, use it for accurate DPI calculation
+        # CEWE scale formula: scaled_width_mcf = image_width_px × cutout_scale
+        # So: DPI = pixels_in_slot / inches = (slot_mcf / cutout_scale) / (slot_mcf * 0.1 / 25.4)
+        # Simplifies to: DPI = 254 / cutout_scale
+        cutout_scale = photo.get('cutout_scale')
+        if cutout_scale and cutout_scale > 0:
+            dpi = 254.0 / cutout_scale
+            return int(round(dpi))
+        
+        # Fallback: estimate DPI from full image dimensions and slot size
+        # This assumes the photo fills the slot without zoom (less accurate)
         dims = None
         # Prefer explicit image dimensions stored on staged photos
         if 'image_width' in photo and 'image_height' in photo and photo.get('image_width') and photo.get('image_height'):
@@ -2196,13 +2213,6 @@ class LayoutViewer:
         if not dims:
             return None
         pix_w, pix_h = dims
-
-        # Guard against zero slot sizes
-        try:
-            if slot_width_mcf <= 0 or slot_height_mcf <= 0:
-                return None
-        except Exception:
-            return None
 
         # Convert MCF units (0.1 mm per unit) to inches: inches = (units * 0.1) / 25.4
         inches_w = (slot_width_mcf * 0.1) / 25.4
