@@ -1,4 +1,6 @@
 """Minimal parser to extract area/image/cutout info from CEWE .mcf XML."""
+from typing import Any
+
 from lxml import etree
 import os
 import glob
@@ -225,93 +227,11 @@ def extract_pages_info(fotobook_root):
             areatype = area.get('areatype', 'imagearea')
             
             if areatype == 'textarea':
-                raw_html = ""
-                text_tag = area.find('text')
-                if text_tag is not None and text_tag.text:
-                    raw_html = text_tag.text.strip()
-                
-                # Parse textFormat for font size and alignment
-                font_size = 12  # default
-                h_align = 'left'  # default horizontal alignment
-                v_align = 'top'  # default vertical alignment
-                
-                text_format = area.find('.//textFormat')
-                if text_format is not None:
-                    # Parse font attribute (format: "FontName,size,...")
-                    font_attr = text_format.get('font', '')
-                    if font_attr:
-                        parts = font_attr.split(',')
-                        if len(parts) > 1:
-                            try:
-                                font_size = int(parts[1])
-                            except (ValueError, IndexError):
-                                pass
-                    
-                    # Parse alignment (format: "ALIGNVCENTER,ALIGNHCENTER" or "ALIGNLEFT", etc.)
-                    alignment = text_format.get('Alignment', '')
-                    if alignment:
-                        # Horizontal alignment
-                        if 'ALIGNHCENTER' in alignment:
-                            h_align = 'center'
-                        elif 'ALIGNTRAILING' in alignment or 'ALIGNRIGHT' in alignment:
-                            h_align = 'right'
-                        elif 'ALIGNLEADING' in alignment or 'ALIGNLEFT' in alignment:
-                            h_align = 'left'
-                        
-                        # Vertical alignment
-                        if 'ALIGNVCENTER' in alignment:
-                            v_align = 'center'
-                        elif 'ALIGNBOTTOM' in alignment:
-                            v_align = 'bottom'
-                        elif 'ALIGNTOP' in alignment:
-                            v_align = 'top'
-                
-                # Extract plain text for debug output
-                import re, html
-                plain_text = raw_html
-                plain_text = re.sub(r'<!\[CDATA\[(.*?)\]\]>', r'\1', plain_text, flags=re.DOTALL)
-                plain_text = re.sub(r'<style[^>]*>.*?</style>', '', plain_text, flags=re.DOTALL | re.IGNORECASE)
-                plain_text = re.sub(r'<head[^>]*>.*?</head>', '', plain_text, flags=re.DOTALL | re.IGNORECASE)
-                plain_text = re.sub(r'<[^>]+>', '', plain_text)
-                plain_text = html.unescape(plain_text)
-                plain_text = ' '.join(plain_text.split()).strip()
-                
-                logger.debug(f"  Page {page_number} textarea: text='{plain_text[:50]}{'...' if len(plain_text) > 50 else ''}' font_size={font_size} h_align={h_align} v_align={v_align}")
-                
-                text_info = {
-                    'area_left': area_left,
-                    'area_top': area_top,
-                    'area_width': area_width,
-                    'area_height': area_height,
-                    'area_rot': area_rot,
-                    'raw_html': raw_html,
-                    'font_size': font_size,
-                    'h_align': h_align,
-                    'v_align': v_align,
-                }
+                text_info = _parseTextArea(area, area_width, area_height, area_left, area_top, area_rot, page_number)
                 pages_map[page_number]['texts'].append(text_info)
             elif areatype == 'imagearea':
                 for imageTag in area.findall('image'):
-                    info = {
-                        'filename': imageTag.get('filename'),
-                        'area_left': area_left,
-                        'area_top': area_top,
-                        'area_width': area_width,
-                        'area_height': area_height,
-                        'area_rot': area_rot,
-                    }
-                    cut = imageTag.find('cutout')
-                    if cut is not None:
-                        try:
-                            cleft = cut.get('left')
-                            ctop = cut.get('top')
-                            cscale = cut.get('scale')
-                            info['cutout'] = {'left': cleft, 'top': ctop, 'scale': cscale}
-                        except (TypeError, AttributeError):
-                            info['cutout'] = None
-                    else:
-                        info['cutout'] = None
-                    
+                    info = _parseImageArea(imageTag, area_width, area_height, area_left, area_top, area_rot)
                     pages_map[page_number]['photos'].append(info)
     
     # For photobooks: identify the two pagenr="0" type="emptypage" elements
@@ -631,96 +551,12 @@ def extract_pages_info(fotobook_root):
             areatype = area.get('areatype', 'imagearea')
             
             if areatype == 'textarea':
-                # Text block - store position/size and raw HTML content
-                # Extract the text content
-                raw_html = ""
-                text_tag = area.find('text')
-                if text_tag is not None and text_tag.text:
-                    raw_html = text_tag.text.strip()
-                
-                # Parse textFormat for font size and alignment
-                font_size = 12  # default
-                h_align = 'left'  # default horizontal alignment
-                v_align = 'top'  # default vertical alignment
-                
-                text_format = area.find('.//textFormat')
-                if text_format is not None:
-                    # Parse font attribute (format: "FontName,size,...")
-                    font_attr = text_format.get('font', '')
-                    if font_attr:
-                        parts = font_attr.split(',')
-                        if len(parts) > 1:
-                            try:
-                                font_size = int(parts[1])
-                            except (ValueError, IndexError):
-                                pass
-                    
-                    # Parse alignment (format: "ALIGNVCENTER,ALIGNHCENTER" or "ALIGNLEFT", etc.)
-                    alignment = text_format.get('Alignment', '')
-                    if alignment:
-                        # Horizontal alignment
-                        if 'ALIGNHCENTER' in alignment:
-                            h_align = 'center'
-                        elif 'ALIGNTRAILING' in alignment or 'ALIGNRIGHT' in alignment:
-                            h_align = 'right'
-                        elif 'ALIGNLEADING' in alignment or 'ALIGNLEFT' in alignment:
-                            h_align = 'left'
-                        
-                        # Vertical alignment
-                        if 'ALIGNVCENTER' in alignment:
-                            v_align = 'center'
-                        elif 'ALIGNBOTTOM' in alignment:
-                            v_align = 'bottom'
-                        elif 'ALIGNTOP' in alignment:
-                            v_align = 'top'
-                
-                # Extract plain text for debug output
-                import re, html
-                plain_text = raw_html
-                plain_text = re.sub(r'<!\[CDATA\[(.*?)\]\]>', r'\1', plain_text, flags=re.DOTALL)
-                plain_text = re.sub(r'<style[^>]*>.*?</style>', '', plain_text, flags=re.DOTALL | re.IGNORECASE)
-                plain_text = re.sub(r'<head[^>]*>.*?</head>', '', plain_text, flags=re.DOTALL | re.IGNORECASE)
-                plain_text = re.sub(r'<[^>]+>', '', plain_text)
-                plain_text = html.unescape(plain_text)
-                plain_text = ' '.join(plain_text.split()).strip()
-                
-                logger.debug(f"  Page {owner} textarea: text='{plain_text[:50]}{'...' if len(plain_text) > 50 else ''}' font_size={font_size} h_align={h_align} v_align={v_align}")
-                
-                text_info = {
-                    'area_left': area_left,
-                    'area_top': area_top,
-                    'area_width': area_width,
-                    'area_height': area_height,
-                    'area_rot': area_rot,
-                    'raw_html': raw_html,
-                    'font_size': font_size,
-                    'h_align': h_align,
-                    'v_align': v_align,
-                }
+                text_info = _parseTextArea(area, area_width, area_height, area_left, area_top, area_rot, owner)
                 pages_map[owner]['texts'].append(text_info)
             else:
                 # Image area (photos)
                 for imageTag in area.findall('image'):
-                    info = {
-                        'filename': imageTag.get('filename'),
-                        'area_left': area_left,
-                        'area_top': area_top,
-                        'area_width': area_width,
-                        'area_height': area_height,
-                        'area_rot': area_rot,
-                    }
-                    cut = imageTag.find('cutout')
-                    if cut is not None:
-                        try:
-                            cleft = cut.get('left')
-                            ctop = cut.get('top')
-                            cscale = cut.get('scale')
-                            info['cutout'] = {'left': cleft, 'top': ctop, 'scale': cscale}
-                        except (TypeError, AttributeError) as e:
-                            logger.warning(f"Page {pagenr}: Failed to parse cutout data: {e}")
-                            info['cutout'] = None
-                    else:
-                        info['cutout'] = None
+                    info = _parseImageArea(imageTag, area_width, area_height, area_left, area_top, area_rot)
 
                     pages_map[owner]['photos'].append(info)
 
@@ -752,3 +588,105 @@ def extract_pages_info(fotobook_root):
         logger.debug(f"  Page {page_num}: {len(page_data['photos'])} photos, {len(page_data['texts'])} texts (cover={is_cover})")
     
     return pages
+
+
+def _parseImageArea(imageTag, area_width: float, area_height: float, area_left: float, area_top: float,
+                    area_rot: float) -> dict[str, float | Any]:
+    info = {
+        'filename': imageTag.get('filename'),
+        'area_left': area_left,
+        'area_top': area_top,
+        'area_width': area_width,
+        'area_height': area_height,
+        'area_rot': area_rot,
+    }
+    cut = imageTag.find('cutout')
+    if cut is not None:
+        try:
+            cleft = float(cut.get('left', '0').replace(',', '.'))
+            ctop = float(cut.get('top', '0').replace(',', '.'))
+            cscale = float(cut.get('scale', '1.0').replace(',', '.'))
+            info['cutout_left'] = cleft
+            info['cutout_top'] = ctop
+            info['cutout_scale'] = cscale
+        except (TypeError, AttributeError, ValueError):
+            info['cutout_left'] = None
+            info['cutout_top'] = None
+            info['cutout_scale'] = None
+    else:
+        info['cutout_left'] = None
+        info['cutout_top'] = None
+        info['cutout_scale'] = None
+    return info
+
+
+def _parseTextArea(area, area_width: float, area_height: float, area_left: float, area_top: float, area_rot: float,
+                   owner: int | Any) -> dict[str, float | str | int | Any]:
+    # Text block - store position/size and raw HTML content
+    # Extract the text content
+    raw_html = ""
+    text_tag = area.find('text')
+    if text_tag is not None and text_tag.text:
+        raw_html = text_tag.text.strip()
+
+    # Parse textFormat for font size and alignment
+    font_size = 12  # default
+    h_align = 'left'  # default horizontal alignment
+    v_align = 'top'  # default vertical alignment
+
+    text_format = area.find('.//textFormat')
+    if text_format is not None:
+        # Parse font attribute (format: "FontName,size,...")
+        font_attr = text_format.get('font', '')
+        if font_attr:
+            parts = font_attr.split(',')
+            if len(parts) > 1:
+                try:
+                    font_size = int(parts[1])
+                except (ValueError, IndexError):
+                    pass
+
+        # Parse alignment (format: "ALIGNVCENTER,ALIGNHCENTER" or "ALIGNLEFT", etc.)
+        alignment = text_format.get('Alignment', '')
+        if alignment:
+            # Horizontal alignment
+            if 'ALIGNHCENTER' in alignment:
+                h_align = 'center'
+            elif 'ALIGNTRAILING' in alignment or 'ALIGNRIGHT' in alignment:
+                h_align = 'right'
+            elif 'ALIGNLEADING' in alignment or 'ALIGNLEFT' in alignment:
+                h_align = 'left'
+
+            # Vertical alignment
+            if 'ALIGNVCENTER' in alignment:
+                v_align = 'center'
+            elif 'ALIGNBOTTOM' in alignment:
+                v_align = 'bottom'
+            elif 'ALIGNTOP' in alignment:
+                v_align = 'top'
+
+    # Extract plain text for debug output
+    import re, html
+    plain_text = raw_html
+    plain_text = re.sub(r'<!\[CDATA\[(.*?)\]\]>', r'\1', plain_text, flags=re.DOTALL)
+    plain_text = re.sub(r'<style[^>]*>.*?</style>', '', plain_text, flags=re.DOTALL | re.IGNORECASE)
+    plain_text = re.sub(r'<head[^>]*>.*?</head>', '', plain_text, flags=re.DOTALL | re.IGNORECASE)
+    plain_text = re.sub(r'<[^>]+>', '', plain_text)
+    plain_text = html.unescape(plain_text)
+    plain_text = ' '.join(plain_text.split()).strip()
+
+    logger.debug(
+        f"  Page {owner} textarea: text='{plain_text[:50]}{'...' if len(plain_text) > 50 else ''}' font_size={font_size} h_align={h_align} v_align={v_align}")
+
+    text_info = {
+        'area_left': area_left,
+        'area_top': area_top,
+        'area_width': area_width,
+        'area_height': area_height,
+        'area_rot': area_rot,
+        'raw_html': raw_html,
+        'font_size': font_size,
+        'h_align': h_align,
+        'v_align': v_align,
+    }
+    return text_info

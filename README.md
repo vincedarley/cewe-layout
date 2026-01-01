@@ -64,6 +64,7 @@ Optional additional steps in QLayout:
 - Use the "Photo Gap Perfecter" algorithms to ensure all edge gaps and internal gaps on a page are identical - fixing minor imperfections or overlaps. The "Long Gap Perfecter" aligns photos/texts along long straight lines that approximately exist in your layout - making them exactly straight. The "Photo Gap Perfecter" just looks locally at each photo and its neighbours. 
 - Adjust the "Edge Gap" and "Internal Gap" - on some pages you might want a large gap, on others no gap at all.  Note that an edge-gap of -3.0mm is what CEWE suggests for full-page layouts. The 3.0mm bleed ensures a neat edge to the page.
 - Export PDF - this is a quick export of just a single page of photos (no texts) so you can examine carefully.
+- Note that if you have used zoom/cropping in CEWE, which is saved into the .mcf file, QLayout will NOT modify the zoom/cropping that you have previously saved. Normally this is what you want, since you are at the stage of fine-tuning the layout, and would not want QLayout to over-write any careful adjustments you have made.
 
 You can obviously go back and forth between CEWE Creator and QLayout as often as you wish.
 

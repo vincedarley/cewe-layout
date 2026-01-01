@@ -320,6 +320,12 @@ class LayoutViewer:
                                        state='disabled' if is_spread_disabled else 'normal')
         spread_check.pack(side='left', padx=(8,0))
         
+        # Draw cropped checkbox (applies cutout/scale transformations from MCF)
+        self.draw_cropped_var = tk.BooleanVar(value=False)
+        draw_cropped_check = ttk.Checkbutton(goto_frame, text='Draw cropped', variable=self.draw_cropped_var,
+                                             command=self._on_draw_cropped_change)
+        draw_cropped_check.pack(side='left', padx=(8,0))
+        
         # Collect all available algorithms
         all_algorithms = [
             CollageGeneratorAlgorithm(),
@@ -1102,7 +1108,8 @@ class LayoutViewer:
             delete_callback=self._handle_delete_button_click,
             show_pdf_composite=show_composite,
             protected_inside_covers=protected_pages,
-            swap_callback=self._on_photo_swap
+            swap_callback=self._on_photo_swap,
+            draw_cropped=self.draw_cropped_var.get()
         )
         
         # Update control widgets
@@ -2939,6 +2946,11 @@ class LayoutViewer:
         ratio_denom = 1000
         
         # Re-render to immediately show the change
+        self.render_page()
+    
+    def _on_draw_cropped_change(self):
+        """Handle draw cropped checkbox toggle - re-render current page(s)."""
+        # Simply re-render the current page with the new mode
         self.render_page()
     
     def _on_pdf_photo_count_change(self, event=None):

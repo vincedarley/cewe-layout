@@ -105,6 +105,9 @@ class PageRenderer:
         self.delete_buttons = []  # Currently displayed delete button widgets
         self.drag_rectangles = []  # Currently displayed drag rectangle canvas items
         
+        # Cropping/scaling mode
+        self.draw_cropped = False  # If True, apply cutout/scale transformations
+        
         # Photo drag-and-drop state for swapping
         self.drag_active = False
         self.drag_source_pageno = None
@@ -132,7 +135,8 @@ class PageRenderer:
                     delete_callback,
                     show_pdf_composite: bool = False,
                     protected_inside_covers: list = None,
-                    swap_callback = None) -> None:
+                    swap_callback = None,
+                    draw_cropped: bool = False) -> None:
         """Render one or more pages to the display.
         
         Args:
@@ -146,7 +150,10 @@ class PageRenderer:
             swap_callback: Optional callback for photo swap completion
                           Signature: (source_pageno, source_photo_idx, dest_pageno, dest_photo_idx)
                           Called when user successfully drags and drops to swap two photos
+            draw_cropped: If True, apply cutout/scale transformations from MCF
         """
+        # Store draw_cropped mode
+        self.draw_cropped = draw_cropped
         # Store swap callback for later use
         self.swap_callback = swap_callback
         if protected_inside_covers is None:
@@ -446,13 +453,21 @@ class PageRenderer:
                         img_path = None
             
             if img_path and os.path.exists(img_path):
-                load_tasks.append((i, img_path, thumb_w, thumb_h, fn))
+                # Extract cutout/scale info if available
+                cutout_left = p.get('cutout_left')
+                cutout_top = p.get('cutout_top')
+                cutout_scale = p.get('cutout_scale')
+                slot_width_mcf = w  # Slot dimensions in MCF units
+                slot_height_mcf = h
+                load_tasks.append((i, img_path, thumb_w, thumb_h, fn, cutout_left, cutout_top, cutout_scale, slot_width_mcf, slot_height_mcf))
         
         # Load thumbnails in parallel using ThreadPoolExecutor
         def load_one(task):
-            idx, path, w, h, mcf_fn = task
+            idx, path, w, h, mcf_fn, cleft, ctop, cscale, slot_w, slot_h = task
             try:
-                thumb = self.get_thumbnail(path, w, h, mcf_filename=mcf_fn)
+                thumb = self.get_thumbnail(path, w, h, mcf_filename=mcf_fn,
+                                          cutout_left=cleft, cutout_top=ctop, cutout_scale=cscale,
+                                          slot_width_mcf=slot_w, slot_height_mcf=slot_h)
                 return (idx, thumb)
             except Exception as e:
                 logger.error(f"Failed to load thumbnail {idx}: {e}")
@@ -1140,7 +1155,9 @@ class PageRenderer:
         self.drag_hover_rect_id = None
         self.drag_thumbnail_id = None
     
-    def get_thumbnail(self, path: str, w: int, h: int, mcf_filename: str = None):
+    def get_thumbnail(self, path: str, w: int, h: int, mcf_filename: str = None,
+                     cutout_left: float = None, cutout_top: float = None, cutout_scale: float = None,
+                     slot_width_mcf: float = None, slot_height_mcf: float = None):
         """Get thumbnail for an image, using cache if available.
         
         Two modes:
@@ -1152,6 +1169,11 @@ class PageRenderer:
             w: Thumbnail width in pixels
             h: Thumbnail height in pixels
             mcf_filename: MCF filename (e.g., safecontainer:/path/img.jpg) for dimension caching
+            cutout_left: Cutout left offset in MCF units (from XML)
+            cutout_top: Cutout top offset in MCF units (from XML)
+            cutout_scale: Scale factor from XML
+            slot_width_mcf: Slot width in MCF units (for default cropping)
+            slot_height_mcf: Slot height in MCF units (for default cropping)
         
         Returns:
             PIL Image of size (w, h), or None if load fails
@@ -1214,10 +1236,64 @@ class PageRenderer:
             
             # Render thumbnail from full image
             try:
-                thumb = full_img.copy()
-                thumb.thumbnail((w, h), Image.Resampling.LANCZOS)
-                logger.debug(f"get_thumbnail: Created thumbnail {w}x{h} from {path}, actual size={thumb.size}")
-                return thumb
+                # Apply cropping/scaling if in draw_cropped mode
+                if self.draw_cropped and slot_width_mcf is not None and slot_height_mcf is not None:
+                    # Calculate what portion of the image to extract
+                    img_w, img_h = full_img.size
+                    
+                    # If we have cutout info from XML, use it
+                    if cutout_scale is not None and cutout_left is not None and cutout_top is not None:
+                        # CEWE scale formula: scaled_width_mcf = image_width_px × scale
+                        # This means scale tells us MCF units per pixel
+                        scaled_width_mcf = img_w * cutout_scale
+                        scaled_height_mcf = img_h * cutout_scale
+                        
+                        # Cutout offsets tell us which part of the scaled image is visible
+                        # They're NEGATIVE when cropping from left/top edge
+                        # visible_left_mcf = -cutout_left (offset into scaled image)
+                        # We need to convert this to pixel coordinates in the original image
+                        crop_left_px = -cutout_left / cutout_scale
+                        crop_top_px = -cutout_top / cutout_scale
+                        crop_right_px = crop_left_px + (slot_width_mcf / cutout_scale)
+                        crop_bottom_px = crop_top_px + (slot_height_mcf / cutout_scale)
+                        
+                        # Clamp to image bounds
+                        crop_left_px = max(0, min(img_w, crop_left_px))
+                        crop_top_px = max(0, min(img_h, crop_top_px))
+                        crop_right_px = max(0, min(img_w, crop_right_px))
+                        crop_bottom_px = max(0, min(img_h, crop_bottom_px))
+                        
+                        # Crop the image
+                        cropped = full_img.crop((int(crop_left_px), int(crop_top_px), 
+                                                int(crop_right_px), int(crop_bottom_px)))
+                    else:
+                        # No cutout info - use default: zoom to fill slot (crop equally from all sides)
+                        img_aspect = img_w / img_h
+                        slot_aspect = slot_width_mcf / slot_height_mcf
+                        
+                        if img_aspect > slot_aspect:
+                            # Image is wider than slot - crop left/right
+                            target_width = img_h * slot_aspect
+                            crop_left = (img_w - target_width) / 2
+                            cropped = full_img.crop((int(crop_left), 0, 
+                                                    int(crop_left + target_width), img_h))
+                        else:
+                            # Image is taller than slot - crop top/bottom
+                            target_height = img_w / slot_aspect
+                            crop_top = (img_h - target_height) / 2
+                            cropped = full_img.crop((0, int(crop_top), 
+                                                    img_w, int(crop_top + target_height)))
+                    
+                    # Resize cropped image to thumbnail size
+                    thumb = cropped.resize((w, h), Image.Resampling.LANCZOS)
+                    logger.debug(f"get_thumbnail: Created cropped thumbnail {w}x{h} from {path}")
+                    return thumb
+                else:
+                    # Normal thumbnail mode (current behavior)
+                    thumb = full_img.copy()
+                    thumb.thumbnail((w, h), Image.Resampling.LANCZOS)
+                    logger.debug(f"get_thumbnail: Created thumbnail {w}x{h} from {path}, actual size={thumb.size}")
+                    return thumb
             except Exception as e:
                 logger.error(f"get_thumbnail: Failed to create thumbnail for {path}: {e}")
                 return None
