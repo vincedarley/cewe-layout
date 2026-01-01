@@ -16,3 +16,4 @@ __pycache__/
 .idea/vcs.xml
 .idea/inspectionProfiles/profiles_settings.xml
 profile.stats
+tests/composite_page1.jpeg

@@ -13,10 +13,14 @@ from .segmenter_base import ImageSegmenter, register_segmenter
 
 
 class TreeSegmenter(ImageSegmenter):
-    """Recursive tree-based segmentation using white separator line detection."""
+    """Recursive tree-based segmentation using separator line detection.
+    
+    Automatically detects if photos are on dark or bright background and
+    looks for appropriate separator lines.
+    """
     
     def get_name(self) -> str:
-        return "Tree (recursive white separator detection)"
+        return "Tree (recursive separator detection)"
     
     def segment_for_count(self, image_data: bytes, image_format: str,
                          target_count: int, verbose: bool = False) -> Optional[List[Dict[str, Any]]]:
@@ -26,6 +30,9 @@ class TreeSegmenter(ImageSegmenter):
         splitting the region with the best separator score. Continues until reaching
         the target count or no more good separators are found.
         
+        Automatically detects background type (dark or bright) and looks for
+        appropriate separator lines.
+        
         Args:
             image_data: Image bytes
             image_format: Image format (jpeg, png, etc.)
@@ -33,19 +40,51 @@ class TreeSegmenter(ImageSegmenter):
             verbose: Print debug info
             
         Returns:
-            List of segmented photos based on white line separators
+            List of segmented photos based on separator lines
         """
         if verbose:
             print(f"  Tree segmentation with target count: {target_count}")
         
-        result = segment_tree_priority_queue(
-            image_data, image_format,
-            target_count=target_count,
-            min_separator_width=3,
-            separator_threshold=240,
-            min_region_size=50000,  # Minimum 50k pixels per region
-            verbose=verbose
-        )
+        # Auto-detect background type
+        pil_image = Image.open(BytesIO(image_data))
+        if pil_image.mode != 'RGB':
+            pil_image = pil_image.convert('RGB')
+        img_array = np.array(pil_image)
+        img_bgr = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
+        gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
+        mean_brightness = np.mean(gray)
+        
+        # Determine if background is dark or bright
+        # Dark background (like black photo album) will have low mean brightness
+        is_dark_background = mean_brightness < 128
+        
+        if verbose:
+            bg_type = "DARK" if is_dark_background else "BRIGHT"
+            print(f"  Auto-detected background: {bg_type} (mean brightness: {mean_brightness:.1f})")
+        
+        if is_dark_background:
+            # For dark backgrounds, look for dark separators (gaps between photos)
+            # Use threshold of 50 to find dark lines
+            result = segment_tree_priority_queue(
+                image_data, image_format,
+                target_count=target_count,
+                min_separator_width=3,
+                separator_threshold=50,
+                look_for_dark=True,
+                min_region_size=50000,
+                verbose=verbose
+            )
+        else:
+            # For bright backgrounds, look for bright white separators
+            result = segment_tree_priority_queue(
+                image_data, image_format,
+                target_count=target_count,
+                min_separator_width=3,
+                separator_threshold=240,
+                look_for_dark=False,
+                min_region_size=50000,
+                verbose=verbose
+            )
         
         if verbose:
             print(f"  Tree segmentation produced {len(result)} regions")
@@ -76,6 +115,7 @@ def segment_tree_priority_queue(image_data: bytes, image_format: str,
                                 target_count: int = 1,
                                 min_separator_width: int = 5,
                                 separator_threshold: int = 240,
+                                look_for_dark: bool = False,
                                 min_region_size: int = 50000,
                                 verbose: bool = False) -> List[Dict[str, Any]]:
     """Segment image using priority queue for global optimization.
@@ -88,7 +128,8 @@ def segment_tree_priority_queue(image_data: bytes, image_format: str,
         image_format: Image format (jpeg, png, etc.)
         target_count: Target number of regions to produce
         min_separator_width: Minimum width of separator in pixels (default 5)
-        separator_threshold: Brightness threshold for white separators (default 240)
+        separator_threshold: Brightness threshold for separators (default 240 for bright, 50 for dark)
+        look_for_dark: If True, look for dark separators below threshold; if False, look for bright above threshold
         min_region_size: Minimum area in pixels for a region to be split further (default 50000)
         verbose: Print debug info
         
@@ -105,12 +146,14 @@ def segment_tree_priority_queue(image_data: bytes, image_format: str,
     
     if verbose:
         h, w = img_bgr.shape[:2]
-        print(f"    Starting priority queue segmentation on {w}x{h} image (target: {target_count} regions)")
+        sep_mode = "DARK" if look_for_dark else "BRIGHT"
+        print(f"    Starting priority queue segmentation on {w}x{h} image (target: {target_count} regions, mode: {sep_mode})")
     
     # Initialize priority queue with the full image
     # Evaluate the initial region
     initial_score, initial_sep = _evaluate_region(img_bgr, min_separator_width, 
-                                                   separator_threshold, min_region_size, verbose)
+                                                   separator_threshold, look_for_dark,
+                                                   min_region_size, verbose)
     
     if initial_sep is None:
         # No separator found in entire image - return it as a single segment
@@ -141,12 +184,12 @@ def segment_tree_priority_queue(image_data: bytes, image_format: str,
         
         # Split this region
         sub_regions = _split_region(region, min_separator_width, separator_threshold, 
-                                    min_region_size, verbose)
+                                    look_for_dark, min_region_size, verbose)
         
         # Evaluate each sub-region and add to queue or leaf list
         for sub_img, sub_x, sub_y in sub_regions:
             score, separator = _evaluate_region(sub_img, min_separator_width, 
-                                               separator_threshold, min_region_size, verbose)
+                                               separator_threshold, look_for_dark, min_region_size, verbose)
             
             if separator is None:
                 # No good separator found - check if it's background before adding as leaf
@@ -286,9 +329,12 @@ def segment_tree_priority_queue(image_data: bytes, image_format: str,
 
 
 def _evaluate_region(img: np.ndarray, min_separator_width: int, 
-                     separator_threshold: int, min_region_size: int,
-                     verbose: bool) -> Tuple[float, Optional[Tuple[str, int]]]:
+                     separator_threshold: int, look_for_dark: bool,
+                     min_region_size: int, verbose: bool) -> Tuple[float, Optional[Tuple[str, int]]]:
     """Evaluate a region and find its best separator.
+    
+    Args:
+        look_for_dark: If True, look for dark separators; if False, look for bright ones
     
     Returns:
         Tuple of (score, separator) where separator is (axis, position) or None
@@ -313,7 +359,8 @@ def _evaluate_region(img: np.ndarray, min_separator_width: int,
         return (0.0, None)
     
     # Find best separator (pass through verbose flag to see diagnostics)
-    best_sep = find_best_separator(gray, min_separator_width, separator_threshold, verbose=verbose)
+    best_sep = find_best_separator(gray, min_separator_width, separator_threshold, 
+                                   look_for_dark=look_for_dark, verbose=verbose)
     
     if best_sep is None:
         return (0.0, None)
@@ -325,8 +372,8 @@ def _evaluate_region(img: np.ndarray, min_separator_width: int,
     return (score, best_sep)
 
 def _split_region(region: Region, min_separator_width: int, 
-                 separator_threshold: int, min_region_size: int,
-                 verbose: bool) -> List[Tuple[np.ndarray, int, int]]:
+                 separator_threshold: int, look_for_dark: bool,
+                 min_region_size: int, verbose: bool) -> List[Tuple[np.ndarray, int, int]]:
     """Split a region along its best separator and crop white margins from sub-regions.
     
     Returns:
@@ -437,13 +484,14 @@ def _convert_regions_to_segments(regions: List[Tuple[np.ndarray, int, int]],
 
 
 def find_best_separator(gray: np.ndarray, min_width: int, threshold: int,
-                       verbose: bool = False) -> Optional[Tuple[str, int]]:
-    """Find the single best white separator line (horizontal or vertical).
+                       look_for_dark: bool = False, verbose: bool = False) -> Optional[Tuple[str, int]]:
+    """Find the single best separator line (horizontal or vertical).
     
     Args:
         gray: Grayscale image
         min_width: Minimum width of separator in pixels
-        threshold: Brightness threshold for white
+        threshold: Brightness threshold (bright separators > threshold, dark separators < threshold)
+        look_for_dark: If True, look for dark separators below threshold; if False, look for bright above threshold
         verbose: Print debug info
         
     Returns:
@@ -454,24 +502,33 @@ def find_best_separator(gray: np.ndarray, min_width: int, threshold: int,
     h, w = gray.shape
     
     # Find horizontal separators
-    h_seps = find_separator_candidates(gray, 'horizontal', min_width, threshold)
+    h_seps = find_separator_candidates(gray, 'horizontal', min_width, threshold, look_for_dark)
     
     # Find vertical separators
-    v_seps = find_separator_candidates(gray, 'vertical', min_width, threshold)
+    v_seps = find_separator_candidates(gray, 'vertical', min_width, threshold, look_for_dark)
     
     if verbose:
         print(f"        Found {len(h_seps)} horizontal candidates, {len(v_seps)} vertical candidates")
     
-    # Score each separator by how "clean" it is (high average brightness, consistent across the line)
+    # Score each separator by how "clean" it is
+    # For bright separators: high average brightness
+    # For dark separators: low average brightness (inverted scoring)
     best_score = 0
     best_sep = None
     all_scores = []  # For diagnostics
     
     for position, width, avg_brightness in h_seps:
-        # Score based on: brightness, width, and how centered it is
-        # Prefer separators that are bright, wide, and roughly in the middle
+        # Score based on: brightness (or darkness), width, and how centered it is
         centeredness = 1.0 - abs((position / h) - 0.5)  # 1.0 at center, less toward edges
-        score = (avg_brightness / 255.0) * (1 + width / 10.0) * (0.5 + 0.5 * centeredness)
+        
+        if look_for_dark:
+            # For dark separators: lower brightness is better, invert the score
+            brightness_score = 1.0 - (avg_brightness / 255.0)
+        else:
+            # For bright separators: higher brightness is better
+            brightness_score = avg_brightness / 255.0
+        
+        score = brightness_score * (1 + width / 10.0) * (0.5 + 0.5 * centeredness)
         all_scores.append(('horizontal', position, width, avg_brightness, centeredness, score))
         
         if score > best_score:
@@ -480,7 +537,13 @@ def find_best_separator(gray: np.ndarray, min_width: int, threshold: int,
     
     for position, width, avg_brightness in v_seps:
         centeredness = 1.0 - abs((position / w) - 0.5)
-        score = (avg_brightness / 255.0) * (1 + width / 10.0) * (0.5 + 0.5 * centeredness)
+        
+        if look_for_dark:
+            brightness_score = 1.0 - (avg_brightness / 255.0)
+        else:
+            brightness_score = avg_brightness / 255.0
+        
+        score = brightness_score * (1 + width / 10.0) * (0.5 + 0.5 * centeredness)
         all_scores.append(('vertical', position, width, avg_brightness, centeredness, score))
         
         if score > best_score:
@@ -536,14 +599,15 @@ def _calculate_separator_score(gray: np.ndarray, axis: str, position: int,
 
 
 def find_separator_candidates(gray: np.ndarray, axis: str, min_width: int,
-                              threshold: int) -> List[Tuple[int, int, float]]:
+                              threshold: int, look_for_dark: bool = False) -> List[Tuple[int, int, float]]:
     """Find all potential separator lines along the specified axis.
     
     Args:
         gray: Grayscale image
         axis: 'horizontal' or 'vertical'
         min_width: Minimum width of separator in pixels
-        threshold: Brightness threshold for white
+        threshold: Brightness threshold (bright separators > threshold, dark separators < threshold)
+        look_for_dark: If True, look for dark separators below threshold; if False, look for bright above threshold
         
     Returns:
         List of tuples: (position, width, average_brightness)
@@ -558,23 +622,27 @@ def find_separator_candidates(gray: np.ndarray, axis: str, min_width: int,
     # DEBUG: Check profile statistics
     profile_max = np.max(profile)
     profile_min = np.min(profile)
-    num_above_threshold = np.sum(profile > threshold)
-    print(f"          DEBUG {axis}: profile range=[{profile_min:.1f}, {profile_max:.1f}], "
-       f"{num_above_threshold}/{len(profile)} above threshold {threshold}")
-    
-    # Find runs of bright pixels
-    is_bright = profile > threshold
+    if look_for_dark:
+        num_matching = np.sum(profile < threshold)
+        print(f"          DEBUG {axis}: profile range=[{profile_min:.1f}, {profile_max:.1f}], "
+           f"{num_matching}/{len(profile)} below threshold {threshold} (DARK mode)")
+        is_separator = profile < threshold
+    else:
+        num_matching = np.sum(profile > threshold)
+        print(f"          DEBUG {axis}: profile range=[{profile_min:.1f}, {profile_max:.1f}], "
+           f"{num_matching}/{len(profile)} above threshold {threshold} (BRIGHT mode)")
+        is_separator = profile > threshold
     candidates = []
     
     in_separator = False
     start = 0
     
-    for i, bright in enumerate(is_bright):
-        if bright and not in_separator:
+    for i, is_sep in enumerate(is_separator):
+        if is_sep and not in_separator:
             # Start of separator
             start = i
             in_separator = True
-        elif not bright and in_separator:
+        elif not is_sep and in_separator:
             # End of separator
             width = i - start
             if width >= min_width:
@@ -585,9 +653,9 @@ def find_separator_candidates(gray: np.ndarray, axis: str, min_width: int,
     
     # Handle separator at the end
     if in_separator:
-        width = len(is_bright) - start
+        width = len(is_separator) - start
         if width >= min_width:
-            center = (start + len(is_bright)) // 2
+            center = (start + len(is_separator)) // 2
             avg_brightness = np.mean(profile[start:])
             candidates.append((center, width, avg_brightness))
     

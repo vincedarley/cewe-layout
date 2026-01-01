@@ -620,10 +620,6 @@ def update_page_layout(path: str, uiPage: Any, photos: List[Dict[str, Any]],
         # Track that we've matched this photo (so we don't add it again)
         matched_photos.add(matching_photo['filename'])
         
-        # Get image dimensions for scale calculation (validated at function entry)
-        image_width = matching_photo['image_width']
-        image_height = matching_photo['image_height']
-        
         # Get logical layout dimensions (as used by UI)
         logical_left = matching_photo.get('area_left', 0)
         logical_top = matching_photo.get('area_top', 0)
@@ -634,11 +630,6 @@ def update_page_layout(path: str, uiPage: Any, photos: List[Dict[str, Any]],
         # Apply reverse rotation to convert logical coords → physical coords for MCF
         physical_left, physical_top, physical_width, physical_height, physical_rot = apply_reverse_rotation(
             logical_left, logical_top, logical_width, logical_height, logical_rot
-        )
-        
-        # Calculate correct scale and cutout values using physical dimensions
-        scale, cutout_left, cutout_top = _calculate_cutout(
-            physical_width, physical_height, image_width, image_height
         )
         
         # Update XML filename if photo was renamed
@@ -652,18 +643,31 @@ def update_page_layout(path: str, uiPage: Any, photos: List[Dict[str, Any]],
         pos.set('height', f"{physical_height:.2f}")
         pos.set('rotation', f"{physical_rot:.2f}")
         
-        # Update cutout values in the image element
-        cutout_elem = image.find('cutout')
-        if cutout_elem is not None:
-            cutout_elem.set('left', f"{cutout_left:.6f}")
-            cutout_elem.set('scale', f"{scale:.6f}")
-            cutout_elem.set('top', f"{cutout_top:.6f}")
-        else:
-            # Create cutout if it doesn't exist
-            cutout_elem = etree.SubElement(image, 'cutout')
-            cutout_elem.set('left', f"{cutout_left:.6f}")
-            cutout_elem.set('scale', f"{scale:.6f}")
-            cutout_elem.set('top', f"{cutout_top:.6f}")
+        # Only recalculate cutout/scale for NEW photos
+        # Preserve existing values for photos that were already in XML (user may have manually adjusted)
+        if matching_photo['filename'] in new_photos_set:
+            # Get image dimensions for scale calculation (validated at function entry)
+            image_width = matching_photo['image_width']
+            image_height = matching_photo['image_height']
+            
+            # Calculate correct scale and cutout values using physical dimensions
+            scale, cutout_left, cutout_top = _calculate_cutout(
+                physical_width, physical_height, image_width, image_height
+            )
+            
+            # Update cutout values in the image element
+            cutout_elem = image.find('cutout')
+            if cutout_elem is not None:
+                cutout_elem.set('left', f"{cutout_left:.6f}")
+                cutout_elem.set('scale', f"{scale:.6f}")
+                cutout_elem.set('top', f"{cutout_top:.6f}")
+            else:
+                # Create cutout if it doesn't exist
+                cutout_elem = etree.SubElement(image, 'cutout')
+                cutout_elem.set('left', f"{cutout_left:.6f}")
+                cutout_elem.set('scale', f"{scale:.6f}")
+                cutout_elem.set('top', f"{cutout_top:.6f}")
+        # else: preserve existing cutout/scale values from XML
         
         # Ensure proper formatting for existing elements
         if pos.tail is None or not pos.tail.strip():
@@ -678,7 +682,8 @@ def update_page_layout(path: str, uiPage: Any, photos: List[Dict[str, Any]],
         if image.tail is None or not image.tail.strip():
             image.tail = '\n        '
         
-        if cutout_elem.tail is None or not cutout_elem.tail.strip():
+        cutout_elem = image.find('cutout')
+        if cutout_elem is not None and (cutout_elem.tail is None or not cutout_elem.tail.strip()):
             cutout_elem.tail = '\n                '
         
         quality = image.find('quality')

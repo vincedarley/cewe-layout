@@ -61,6 +61,8 @@ from .image_segmenter import segment_composite_image, should_segment_image, Imag
 
 logger = logging.getLogger(__name__)
 
+
+
     
 # Widths are spread dimensions (so 2x pages). We list separately the cover and page sizes.
 # Note that CEWE calculates a very specific coverWidth which seems to depend on the number of pages
@@ -378,12 +380,18 @@ def extract_page_content(page: fitz.Page, page_num: int, total_pages: int, verbo
         print(f"Processing PDF page index {page_num} (CEWE page {ui_page})...")
     
     page_rect = page.rect
+    page_rotation = page.rotation  # Get page rotation: 0, 90, 180, or 270 degrees
+    
+    if verbose and page_rotation != 0:
+        print(f"  Page has {page_rotation}° rotation")
+    
     page_data = {
         'page_num': page_num,
         'width': page_rect.width,
         'height': page_rect.height,
         'images': [],
         'text_blocks': [],
+        'rotation': page_rotation,  # Store for reference
     }
     
     # Extract images
@@ -391,22 +399,36 @@ def extract_page_content(page: fitz.Page, page_num: int, total_pages: int, verbo
     for img_index, img_info in enumerate(image_list):
         xref = img_info[0]
         
-        # Get image position and size
-        img_rects = page.get_image_rects(xref)
-        
-        if not img_rects:
-            if verbose:
-                print(f"  Warning: Could not find position for image {img_index}")
-            continue
-        
-        # Use first rectangle (there may be multiple if image is reused)
-        rect = img_rects[0]
-        
-        # Extract the actual image data
+        # Extract the actual image data FIRST
         try:
             base_image = page.parent.extract_image(xref)
             image_bytes = base_image["image"]
             image_ext = base_image["ext"]  # jpeg, png, etc.
+            
+            # Apply page rotation to the image BEFORE getting rectangle
+            if page_rotation != 0:
+                image_bytes = _rotate_image(image_bytes, page_rotation, image_ext, verbose)
+            
+            # Now get image position and size from PDF
+            img_rects = page.get_image_rects(xref)
+            
+            if not img_rects:
+                if verbose:
+                    print(f"  Warning: Could not find position for image {img_index}")
+                continue
+            
+            # Use first rectangle (there may be multiple if image is reused)
+            rect = img_rects[0]
+            
+            # Adjust rectangle dimensions if image was rotated 90 or 270 degrees
+            # (rotation swaps width and height)
+            if page_rotation in [90, 270]:
+                # Swap width and height to match rotated image dimensions
+                original_width = rect.width
+                original_height = rect.height
+                rect = fitz.Rect(rect.x0, rect.y0, rect.x0 + original_height, rect.y0 + original_width)
+                if verbose:
+                    print(f"  Image {img_index}: Swapped rect dimensions due to {page_rotation}° rotation: {original_width:.1f}x{original_height:.1f} → {rect.width:.1f}x{rect.height:.1f}")
             
             # Check if this image should be segmented into multiple photos
             if should_segment_image(rect.width, rect.height, page_rect.width, page_rect.height):
@@ -949,9 +971,15 @@ def _segmentPage(pdf_content, pages, index, status_var, current_pageno, segmente
 def performSegmentationOnPage(pdf_content, pages, index, status_var, current_pageno, segmenter: ImageSegmenter,
             specific_photo_index: int | None, target_count: int) -> \
 tuple[list[int], list[Any], Any, list[dict[str, Any]] | None, Any]:
-    new_segments, image_data, image_format, image_to_segment, photos_to_replace = _segmentPage(
+    result = _segmentPage(
         pdf_content, pages, index, status_var,
         current_pageno, segmenter, specific_photo_index, target_count)
+    
+    # _segmentPage returns None on failure
+    if result is None:
+        return None
+    
+    new_segments, image_data, image_format, image_to_segment, photos_to_replace = result
 
     if new_segments:
         print(f"✅ Found segmentation with {len(new_segments)} photos")
@@ -963,3 +991,53 @@ tuple[list[int], list[Any], Any, list[dict[str, Any]] | None, Any]:
         return scaled_segments, image_data, image_format, image_to_segment, photos_to_replace
     else:
         return None
+
+def _rotate_image(image_bytes: bytes, rotation: int, image_format: str, verbose: bool = False) -> bytes:
+    """Rotate an image by the specified angle.
+    
+    PDF rotation values are clockwise, but PIL's rotate() is counter-clockwise,
+    so we negate the angle. Also, PIL's rotate() with expand=True will adjust
+    the canvas size to fit the rotated image.
+    
+    Args:
+        image_bytes: Raw image data
+        rotation: Rotation angle in degrees (0, 90, 180, 270) - PDF convention (clockwise)
+        image_format: Image format (jpeg, png, etc.)
+        verbose: Print debug info
+        
+    Returns:
+        Rotated image bytes in the same format
+    """
+    if rotation == 0:
+        return image_bytes
+    
+    if verbose:
+        print(f"    Rotating image by {rotation}° (PDF rotation, applied counter-clockwise)")
+    
+    try:
+        from PIL import Image as PILImage
+        from io import BytesIO
+        
+        # Load image
+        img = PILImage.open(BytesIO(image_bytes))
+        
+        # PDF rotation is clockwise, PIL.rotate() is counter-clockwise
+        # So negate the angle: 90° CW = -90° = 270° CCW
+        # Also expand=True adjusts canvas to fit rotated image
+        pil_rotation = -rotation % 360
+        rotated = img.rotate(pil_rotation, expand=True)
+        
+        # Save back to bytes
+        output = BytesIO()
+        # Preserve format and quality
+        save_kwargs = {}
+        if image_format.lower() in ['jpg', 'jpeg']:
+            save_kwargs['quality'] = 95
+            save_kwargs['optimize'] = True
+        rotated.save(output, format=image_format if image_format.lower() != 'jpg' else 'JPEG', **save_kwargs)
+        
+        return output.getvalue()
+        
+    except Exception as e:
+        logger.warning(f"Failed to rotate image: {e}, returning original")
+        return image_bytes

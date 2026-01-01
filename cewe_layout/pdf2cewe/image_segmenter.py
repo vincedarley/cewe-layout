@@ -15,6 +15,7 @@ def segment_composite_image(image_data: bytes, image_format: str,
                             min_area: int = 50000,
                             kernel_size: int = 5,
                             iterations: int = 2,
+                            threshold_c: int = 10,
                             verbose: bool = False) -> List[Dict[str, Any]]:
     """Segment a composite image into individual photos using adaptive thresholding.
     
@@ -26,6 +27,7 @@ def segment_composite_image(image_data: bytes, image_format: str,
         min_area: Minimum contour area in pixels (default 50000)
         kernel_size: Size of morphological kernel (default 5)
         iterations: Number of dilation/erosion iterations (default 2)
+        threshold_c: Adaptive threshold constant C (default 10, increase for noisy/analog scans)
         verbose: Print debug info
         
     Returns:
@@ -65,8 +67,9 @@ def segment_composite_image(image_data: bytes, image_format: str,
     
     # Apply adaptive thresholding with larger block size to detect photo boundaries
     # Block size must be odd and larger than 1
+    # Higher threshold_c values tolerate more background variation (good for analog scans)
     thresh = cv2.adaptiveThreshold(
-        blurred, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 51, 10
+        blurred, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 51, threshold_c
     )
     
     # Invert the thresholded image
@@ -328,9 +331,10 @@ def should_segment_image(image_width: int, image_height: int,
 class MorphologicalSegmenter(ImageSegmenter):
     """Morphological segmentation using adaptive thresholding."""
     
-    def __init__(self, min_area: int = 50000, max_attempts: int = 30):
+    def __init__(self, min_area: int = 50000, max_attempts: int = 30, threshold_c: int = 10):
         self.min_area = min_area
         self.max_attempts = max_attempts
+        self.threshold_c = threshold_c  # Adaptive threshold constant
     
     def get_name(self) -> str:
         return "Morphological (adaptive thresholding)"
@@ -385,6 +389,7 @@ class MorphologicalSegmenter(ImageSegmenter):
                 min_area=self.min_area,
                 kernel_size=kernel_size,
                 iterations=iterations,
+                threshold_c=self.threshold_c,
                 verbose=False
             )
             
@@ -417,4 +422,5 @@ class MorphologicalSegmenter(ImageSegmenter):
 
 
 # Register the morphological segmenter
-register_segmenter('morphological', MorphologicalSegmenter())
+# threshold_c=20 provides better tolerance for analog scans with varying black levels
+register_segmenter('morphological', MorphologicalSegmenter(threshold_c=20))

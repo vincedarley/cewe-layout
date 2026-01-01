@@ -2166,7 +2166,8 @@ class LayoutViewer:
         return self.photo_dimensions[fn]
 
     def _calculate_photo_dpi(self, photo: dict, slot_width_mcf: float, slot_height_mcf: float) -> int:
-        """Calculate rendered DPI for a photo in the given slot dimensions.
+        """Calculate rendered DPI for a photo in the given slot dimensions. Note that this does not
+        take account of any scaling (zoom in) done in CEWE. 
 
         Args:
             photo: photo dict (may contain 'filename' or 'image_width'/'image_height')
@@ -2942,6 +2943,7 @@ class LayoutViewer:
     
     def _on_pdf_photo_count_change(self, event=None):
         """Handle PDF photo count change - re-analyze page with new target count."""
+
         if not self.pdf_content:
             return
         

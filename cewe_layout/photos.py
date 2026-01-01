@@ -17,6 +17,14 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# Register HEIF/HEIC support if available
+try:
+    from pillow_heif import register_heif_opener
+    register_heif_opener()
+    logger.info("HEIF/HEIC support enabled via pillow-heif")
+except ImportError:
+    logger.info("pillow-heif not available - HEIC files will not be supported")
+
 # Module-level flags to track first-time failures
 _image_load_failures = set()  # Track which files have been logged
 
@@ -228,6 +236,8 @@ def get_image_dimensions(img_path: Path) -> Optional[Tuple[int, int]]:
     """
     Load an image and extract its dimensions.
     
+    Tries OpenCV first (faster), falls back to PIL for formats like HEIC.
+    
     Args:
         img_path: Path to the image file
     
@@ -237,30 +247,37 @@ def get_image_dimensions(img_path: Path) -> Optional[Tuple[int, int]]:
     if not img_path or not img_path.exists():
         return None
     
+    # Try OpenCV first (faster for most formats)
     try:
         arr = cv2.imread(str(img_path), cv2.IMREAD_COLOR)
-        if arr is None:
-            # Log first-time failure for this specific file
-            if str(img_path) not in _image_load_failures:
-                logger.warning(f"Failed to read image dimensions for: {img_path}")
-                _image_load_failures.add(str(img_path))
-            return None
-        
-        # OpenCV returns (height, width, channels)
-        img_height, img_width = arr.shape[:2]
-        
-        if img_height <= 0 or img_width <= 0:
-            if str(img_path) not in _image_load_failures:
-                logger.warning(f"Image has invalid dimensions ({img_width}x{img_height}): {img_path}")
-                _image_load_failures.add(str(img_path))
-            return None
-        
-        return (img_width, img_height)
+        if arr is not None:
+            # OpenCV returns (height, width, channels)
+            img_height, img_width = arr.shape[:2]
+            
+            if img_height > 0 and img_width > 0:
+                return (img_width, img_height)
+    except Exception:
+        pass  # Fall through to PIL
+    
+    # Fall back to PIL for formats OpenCV doesn't support (e.g., HEIC)
+    try:
+        with Image.open(img_path) as im:
+            # Auto-orient based on EXIF
+            im = ImageOps.exif_transpose(im)
+            img_width, img_height = im.size
+            
+            if img_height > 0 and img_width > 0:
+                return (img_width, img_height)
+            else:
+                if str(img_path) not in _image_load_failures:
+                    logger.warning(f"Image has invalid dimensions ({img_width}x{img_height}): {img_path}")
+                    _image_load_failures.add(str(img_path))
+                return None
     
     except Exception as e:
         # Log first-time failure for this specific file
         if str(img_path) not in _image_load_failures:
-            logger.warning(f"Exception reading image dimensions for {img_path}: {e}")
+            logger.warning(f"Failed to read image dimensions for {img_path}: {e}")
             _image_load_failures.add(str(img_path))
         return None
 
