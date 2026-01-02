@@ -68,7 +68,7 @@ if __name__ == '__main__':
         if not args.cewe:
             parser.error('--cewe is required')
 
-        pdf_content = None
+        pdf_photobook = None
 
         if args.originalPdf:
             # Import pdf2cewe conversion logic
@@ -96,7 +96,7 @@ if __name__ == '__main__':
                 pdf_to_ui = {v: k for k, v in ui_to_pdf.items() if v is not None}
                 
                 # Create lightweight reader for on-demand page access WITH mapping
-                pdf_content = create_pdf_reader(pdf_path, verbose=True, page_to_ui=pdf_to_ui, insidecovers=args.insidecovers)
+                pdf_photobook = create_pdf_reader(pdf_path, verbose=True, page_to_ui=pdf_to_ui, insidecovers=args.insidecovers)
             else:
                 # Extract all PDF content for initial conversion
                 print(f"Extracting content from {pdf_path}...")

@@ -760,7 +760,9 @@ def create_image_area(img: Dict[str, Any], output_dir: Path, z_position: int, ve
         image_path.write_bytes(img['data'])
         
         if verbose:
-            print(f"  Saved image: {image_filename}")
+            camera_name = img.get('camera_filename', 'unknown')
+            uuid_name = img.get('original_filename', 'unknown')
+            print(f"  Saved image: {image_filename} (camera: {camera_name}, uuid: {uuid_name})")
     else:
         # File should already exist (pre-copied by converter)
         if not image_path.exists():
