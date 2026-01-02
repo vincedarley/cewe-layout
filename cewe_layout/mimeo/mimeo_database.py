@@ -75,6 +75,7 @@ class MimeoProject:
                 - model_id: Photo model ID
                 - photo_id: Base64-encoded UUID
                 - index: Photo index (using modelId as index)
+                - is_extra: True if photo is not placed in layout (isExtra=1)
         """
         rows = self._execute_query("SELECT * FROM KHProjectPhoto ORDER BY modelId")
         
@@ -84,6 +85,7 @@ class MimeoProject:
                 'model_id': row['modelId'],
                 'photo_id': row['photoId'],  # This is the Mimeo base64 UUID
                 'index': idx,  # Use enumeration index
+                'is_extra': row['isExtra'] == 1,  # True if photo is not in layout
             })
         
         return photos

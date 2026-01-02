@@ -175,7 +175,7 @@ def convert_ppb_to_xmcf(ppb_path: Path,
         mimeo_photobook,
         str(output_path),
         verbose=verbose,
-        insidecovers=False  # Mimeo books don't have inside covers
+        insidecovers=True  # Mimeo books have inside covers
     )
     
     logger.info(f"Created CEWE project at {output_path}")
@@ -202,6 +202,9 @@ def _build_mimeo_photobook(mimeo_data: Dict[str, Any],
     layouts = mimeo_data['layouts']
     frames = mimeo_data['frames']
     photos = mimeo_data['photos']
+    
+    if verbose:
+        logger.info(f"Total photos: {len(photos)}, Total frames: {len(frames)}")
     
     # Build frame lookup by page_id
     frames_by_page = {}
@@ -249,8 +252,8 @@ def _build_mimeo_photobook(mimeo_data: Dict[str, Any],
             'text_blocks': []
         }
         
-        # Debug output for first 5 pages
-        if page_nr <= 5 and verbose:
+        # Debug output
+        if verbose:
             logger.info(f"PAGE {page_nr} (page_id={page_id}): {len(page_frames)} frames")
         
         for frame_idx, frame in enumerate(page_frames):
@@ -317,8 +320,19 @@ def _build_mimeo_photobook(mimeo_data: Dict[str, Any],
         
         pages.append(page_data)
     
+    # Insert empty inside back cover page before the last page (back cover)
+    # Mimeo has 89 pages, CEWE needs 90 (front, inside front, content, inside back, back)
+    empty_inside_back = {
+        'width': page_width,
+        'height': page_height,
+        'images': [],
+        'text_blocks': []
+    }
+    pages.insert(-1, empty_inside_back)  # Insert before last page
+    
     if verbose:
         logger.info(f"Copied {photos_copied} photos to .xmcf directory")
+        logger.info(f"Added empty inside back cover page (total pages: {len(pages)})")
     
     # Create metadata
     metadata = {

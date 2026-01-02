@@ -745,14 +745,31 @@ def create_image_area(img: Dict[str, Any], output_dir: Path, z_position: int, ve
     else:
         page_str = f"{ui_page:03d}"
     
-    base_filename = f"image_p{page_str}_{index:04d}.{img['format']}"
-    image_filename = encode_metadata_in_filename(base_filename, relative_size, ui_page)
+    # If image already has a filename (e.g., from Mimeo converter), use it
+    # Otherwise generate a new filename
+    if 'filename' in img and img['filename']:
+        image_filename = img['filename']
+    else:
+        base_filename = f"image_p{page_str}_{index:04d}.{img['format']}"
+        image_filename = encode_metadata_in_filename(base_filename, relative_size, ui_page)
     
     image_path = output_dir / image_filename
-    image_path.write_bytes(img['data'])
     
-    if verbose:
-        print(f"  Saved image: {image_filename}")
+    # Only write image data if it's provided (PDF extracts bytes, Mimeo already copied files)
+    if img.get('data') is not None:
+        image_path.write_bytes(img['data'])
+        
+        if verbose:
+            print(f"  Saved image: {image_filename}")
+    else:
+        # File should already exist (pre-copied by converter)
+        if not image_path.exists():
+            raise FileNotFoundError(
+                f"Image file not found: {image_path}\n"
+                f"Image data is None but file was not pre-copied by converter."
+            )
+        if verbose:
+            print(f"  Using existing image: {image_filename}")
     
     # Scale coordinates from PDF to CEWE dimensions if scaling info provided
     # Note: Coordinates are in spread space, so use 2*page_width for spread width

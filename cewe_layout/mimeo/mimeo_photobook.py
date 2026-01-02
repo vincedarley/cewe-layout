@@ -101,8 +101,22 @@ class MimeoPhotobook(Photobook):
         
         page_data = self._pages[index]
         
-        # Mimeo books are all content pages
-        page_type = PageType.CONTENT
+        # Determine page type based on position:
+        # Page 1 (index 0) = Front cover
+        # Page 2 (index 1) = Inside front cover
+        # Pages 3-88 (index 2-87) = Content pages (86 pages)
+        # Page 89 (index 88) = Inside back cover (empty)
+        # Page 90 (index 89) = Back cover
+        if index == 0:
+            page_type = PageType.FRONT_COVER
+        elif index == 1:
+            page_type = PageType.INSIDE_FRONT
+        elif index == self._page_count - 1:
+            page_type = PageType.BACK_COVER
+        elif index == self._page_count - 2:
+            page_type = PageType.INSIDE_BACK
+        else:
+            page_type = PageType.CONTENT
         
         # Create and cache page
         page = MimeoPhotobookPage(page_data, page_type)
@@ -114,21 +128,21 @@ class MimeoPhotobook(Photobook):
         return self._metadata
     
     def has_inside_covers(self) -> bool:
-        """Mimeo books don't have inside covers."""
-        return False
+        """Mimeo books have inside covers."""
+        return True
     
     def get_content_page_count(self) -> int:
-        """Get number of content pages (all pages for Mimeo)."""
-        return self._page_count
+        """Get number of content pages (excluding 4 cover pages)."""
+        return self._page_count - 4
     
     def get_native_unit_name(self) -> str:
         """Get name of native coordinate unit."""
         return "Mimeo units"
     
     def get_front_cover_page(self) -> PhotobookPage:
-        """Mimeo books don't have covers - raise error."""
-        raise ValueError("Mimeo photobooks don't have cover pages")
+        """Get the front cover page (first page)."""
+        return self.get_page(0)
     
     def get_back_cover_page(self) -> PhotobookPage:
-        """Mimeo books don't have covers - raise error."""
-        raise ValueError("Mimeo photobooks don't have cover pages")
+        """Get the back cover page (last page)."""
+        return self.get_page(self._page_count - 1)
