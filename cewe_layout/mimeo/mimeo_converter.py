@@ -21,7 +21,11 @@ logger = logging.getLogger(__name__)
 
 
 class MimeoCoordinateTransformer:
-    """Transforms coordinates from Mimeo units to MCF spread units with scaling/padding."""
+    """Transforms coordinates from Mimeo units to MCF spread units with scaling/padding.
+    
+    Mimeo coordinate system: Origin at BOTTOM-LEFT (0,0), Y increases upward
+    CEWE/MCF coordinate system: Origin at TOP-LEFT (0,0), Y increases downward
+    """
     
     def __init__(self, 
                  mimeo_page_width: float, 
@@ -37,7 +41,7 @@ class MimeoCoordinateTransformer:
         
         Args:
             mimeo_page_width: Width of Mimeo page in Mimeo units
-            mimeo_page_height: Height of Mimeo page in Mimeo units
+            mimeo_page_height: Height of Mimeo page in Mimeo units (from bottom to top)
             cewe_page_width_mcf: Width of single CEWE page in MCF units (0.1mm)
             cewe_page_height_mcf: Height of CEWE page in MCF units (0.1mm)
             padding_left/top/right/bottom: Padding in MCF units
@@ -46,6 +50,7 @@ class MimeoCoordinateTransformer:
         self.mimeo_page_width = mimeo_page_width
         self.mimeo_page_height = mimeo_page_height
         self.cewe_page_width_mcf = cewe_page_width_mcf
+        self.cewe_page_height_mcf = cewe_page_height_mcf
         self.mode = mode
         
         # Calculate available space after padding
@@ -73,28 +78,39 @@ class MimeoCoordinateTransformer:
     def transform(self, mimeo_x: float, mimeo_y: float, mimeo_w: float, mimeo_h: float, is_right_page: bool = False) -> Tuple[int, int, int, int]:
         """Transform Mimeo coordinates to MCF spread coordinates.
         
+        Mimeo uses bottom-left origin (0,0), CEWE uses top-left origin.
+        This method handles coordinate system conversion and scaling.
+        
         Args:
-            mimeo_x, mimeo_y: Position in Mimeo units (page-relative)
+            mimeo_x, mimeo_y: CENTER position in Mimeo units (bottom-left origin, Y increases upward)
             mimeo_w, mimeo_h: Size in Mimeo units
             is_right_page: If True, offset by page_width for right side positioning
             
         Returns:
-            (x_mcf_spread, y_mcf, w_mcf, h_mcf) in MCF spread coordinates
+            (x_mcf_spread, y_mcf, w_mcf, h_mcf) in MCF spread coordinates (top-left origin)
         """
+        # Convert from center coordinates to top-left coordinates
+        # In Mimeo (bottom-left origin): top-left = (center_x - w/2, center_y + h/2)
+        # But we need to flip Y to top-left origin: y_topLeft = page_height - y_bottomLeft
+        # So: y_mcf_topLeft = page_height - (center_y + h/2)
+        #                   = page_height - center_y - h/2
+        mimeo_x_topleft = mimeo_x - mimeo_w / 2
+        mimeo_y_topleft = self.mimeo_page_height - mimeo_y - mimeo_h / 2
+        
         if self.mode == 'identity':
-            # No scaling, no offset - coordinates are already in MCF units
-            mcf_x = int(mimeo_x)
-            mcf_y = int(mimeo_y)
+            # No scaling, coordinates are already in MCF units
+            mcf_x = int(mimeo_x_topleft)
+            mcf_y = int(mimeo_y_topleft)
             mcf_w = int(mimeo_w)
             mcf_h = int(mimeo_h)
         elif self.mode == 'fit':
-            mcf_x = int(mimeo_x * self.scale + self.offset_x)
-            mcf_y = int(mimeo_y * self.scale + self.offset_y)
+            mcf_x = int(mimeo_x_topleft * self.scale + self.offset_x)
+            mcf_y = int(mimeo_y_topleft * self.scale + self.offset_y)
             mcf_w = int(mimeo_w * self.scale)
             mcf_h = int(mimeo_h * self.scale)
         else:  # 'fill' mode
-            mcf_x = int(mimeo_x * self.scale_x + self.offset_x)
-            mcf_y = int(mimeo_y * self.scale_y + self.offset_y)
+            mcf_x = int(mimeo_x_topleft * self.scale_x + self.offset_x)
+            mcf_y = int(mimeo_y_topleft * self.scale_y + self.offset_y)
             mcf_w = int(mimeo_w * self.scale_x)
             mcf_h = int(mimeo_h * self.scale_y)
         
@@ -133,19 +149,20 @@ def convert_ppb_to_xmcf(ppb_path: Path,
     if missing and verbose:
         logger.warning(f"{len(missing)} photos not found")
     
-    # Calculate Mimeo page dimensions from actual frame data
-    all_frames = mimeo_data['frames']
-    if not all_frames:
-        raise ValueError("No frames found in Mimeo project - cannot determine page dimensions")
+    # Get Mimeo page dimensions from database
+    # Page dimensions are stored in KHProjectLayout table (width, height columns)
+    # These represent the actual page size (e.g., 909 x 702 for typical Mimeo photobook)
+    # Note: Frames may extend beyond page bounds ("bleed" system) and may overlap slightly
+    layouts = mimeo_data['layouts']
+    if not layouts:
+        raise ValueError("No layouts found in Mimeo project")
     
-    max_page_width = max(f['x'] + f['width'] for f in all_frames)
-    max_page_height = max(f['y'] + f['height'] for f in all_frames)
-    mimeo_page_width = max_page_width
-    mimeo_page_height = max_page_height
-
-    # The above code isn't working correctly. We will debug LATER. For now, just use these.
-    mimeo_page_width = 3200
-    mimeo_page_height = 2500
+    first_layout = layouts[0]
+    if 'width' not in first_layout or 'height' not in first_layout:
+        raise ValueError("Layout width/height not found in database")
+    
+    mimeo_page_width = first_layout['width']
+    mimeo_page_height = first_layout['height']
     
     if verbose:
         logger.info(f"Detected Mimeo page: {mimeo_page_width:.2f} x {mimeo_page_height:.2f} units")
@@ -173,6 +190,15 @@ def convert_ppb_to_xmcf(ppb_path: Path,
         *padding_mcf,
         coordinate_mode
     )
+    
+    if verbose:
+        logger.info(f"Transformer config:")
+        logger.info(f"  Mimeo page: {mimeo_page_width} x {mimeo_page_height}")
+        logger.info(f"  CEWE single page: {cewe_dimensions['pageWidth'] // 2} x {cewe_dimensions['pageHeight']}")
+        logger.info(f"  CEWE spread: {cewe_dimensions['pageWidth']} x {cewe_dimensions['pageHeight']}")
+        logger.info(f"  Mode: {coordinate_mode}")
+        if coordinate_mode == 'fill':
+            logger.info(f"  Scale X: {transformer.scale_x:.4f}, Scale Y: {transformer.scale_y:.4f}")
     
     # Create output directory
     output_path = Path(output_path)
@@ -236,11 +262,16 @@ def _build_mimeo_photobook(mimeo_data: Dict[str, Any],
         logger.info(f"Total photos: {len(photos)}, Total frames: {len(frames)}")
     
     # Build frame lookup by page_id
+    # Note: Mimeo stores (x, y) as CENTER of frame with BOTTOM-LEFT origin (Y increases upward)
+    # We DON'T convert here - the transformer handles both center→topleft and Y-flip
+    # Frames may extend beyond page bounds (bleed system) and may overlap slightly
     frames_by_page = {}
     for frame in frames:
         page_id = frame['page_id']
         if page_id not in frames_by_page:
             frames_by_page[page_id] = []
+        
+        # Keep original center coordinates - transformer will handle conversion
         frames_by_page[page_id].append(frame)
     
     # Build photo lookup by index
@@ -253,20 +284,28 @@ def _build_mimeo_photobook(mimeo_data: Dict[str, Any],
     # Build list of page data dicts for MimeoPhotobook
     pages = []
     
-    # Calculate page dimensions from first layout
-    if not layouts:
-        raise ValueError("No layouts found in Mimeo project")
+    # Use page dimensions from database
+    # Note: We use the database-stored page dimensions (e.g., 909 x 702) rather than 
+    # calculating from frames, because frames may extend beyond page bounds (bleed system)
+    # IMPORTANT: Use a CONTENT page's dimensions, not the cover (layout 0 or last)
+    # Content pages start at layout index 2 (after front cover and inside front)
+    if len(layouts) < 3:
+        raise ValueError("Not enough layouts - need at least front, inside front, and one content page")
     
-    first_page_id = layouts[0]['model_id']
-    first_page_frames = frames_by_page.get(first_page_id, [])
-    if not first_page_frames:
-        raise ValueError(f"No frames found for first layout (page_id={first_page_id})")
+    if 'width' not in layouts[2] or 'height' not in layouts[2]:
+        raise ValueError("Layout width/height not found in database")
     
-    page_width = max(f['x'] + f['width'] for f in first_page_frames)
-    page_height = max(f['y'] + f['height'] for f in first_page_frames)
+    page_width = layouts[2]['width']  # First content page (layout index 2)
+    page_height = layouts[2]['height']
     
     # Calculate MCF dimensions once (all pages same size)
     _, _, mcf_page_width, mcf_page_height = transformer.transform(0, 0, page_width, page_height)
+    
+    if verbose:
+        logger.info(f"Page dimensions:")
+        logger.info(f"  Mimeo: {page_width} x {page_height}")
+        logger.info(f"  MCF single page (after transform): {mcf_page_width} x {mcf_page_height}")
+        logger.info(f"  page_data width (SINGLE page): {mcf_page_width} x {mcf_page_height}")
     
     for layout_idx, layout in enumerate(layouts):
         page_id = layout['model_id']
@@ -288,9 +327,11 @@ def _build_mimeo_photobook(mimeo_data: Dict[str, Any],
             mcf_page = layout_idx - 1  # Content pages start at 1 (after F and IF)
             is_right_page = (mcf_page % 2 == 1)  # Odd pages are RIGHT
         
-        # Build page data dict with MCF spread dimensions
+        # Build page data dict with MCF page dimensions
+        # NOTE: page_data['width'] should be SINGLE page width, not spread width
+        # mcf_writer multiplies by 2 internally to get spread width
         page_data = {
-            'width': mcf_page_width * 2,  # Spread width (both pages)
+            'width': mcf_page_width,  # Single page width
             'height': mcf_page_height,
             'images': [],
             'text_blocks': []
@@ -353,6 +394,12 @@ def _build_mimeo_photobook(mimeo_data: Dict[str, Any],
                 is_right_page=is_right_page
             )
             
+            if verbose and page_nr <= 3 and frame_idx == 0:  # Debug first frame of first 3 pages
+                logger.info(f"  Frame 0 transform:")
+                logger.info(f"    Mimeo: x={frame['x']:.1f}, y={frame['y']:.1f}, w={frame['width']:.1f}, h={frame['height']:.1f}")
+                logger.info(f"    MCF spread: x={mcf_x_spread}, y={mcf_y}, w={mcf_w}, h={mcf_h}")
+                logger.info(f"    is_right_page: {is_right_page}")
+            
             # Store image data in MCF spread coordinates - mcf_writer will generate filename with proper ui_page
             # We provide the data bytes for it to write
             image_data = {
@@ -380,7 +427,7 @@ def _build_mimeo_photobook(mimeo_data: Dict[str, Any],
     # Insert empty inside back cover page before the last page (back cover)
     # Mimeo has 89 pages, CEWE needs 90 (front, inside front, content, inside back, back)
     empty_inside_back = {
-        'width': mcf_page_width * 2,  # Spread width
+        'width': mcf_page_width,  # Single page width
         'height': mcf_page_height,
         'images': [],
         'text_blocks': []

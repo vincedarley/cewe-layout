@@ -122,6 +122,8 @@ class MimeoProject:
             List of layout dicts with:
                 - model_id: Layout model ID
                 - index: Page index (sequence)
+                - width: Page width
+                - height: Page height
                 - background_color: Page background color (if available)
         """
         rows = self._execute_query("SELECT * FROM KHProjectLayout ORDER BY sequence")
@@ -132,6 +134,12 @@ class MimeoProject:
                 'model_id': row['modelId'],
                 'index': row['sequence'],
             }
+            
+            # Add width and height if columns exist
+            if 'width' in row.keys():
+                layout['width'] = row['width']
+            if 'height' in row.keys():
+                layout['height'] = row['height']
             
             # Add background color if column exists
             if 'backgroundColor' in row.keys():

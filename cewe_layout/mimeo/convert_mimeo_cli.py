@@ -73,7 +73,7 @@ def main():
     parser.add_argument(
         '--mode',
         type=str,
-        choices=['fit', 'fill'],
+        choices=['fit', 'fill', 'identity'],
         default='fit',
         help='Coordinate transformation mode: fit (maintain aspect ratio) or fill (stretch)'
     )
