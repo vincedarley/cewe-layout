@@ -220,7 +220,7 @@ def create_mcf_xml(photobook: Photobook, output_dir: Path, verbose: bool = False
     fotobook.set('version', '4.0')
     
     # Add metadata if available
-    metadata = pdf_content.get('metadata', {})
+    metadata = photobook.get_metadata()
     if metadata.get('title'):
         fotobook.set('title', metadata['title'])
     
