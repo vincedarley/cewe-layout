@@ -9,9 +9,9 @@ from pathlib import Path
 import threading
 import shutil
 import logging
-from typing import Literal, Any
+from typing import Literal, Any, Tuple
 
-from .pdf2cewe.pdf_extractor import performSegmentationOnPage
+from .pdf2cewe.pdf_extractor import PDFPhotobook, performSegmentationOnPage
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +20,7 @@ from .layout_ops import LayoutManager
 from .page_gui import PageRenderer, PageRenderData
 from .collage_wrapper import generate_layout_for_page
 from .algorithms.evaluator import evaluate_layout
+from .algorithms.base import LayoutAlgorithm
 from .algorithms.collage_generator import CollageGeneratorAlgorithm
 from .algorithms.fan_layout import FanLayoutAlgorithm
 from .algorithms.tree_builder import TreeBuilderAlgorithm
@@ -78,11 +79,11 @@ def get_modifier_symbol():
 
 
 class LayoutViewer:
-    def __init__(self, root, mcf_root, mcf_file_path, pdf_content=None, insidecovers=False):
+    def __init__(self, root, mcf_root, mcf_file_path, pdf_content: PDFPhotobook=None, insidecovers=False):
         # mcf_root is the parsed XML root; mcf_file_path is the full path to the .mcf file
         self.pages = extract_pages_info(mcf_root)
         self.mcf_file_path = mcf_file_path
-        self.pdf_content = pdf_content  # Store PDF content if provided
+        self.pdf_content : PDFPhotobook = pdf_content  # Store PDF content if provided
         self.insidecovers = insidecovers  # Whether PDF includes inside cover pages
         # try to find the imagedir attribute on the root to locate images
         self.image_folder_attr = mcf_root.get('imagedir') or ''
@@ -1004,7 +1005,7 @@ class LayoutViewer:
         
         # Get total PDF page count
         from .pdf2cewe.pdf_extractor import get_page_content
-        pdf_page_count = self.pdf_content.get('page_count', 0)
+        pdf_page_count = self.pdf_content.get_page_count()
         
         # Map UI page to PDF index
         if ui_pageno == "F":
@@ -4425,7 +4426,7 @@ class LayoutViewer:
                 self.layout_mgr.mark_photo_as_new(page_numbers[1], filename)
 
 
-def launch_gui(mcf_path, pdf_content, insidecovers=False):
+def launch_gui(mcf_path, pdf_content: PDFPhotobook, insidecovers=False):
     # Configure logging for the GUI
     import logging
     logging.basicConfig(

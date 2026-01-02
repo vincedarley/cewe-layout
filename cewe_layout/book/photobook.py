@@ -1,0 +1,193 @@
+"""Abstract photobook representation.
+
+This module defines the core abstraction for photobooks from any source
+(PDF, Mimeo, MCF, etc.). Each implementation uses its native coordinate
+system - translation to different formats happens separately.
+"""
+
+from abc import ABC, abstractmethod
+from typing import Dict, Any, Optional, List, Tuple
+from enum import Enum
+
+
+class PageType(Enum):
+    """Type of page in a photobook."""
+    FRONT_COVER = "front_cover"
+    BACK_COVER = "back_cover"
+    INSIDE_FRONT = "inside_front"
+    INSIDE_BACK = "inside_back"
+    CONTENT = "content"
+
+
+class PhotobookPage(ABC):
+    """Abstract representation of a single photobook page.
+    
+    All dimensions are in the native coordinate system of the source
+    (PDF points, Mimeo units, MCF units, etc.).
+    """
+    
+    @abstractmethod
+    def get_width(self) -> float:
+        """Get page width in native units."""
+        pass
+    
+    @abstractmethod
+    def get_height(self) -> float:
+        """Get page height in native units."""
+        pass
+    
+    @abstractmethod
+    def get_images(self) -> List[Dict[str, Any]]:
+        """Get list of image dictionaries for this page.
+        
+        Each image dict should have at minimum:
+        - 'left', 'top', 'width', 'height': position/size in native units
+        - 'data': image bytes
+        - 'format': file extension ('jpg', 'png', etc.)
+        - 'index': unique image index
+        
+        May also include format-specific fields.
+        """
+        pass
+    
+    @abstractmethod
+    def get_text_blocks(self) -> List[Dict[str, Any]]:
+        """Get list of text block dictionaries for this page.
+        
+        Each text block dict should have at minimum:
+        - 'left', 'top', 'width', 'height': position/size in native units
+        - 'text': text content
+        - 'font': font name
+        - 'size': font size in points
+        - 'color': color as integer (0xRRGGBB)
+        
+        May also include format-specific fields like 'flags'.
+        """
+        pass
+    
+    @abstractmethod
+    def get_page_type(self) -> PageType:
+        """Get the type of this page."""
+        pass
+
+
+class Photobook(ABC):
+    """Abstract representation of a photobook.
+    
+    A photobook is a collection of pages with metadata. All photobooks
+    must have front and back covers. They may optionally have inside covers.
+    Content pages are numbered sequentially.
+    
+    All dimensions and coordinates are in the native coordinate system of
+    the source format.
+    """
+    
+    @abstractmethod
+    def get_page_count(self) -> int:
+        """Get total number of pages (including covers)."""
+        pass
+    
+    @abstractmethod
+    def get_page(self, index: int) -> PhotobookPage:
+        """Get page at given index (0-based).
+        
+        Args:
+            index: Page index (0 to page_count - 1)
+            
+        Returns:
+            PhotobookPage instance
+            
+        Raises:
+            IndexError: If index is out of range
+        """
+        pass
+    
+    @abstractmethod
+    def get_metadata(self) -> Dict[str, str]:
+        """Get book metadata.
+        
+        Returns dictionary with optional keys:
+        - 'title': Book title
+        - 'author': Author name
+        - 'description': Book description
+        - Other format-specific metadata
+        """
+        pass
+    
+    @abstractmethod
+    def has_inside_covers(self) -> bool:
+        """Whether book has dedicated inside cover pages."""
+        pass
+    
+    @abstractmethod
+    def get_content_page_count(self) -> int:
+        """Get number of content pages (excluding covers/inside covers)."""
+        pass
+    
+    def get_front_cover_page(self) -> PhotobookPage:
+        """Get front cover page.
+        
+        Returns:
+            Front cover page
+            
+        Raises:
+            ValueError: If no front cover found (should never happen)
+        """
+        for i in range(self.get_page_count()):
+            page = self.get_page(i)
+            if page.get_page_type() == PageType.FRONT_COVER:
+                return page
+        raise ValueError("Photobook must have a front cover")
+    
+    def get_back_cover_page(self) -> PhotobookPage:
+        """Get back cover page.
+        
+        Returns:
+            Back cover page
+            
+        Raises:
+            ValueError: If no back cover found (should never happen)
+        """
+        for i in range(self.get_page_count()):
+            page = self.get_page(i)
+            if page.get_page_type() == PageType.BACK_COVER:
+                return page
+        raise ValueError("Photobook must have a back cover")
+    
+    def get_inside_front_page(self) -> Optional[PhotobookPage]:
+        """Get inside front cover page, or None if not present."""
+        if not self.has_inside_covers():
+            return None
+        for i in range(self.get_page_count()):
+            page = self.get_page(i)
+            if page.get_page_type() == PageType.INSIDE_FRONT:
+                return page
+        return None
+    
+    def get_inside_back_page(self) -> Optional[PhotobookPage]:
+        """Get inside back cover page, or None if not present."""
+        if not self.has_inside_covers():
+            return None
+        for i in range(self.get_page_count()):
+            page = self.get_page(i)
+            if page.get_page_type() == PageType.INSIDE_BACK:
+                return page
+        return None
+    
+    def get_content_pages(self) -> List[Tuple[int, PhotobookPage]]:
+        """Get all content pages as (index, page) tuples.
+        
+        Returns:
+            List of (index, page) tuples for content pages only
+        """
+        pages = []
+        for i in range(self.get_page_count()):
+            page = self.get_page(i)
+            if page.get_page_type() == PageType.CONTENT:
+                pages.append((i, page))
+        return pages
+    
+    @abstractmethod
+    def get_native_unit_name(self) -> str:
+        """Get name of native coordinate unit (e.g., 'PDF points', 'Mimeo units', 'MCF units')."""
+        pass

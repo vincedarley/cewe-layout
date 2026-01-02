@@ -1,7 +1,7 @@
 """Convert Mimeo Photos .ppb projects to CEWE .xmcf format.
 
 This module converts legacy Mimeo Photos photobook projects to CEWE format,
-reusing existing infrastructure from cewe-layout.
+copying and renaming photos into the .xmcf directory.
 """
 
 import xml.etree.ElementTree as ET
@@ -12,11 +12,13 @@ import shutil
 
 from .mimeo_database import MimeoProject
 from .mimeo_uuid import PhotosLibraryMapper
+from ..file_utils import encode_metadata_in_filename
+from ..photos import get_image_dimensions
 
 logger = logging.getLogger(__name__)
 
 
-# CEWE book sizes (duplicated from pdf2cewe to avoid heavy dependencies)
+# CEWE book sizes (duplicated to avoid importing heavy PyMuPDF dependency)
 BOOK_SIZES = {
     'ALB42': {'art_id': 42, 'pageWidth': 7640, 'pageHeight': 2900},
     'ALB82': {'art_id': 82, 'pageWidth': 5200, 'pageHeight': 3500},
@@ -24,36 +26,56 @@ BOOK_SIZES = {
 
 
 def add_cewe_boilerplate_elements(fotobook: ET.Element, normalpages: int) -> None:
-    """Add required CEWE boilerplate elements to fotobook XML."""
+    """Add required CEWE boilerplate XML elements to fotobook.
+    
+    NOTE: This is a copy of pdf2cewe.mcf_writer.add_cewe_boilerplate_elements()
+    to avoid importing the heavy PyMuPDF dependency from pdf_extractor.
+    Any changes should be made to the original in mcf_writer.py.
+    
+    These elements (project, savingVersion, creationHistory, articleConfig) are required
+    by CEWE's photobook format and appear immediately after the opening
+    fotobook tag.
+    
+    Args:
+        fotobook: The fotobook element to add boilerplate to
+        normalpages: Highest page number in the book (for articleConfig)
+    """
+    import uuid
+    import time
+    from datetime import datetime
+    
+    # Generate unique project ID
+    project_id = str(uuid.uuid4())
+    epoch_time = int(time.time())
+    current_date = datetime.now().strftime('%Y-%m-%d %H:%M')
+    
+    # <project> element
     project = ET.SubElement(fotobook, 'project')
-    project.set('id', 'cewe-converted')
+    project.set('createdWithHPSVersion', '8.0.5')
+    project.set('createdWithHPSVersionBuild', '20251014')
+    project.set('multiPurposeText', '')
+    project.set('projectID', project_id)
+    project.set('projectIDCreatedEpoch', str(epoch_time))
     
-    saving = ET.SubElement(fotobook, 'savingVersion')
-    saving.text = '1'
+    # <savingVersion> element
+    saving_version = ET.SubElement(fotobook, 'savingVersion')
+    saving_version.set('compatibilityVersion', '6.4.2')
+    saving_version.set('programversion', '8.0.5')
+    saving_version.set('programversionBuild', '20251014')
+    saving_version.set('savetime', current_date)
     
-    creation = ET.SubElement(fotobook, 'creationHistory')
-    creation.set('version', '1')
+    # <creationHistory> element
+    creation_history = ET.SubElement(fotobook, 'creationHistory')
+    creation_history.set('clientId', '37')
+    creation_history.set('clientVersion', '7.4.3-20240328-default')
+    creation_history.set('creationDate', current_date)
     
-    article = ET.SubElement(fotobook, 'articleConfig')
-    article.set('normalpages', str(normalpages))
-
-
-def encode_metadata_in_filename(original_filename: str, preferred_size: float, page_number: int) -> str:
-    """Encode metadata into photo filename."""
-    stem = Path(original_filename).stem
-    suffix = Path(original_filename).suffix
-    return f"{stem}-sz{preferred_size:.2f}-pg{page_number}{suffix}"
-
-
-def get_image_dimensions(image_path: Path) -> Optional[Tuple[int, int]]:
-    """Get image dimensions using PIL."""
-    try:
-        from PIL import Image
-        with Image.open(image_path) as img:
-            return img.size
-    except Exception as e:
-        logger.error(f"Failed to read {image_path}: {e}")
-        return None
+    # <articleConfig> element
+    article_config = ET.SubElement(fotobook, 'articleConfig')
+    article_config.set('normalpages', str(normalpages))
+    article_config.set('pagenaming', '1')
+    article_config.set('spotColor', 'digital_embossing')
+    article_config.set('totalpages', str(normalpages + 5))
 
 
 def _calculate_cutout(area_width: int, area_height: int, image_width: int, image_height: int) -> Tuple[float, float, float]:
@@ -200,30 +222,21 @@ def convert_ppb_to_xmcf(ppb_path: Path,
         coordinate_mode
     )
     
-    # Create output directory and staging for photos
+    # Create output directory
     output_path = Path(output_path)
     output_path.mkdir(parents=True, exist_ok=True)
     
-    staging_dir = output_path.parent / f"{output_path.stem}-photos"
-    staging_dir.mkdir(parents=True, exist_ok=True)
     if verbose:
-        logger.info(f"Staging photos in: {staging_dir}")
+        logger.info(f"Output directory: {output_path}")
     
-    # Copy photos to staging
-    logger.info("Copying photos to staging...")
-    photo_staging_map = {}
+    # Build photo info map (UUID -> original photo info)
+    photo_info_map = {}
     for mimeo_uuid, photo_info in uuid_mappings.items():
         if photo_info and Path(photo_info['path']).exists():
-            source_path = Path(photo_info['path'])
-            staged_path = staging_dir / photo_info['original_filename']
-            
-            if not staged_path.exists():
-                shutil.copy2(source_path, staged_path)
-            
-            photo_staging_map[mimeo_uuid] = staged_path
+            photo_info_map[mimeo_uuid] = photo_info
     
     if verbose:
-        logger.info(f"Copied {len(photo_staging_map)} photos")
+        logger.info(f"Found {len(photo_info_map)} photos to convert")
     
     # Create folderid.xml
     import uuid as uuid_module
@@ -233,13 +246,14 @@ def convert_ppb_to_xmcf(ppb_path: Path,
     tree = ET.ElementTree(folderid_xml)
     tree.write(output_path / 'folderid.xml', encoding='utf-8', xml_declaration=True)
     
-    # Build MCF XML
+    # Build MCF XML (this will copy and rename photos into the .xmcf directory)
     mcf_xml = create_mcf_from_mimeo(
         mimeo_data,
-        uuid_mappings,
+        photo_info_map,
         transformer,
         cewe_dimensions,
         book_size_id,
+        output_path,
         verbose
     )
     
@@ -253,10 +267,11 @@ def convert_ppb_to_xmcf(ppb_path: Path,
 
 
 def create_mcf_from_mimeo(mimeo_data: Dict[str, Any],
-                         uuid_mappings: Dict[str, Optional[Dict[str, str]]],
+                         photo_info_map: Dict[str, Dict[str, str]],
                          transformer: MimeoCoordinateTransformer,
                          cewe_dimensions: Dict[str, int],
                          book_size_id: str,
+                         output_path: Path,
                          verbose: bool) -> ET.Element:
     """Create MCF XML structure from Mimeo data."""
     # Create root fotobook element
@@ -291,6 +306,7 @@ def create_mcf_from_mimeo(mimeo_data: Dict[str, Any],
     
     # Track global photo index
     global_photo_idx = 0
+    photos_copied = 0
     
     for layout_idx, layout in enumerate(layouts):
         page_id = layout['model_id']
@@ -305,20 +321,44 @@ def create_mcf_from_mimeo(mimeo_data: Dict[str, Any],
         bundlesize.set('width', str(cewe_dimensions['pageWidth']))
         bundlesize.set('height', str(cewe_dimensions['pageHeight']))
         
+        # Debug output for first 5 pages
+        if page_nr <= 5 and verbose:
+            print(f"\n=== PAGE {page_nr} (page_id={page_id}) ===")
+            print(f"Number of frames: {len(page_frames)}")
+        
         for frame_idx, frame in enumerate(page_frames):
             mcf_left, mcf_top, mcf_width, mcf_height = transformer.transform(
                 frame['x'], frame['y'], frame['width'], frame['height']
             )
             
             photo = photo_by_index.get(global_photo_idx)
+            
+            if page_nr <= 5 and verbose:
+                print(f"\nFrame {frame_idx} at Mimeo({frame['x']:.1f}, {frame['y']:.1f}, {frame['width']:.1f}x{frame['height']:.1f})")
+                print(f"  global_photo_idx: {global_photo_idx}")
+                if photo:
+                    print(f"  photo['index']: {photo['index']}")
+                    print(f"  photo UUID: {photo['photo_id']}")
+                    photo_info = photo_info_map.get(photo['photo_id'])
+                    if photo_info:
+                        print(f"  filename: {photo_info['original_filename']}")
+                    else:
+                        print(f"  ERROR: Photo UUID not found in photo_info_map")
+                else:
+                    print(f"  ERROR: No photo at index {global_photo_idx}")
+            
             global_photo_idx += 1
             
             if photo:
-                photo_info = uuid_mappings.get(photo['photo_id'])
+                photo_info = photo_info_map.get(photo['photo_id'])
                 
                 if photo_info:
                     add_image_area(page_elem, photo_info, mcf_left, mcf_top,
-                                 mcf_width, mcf_height, frame_idx, page_nr)
+                                 mcf_width, mcf_height, frame_idx, page_nr, output_path)
+                    photos_copied += 1
+    
+    if verbose:
+        logger.info(f"Copied {photos_copied} photos to .xmcf directory")
     
     return fotobook
 
@@ -330,8 +370,9 @@ def add_image_area(page_elem: ET.Element,
                   width: int,
                   height: int,
                   z_position: int,
-                  page_nr: int) -> None:
-    """Add an image area to a page element."""
+                  page_nr: int,
+                  output_path: Path) -> None:
+    """Add an image area to a page element and copy/rename the photo."""
     photo_path = Path(photo_info['path'])
     
     if not photo_path.exists():
@@ -348,6 +389,18 @@ def add_image_area(page_elem: ET.Element,
     # Calculate cutout using existing function
     scale, cutout_left, cutout_top = _calculate_cutout(width, height, image_width, image_height)
     
+    # Encode filename with page number
+    encoded_filename = encode_metadata_in_filename(
+        photo_info['original_filename'],
+        preferred_size=1.0,
+        page_number=page_nr
+    )
+    
+    # Copy photo to output directory with encoded filename
+    dest_path = output_path / encoded_filename
+    if not dest_path.exists():
+        shutil.copy2(photo_path, dest_path)
+    
     # Create area element
     area = ET.SubElement(page_elem, 'area')
     area.set('areatype', 'imagearea')
@@ -359,13 +412,6 @@ def add_image_area(page_elem: ET.Element,
     position.set('height', str(height))
     position.set('rotation', '0')
     position.set('zposition', str(1000 + z_position))
-    
-    # Encode filename with page number
-    encoded_filename = encode_metadata_in_filename(
-        photo_info['original_filename'],
-        preferred_size=1.0,
-        page_number=page_nr
-    )
     
     image = ET.SubElement(area, 'image')
     image.set('filename', f'safecontainer:/{encoded_filename}')

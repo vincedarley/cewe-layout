@@ -48,166 +48,21 @@ for pageno in range(pdf_content['page_count']):
         # ... use composite ...
 """
 
-from os import error
 import fitz  # PyMuPDF
 from pathlib import Path
 from typing import Dict, List, Optional, Any
-from io import BytesIO
 import logging
 
-from PIL import Image
-
 from .image_segmenter import segment_composite_image, should_segment_image, ImageSegmenter
+from .pdf_photobook import PDFPhotobook
 
 logger = logging.getLogger(__name__)
 
 
 
-    
-# Widths are spread dimensions (so 2x pages). We list separately the cover and page sizes.
-# Note that CEWE calculates a very specific coverWidth which seems to depend on the number of pages
-# in the book. This makes some sense if the cover width wraps around the spine - a thicker book will require
-# more width to perform that wrapping.  We do not try to replicate that logic here. So when you open and then 
-# save the book in CEWE Creator, I expect the coverWidth may change slightly.
-BOOK_SIZES = {
-    'ALB45': {'coverWidth': 3975, 'coverHeight': 1530, 'pageWidth': 3800, 'pageHeight': 1480, 'art_id': 8068},
-    'ALB42': {'coverWidth': 7870, 'coverHeight': 2960, 'pageWidth': 7640, 'pageHeight': 2900, 'art_id': 9896},
-    'ALB35': {'coverWidth': 5575, 'coverHeight': 2100, 'pageWidth': 5400, 'pageHeight': 2050, 'art_id': 9759},
-}
 
-def find_closest_book_size(width: int, height: int) -> str:
-    """Find the closest matching book size based on page dimensions.
-    
-    Compares the given width and height against the pageWidth and pageHeight
-    of each book size, selecting the one with minimum total absolute difference.
-    
-    Args:
-        width: Page width in MCF units (spread width, not single page)
-        height: Page height in MCF units
-        
-    Returns:
-        Book size key (e.g., 'ALB45', 'ALB42') with closest matching dimensions
-        
-    Raises:
-        ValueError: If BOOK_SIZES is empty
-        
-    Example:
-        >>> find_closest_book_size(3800, 1480)
-        'ALB45'
-        >>> find_closest_book_size(7640, 2900)
-        'ALB42'
-    """
-    best_match = None
-    min_difference = float('inf')
-    
-    for book_key, dimensions in BOOK_SIZES.items():
-        page_width = dimensions['pageWidth']
-        page_height = dimensions['pageHeight']
-        
-        # Calculate total absolute difference
-        width_diff = abs(width - page_width/2)
-        height_diff = abs(height - page_height)
-        total_diff = width_diff + height_diff
-        
-        if total_diff < min_difference:
-            min_difference = total_diff
-            best_match = book_key
-    
-    return best_match
-
-class PDFReader:
-    """Lightweight PDF reader for on-demand page extraction."""
-    
-    def __init__(self, pdf_path: Path, verbose: bool = False, page_to_ui: Optional[Dict[int, Any]] = None):
-        """Initialize PDF reader.
-        
-        Args:
-            pdf_path: Path to PDF file
-            verbose: Print detailed extraction info
-            page_to_ui: Mapping from PDF page index to UI page identifier (required for correct coordinates)
-        """
-        self.pdf_path = pdf_path
-        self.verbose = verbose
-        self._page_to_ui = page_to_ui or {}
-        self._doc = None
-        self._metadata = None
-        self._page_count = None
-    
-    def _ensure_open(self):
-        """Ensure PDF document is opened."""
-        if self._doc is None:
-            self._doc = fitz.open(self.pdf_path)
-            
-            # Cache metadata
-            self._metadata = {
-                'title': self._doc.metadata.get('title', ''),
-                'author': self._doc.metadata.get('author', ''),
-                'subject': self._doc.metadata.get('subject', ''),
-                'producer': self._doc.metadata.get('producer', ''),
-            }
-            
-            self._page_count = len(self._doc)
-
-            
-    
-    @property
-    def metadata(self) -> Dict[str, str]:
-        """Get PDF metadata."""
-        self._ensure_open()
-        return self._metadata
-    
-    @property
-    def page_count(self) -> int:
-        """Get number of pages."""
-        self._ensure_open()
-        return self._page_count
-    
-    def extract_page(self, page_num: int) -> Dict[str, Any]:
-        """Extract content from a single page.
-        
-        Args:
-            page_num: Page number (0-indexed)
-            
-        Returns:
-            Page data dictionary
-            
-        Raises:
-            ValueError: If page doesn't exist or ui_page mapping not found
-        """
-        self._ensure_open()
-        
-        if page_num >= len(self._doc):
-            raise ValueError(f"Page {page_num + 1} does not exist")
-        
-        # Look up UI page identifier - this is REQUIRED for correct coordinate positioning
-        if page_num not in self._page_to_ui:
-            raise ValueError(
-                f"No UI page mapping found for PDF page {page_num}. "
-                f"PDFReader requires page_to_ui mapping for correct coordinate positioning. "
-                f"Available mappings: {list(self._page_to_ui.keys())}"
-            )
-        
-        ui_page = self._page_to_ui[page_num]
-        page = self._doc[page_num]
-        return extract_page_content(page, page_num, self._page_count, self.verbose, debug=False, ui_page=ui_page)
-    
-    def close(self):
-        """Close the PDF document."""
-        if self._doc is not None:
-            self._doc.close()
-            self._doc = None
-    
-    def __enter__(self):
-        """Context manager entry."""
-        return self
-    
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        """Context manager exit."""
-        self.close()
-
-
-def create_pdf_reader(pdf_path: Path, verbose: bool = False, page_to_ui: Optional[Dict[int, Any]] = None) -> Dict[str, Any]:
-    """Create a lightweight PDF reader for on-demand page access.
+def create_pdf_reader(pdf_path: Path, verbose: bool = False, page_to_ui: Optional[Dict[int, Any]] = None, insidecovers: bool = False) -> PDFPhotobook:
+    """Create a PDFPhotobook with on-demand page loading.
     
     This is used when the MCF project already exists and we just need
     to be able to query individual pages without pre-loading everything.
@@ -216,14 +71,10 @@ def create_pdf_reader(pdf_path: Path, verbose: bool = False, page_to_ui: Optiona
         pdf_path: Path to PDF file
         verbose: Print detailed extraction info
         page_to_ui: Mapping from PDF page index to UI page identifier (REQUIRED for coordinate positioning)
+        insidecovers: Whether PDF includes inside cover pages
         
     Returns:
-        Dictionary containing:
-            - 'metadata': PDF metadata
-            - 'page_count': Number of pages
-            - 'reader': PDFReader instance for on-demand page access
-            - 'pages': Empty list (pages loaded on-demand via get_page_content())
-            - 'pdf_path': Path to source PDF
+        PDFPhotobook instance configured for on-demand page extraction
     """
     if not page_to_ui:
         raise ValueError(
@@ -231,28 +82,26 @@ def create_pdf_reader(pdf_path: Path, verbose: bool = False, page_to_ui: Optiona
             "On-demand extraction needs UI page context for correct coordinate positioning."
         )
     
-    reader = PDFReader(pdf_path, verbose, page_to_ui=page_to_ui)
-    
-    return {
-        'metadata': reader.metadata,
-        'page_count': reader.page_count,
-        'reader': reader,
-        'pages': [],  # Empty - pages loaded on-demand via get_page_content()
-        'pdf_path': str(pdf_path),  # Store path for full page rendering
-    }
+    # Create PDFPhotobook in on-demand mode (pages=None triggers lazy loading)
+    return PDFPhotobook(
+        pages=None,
+        metadata=None,  # Will be lazy-loaded from PDF
+        insidecovers=insidecovers,
+        pdf_path=pdf_path,
+        page_to_ui=page_to_ui,
+        verbose=verbose
+    )
 
 
-def get_page_content(pdf_content: Dict[str, Any], pageno: int) -> Optional[Dict[str, Any]]:
+def get_page_content(pdf_content, pageno: int) -> Optional[Dict[str, Any]]:
     """Get page content, abstracting on-demand vs pre-loaded modes.
     
     This is the primary API for accessing page data. It works with both:
-    - Full extraction mode (pages pre-loaded in 'pages' list)
-    - On-demand mode (pages extracted via 'reader' as needed)
-    
-    Extracted pages are cached in the 'pages' list for efficiency.
+    - PDFPhotobook objects (new OOP API, both batch and on-demand)
+    - Legacy dict mode (for backward compatibility)
     
     Args:
-        pdf_content: Dict returned by extract_pdf_content() or create_pdf_reader()
+        pdf_content: PDFPhotobook object or legacy dict from old code
         pageno: Page number (0-indexed)
         
     Returns:
@@ -260,14 +109,28 @@ def get_page_content(pdf_content: Dict[str, Any], pageno: int) -> Optional[Dict[
         Returns None if page doesn't exist or extraction fails (errors logged).
         
     Example:
-        >>> pdf_content = create_pdf_reader(Path('album.pdf'))
-        >>> page_data = get_page_content(pdf_content, 0)
-        >>> if page_data:
-        ...     composite = page_data.get('composite_image')
+        >>> photobook = extract_pdf_content(Path('album.pdf'))
+        >>> page = photobook.get_page(0)
+        >>> images = page.get_images()
     """
     if not pdf_content:
         return None
     
+    # Handle PDFPhotobook objects (both batch and on-demand modes)
+    if hasattr(pdf_content, 'get_page'):
+        try:
+            page_count = pdf_content.get_page_count()
+            if pageno < 0 or pageno >= page_count:
+                logger.warning(f"Page {pageno} out of range (page_count={page_count})")
+                return None
+            page = pdf_content.get_page(pageno)
+            # Return the underlying page data dict for backward compatibility
+            return page._page_data
+        except (IndexError, ValueError) as e:
+            logger.error(f"Failed to get page {pageno}: {e}")
+            return None
+    
+    # Legacy dict mode
     page_count = pdf_content.get('page_count', 0)
     if pageno < 0 or pageno >= page_count:
         logger.warning(f"Page {pageno} out of range (page_count={page_count})")
@@ -302,7 +165,7 @@ def get_page_content(pdf_content: Dict[str, Any], pageno: int) -> Optional[Dict[
     return None
 
 
-def extract_pdf_content(pdf_path: Path, page_range: Optional[List[int]] = None, verbose: bool = False, debug: bool = False, page_to_ui: Optional[Dict[int, Any]] = None) -> Dict[str, Any]:
+def extract_pdf_content(pdf_path: Path, page_range: Optional[List[int]] = None, verbose: bool = False, debug: bool = False, page_to_ui: Optional[Dict[int, Any]] = None, insidecovers: bool = False) -> PDFPhotobook:
     """Extract all images and text from a PDF file.
     
     Args:
@@ -310,11 +173,10 @@ def extract_pdf_content(pdf_path: Path, page_range: Optional[List[int]] = None, 
         page_range: Optional list of 0-indexed page numbers to process
         verbose: Print detailed extraction info
         page_to_ui: Optional mapping from PDF page index to UI page number (for correct positioning)
+        insidecovers: Whether the PDF includes inside cover pages
         
     Returns:
-        Dictionary containing:
-            - 'metadata': PDF metadata (title, author, etc.)
-            - 'pages': List of page data dictionaries
+        PDFPhotobook object containing all extracted page data
     """
     doc = fitz.open(pdf_path)
     
@@ -345,11 +207,7 @@ def extract_pdf_content(pdf_path: Path, page_range: Optional[List[int]] = None, 
     
     doc.close()
     
-    return {
-        'metadata': metadata,
-        'page_count': len(pages),
-        'pages': pages,
-    }
+    return PDFPhotobook(pages, metadata, insidecovers=insidecovers)
 
 
 def extract_page_content(page: fitz.Page, page_num: int, total_pages: int, verbose: bool = False, debug: bool = False, ui_page: Any = None) -> Dict[str, Any]:
@@ -968,7 +826,7 @@ def _segmentPage(pdf_content, pages, index, status_var, current_pageno, segmente
     return new_segments, image_data, image_format, image_to_segment, photos_to_replace
 
 
-def performSegmentationOnPage(pdf_content, pages, index, status_var, current_pageno, segmenter: ImageSegmenter,
+def performSegmentationOnPage(pdf_content: PDFPhotobook, pages, index, status_var, current_pageno, segmenter: ImageSegmenter,
             specific_photo_index: int | None, target_count: int) -> \
 tuple[list[int], list[Any], Any, list[dict[str, Any]] | None, Any]:
     result = _segmentPage(

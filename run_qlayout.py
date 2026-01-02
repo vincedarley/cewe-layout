@@ -74,7 +74,7 @@ if __name__ == '__main__':
             # Import pdf2cewe conversion logic
             from pathlib import Path
             from cewe_layout.pdf2cewe.pdf_extractor import extract_pdf_content, create_pdf_reader
-            from cewe_layout.pdf2cewe.mcf_writer import write_mcf_project
+            from cewe_layout.book.mcf_writer import write_mcf_project
             
             pdf_path = Path(args.originalPdf)
             output_path = Path(args.cewe)
@@ -91,12 +91,12 @@ if __name__ == '__main__':
                 doc.close()
                 
                 # Create page mapping for coordinate positioning
-                from cewe_layout.pdf2cewe.mcf_writer import _create_page_mapping
+                from cewe_layout.book.mcf_writer import _create_page_mapping
                 ui_to_pdf = _create_page_mapping(pdf_page_count, args.insidecovers)
                 pdf_to_ui = {v: k for k, v in ui_to_pdf.items() if v is not None}
                 
                 # Create lightweight reader for on-demand page access WITH mapping
-                pdf_content = create_pdf_reader(pdf_path, verbose=True, page_to_ui=pdf_to_ui)
+                pdf_content = create_pdf_reader(pdf_path, verbose=True, page_to_ui=pdf_to_ui, insidecovers=args.insidecovers)
             else:
                 # Extract all PDF content for initial conversion
                 print(f"Extracting content from {pdf_path}...")
@@ -109,7 +109,7 @@ if __name__ == '__main__':
                 doc.close()
                 
                 # Create UI-to-PDF mapping, then invert it
-                from cewe_layout.pdf2cewe.mcf_writer import _create_page_mapping
+                from cewe_layout.book.mcf_writer import _create_page_mapping
                 ui_to_pdf = _create_page_mapping(pdf_page_count, args.insidecovers)
                 pdf_to_ui = {v: k for k, v in ui_to_pdf.items() if v is not None}
                 
@@ -120,13 +120,13 @@ if __name__ == '__main__':
                 for pdf_idx in sorted_keys[-5:]:
                     print(f"  PDF page {pdf_idx} → UI page {pdf_to_ui[pdf_idx]}")
                 
-                pdf_content = extract_pdf_content(pdf_path, page_range=None, verbose=True, debug=args.debug, page_to_ui=pdf_to_ui)
+                pdf_photobook = extract_pdf_content(pdf_path, page_range=None, verbose=True, debug=args.debug, page_to_ui=pdf_to_ui, insidecovers=args.insidecovers)
                 
                 print(f"Writing MCF project to {args.cewe}...")
-                write_mcf_project(pdf_content, args.cewe, verbose=True, insidecovers=args.insidecovers)
+                write_mcf_project(pdf_photobook, args.cewe, verbose=True, insidecovers=args.insidecovers)
                 
                 print(f"✅ Successfully converted {pdf_path.name} to {args.cewe}")
-                print(f"   Pages: {len(pdf_content['pages'])}")
+                print(f"   Pages: {pdf_photobook.get_page_count()}")
 
         from cewe_layout.parser import resolve_mcf_path
         real = resolve_mcf_path(args.cewe)
@@ -142,7 +142,7 @@ if __name__ == '__main__':
             profiler.enable()
             
             try:
-                launch_gui(real, pdf_content, insidecovers=args.insidecovers)
+                launch_gui(real, pdf_photobook, insidecovers=args.insidecovers)
             finally:
                 profiler.disable()
                 
@@ -161,4 +161,4 @@ if __name__ == '__main__':
                 stats.sort_stats(SortKey.CUMULATIVE)
                 stats.print_stats(20)
         else:
-            launch_gui(real, pdf_content, insidecovers=args.insidecovers)
+            launch_gui(real, pdf_photobook, insidecovers=args.insidecovers)
