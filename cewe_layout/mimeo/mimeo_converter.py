@@ -257,9 +257,13 @@ def _build_mimeo_photobook(mimeo_data: Dict[str, Any],
     layouts = mimeo_data['layouts']
     frames = mimeo_data['frames']
     photos = mimeo_data['photos']
+    frame_to_photo = mimeo_data['frame_to_photo']  # Dict mapping frame modelId -> photo modelId
+    frame_text = mimeo_data['frame_text']  # Dict mapping frame modelId -> text data
     
     if verbose:
         logger.info(f"Total photos: {len(photos)}, Total frames: {len(frames)}")
+        logger.info(f"Frame-to-photo mappings: {len(frame_to_photo)}")
+        logger.info(f"Frame text content: {len(frame_text)}")
     
     # Build frame lookup by page_id
     # Note: Mimeo stores (x, y) as CENTER of frame with BOTTOM-LEFT origin (Y increases upward)
@@ -274,8 +278,8 @@ def _build_mimeo_photobook(mimeo_data: Dict[str, Any],
         # Keep original center coordinates - transformer will handle conversion
         frames_by_page[page_id].append(frame)
     
-    # Build photo lookup by index
-    photo_by_index = {p['index']: p for p in photos}
+    # Build photo lookup by model_id (not index!)
+    photo_by_model_id = {p['model_id']: p for p in photos}
     
     # Track global photo index
     global_photo_idx = 0
@@ -342,24 +346,92 @@ def _build_mimeo_photobook(mimeo_data: Dict[str, Any],
             logger.info(f"PAGE {page_nr} Mimeo (MCF={mcf_page}) (page_id={page_id}): {len(page_frames)} frames")
         
         for frame_idx, frame in enumerate(page_frames):
-            photo = photo_by_index.get(global_photo_idx)
+            frame_id = frame['model_id']
+            
+            # Check if this frame has a photo
+            photo_model_id = frame_to_photo.get(frame_id)
+            
+            # Check if this frame has text
+            text_data = frame_text.get(frame_id)
+            
+            if photo_model_id is None and text_data is None:
+                # Frame has neither photo nor text (empty or other content type)
+                if verbose and page_nr <= 5:
+                    logger.info(f"  Frame {frame_idx} (id={frame_id}): empty (no photo or text)")
+                continue
+            
+            # Handle text frames
+            if text_data and photo_model_id is None:
+                text_content = text_data.get('text', '')
+                text_type = text_data.get('text_type', 0)
+                style_name = text_data.get('style_name', '')
+                color_str = text_data.get('color', '0.00,0.00,0.00,1.00')
+                
+                if verbose and page_nr <= 5:
+                    text_preview = text_content[:50] + '...' if len(text_content) > 50 else text_content
+                    logger.info(f"  Frame {frame_idx} (id={frame_id}): TEXT type={text_type}, text='{text_preview}'")
+                
+                # Skip page numbers (textType=2) for now
+                if text_type == 2:
+                    if verbose and page_nr <= 5:
+                        logger.info(f"    Skipping page number frame")
+                    continue
+                
+                # Transform frame coordinates for text positioning
+                mcf_x_spread, mcf_y, mcf_w, mcf_h = transformer.transform(
+                    frame['x'], frame['y'], frame['width'], frame['height'],
+                    is_right_page=is_right_page
+                )
+                
+                # Parse color (format: "R,G,B,A" where values are 0.0-255.0)
+                try:
+                    color_parts = color_str.split(',')
+                    r, g, b = [float(c) for c in color_parts[:3]]
+                    # Convert to integer RGB (0-16777215)
+                    color_int = int(r) << 16 | int(g) << 8 | int(b)
+                except:
+                    color_int = 0  # Black default
+                
+                # Add text block to page data
+                text_block = {
+                    'text': text_content,
+                    'left': mcf_x_spread,
+                    'top': mcf_y,
+                    'width': mcf_w,
+                    'height': mcf_h,
+                    'font': style_name,
+                    'size': 12.0,  # Default size, Mimeo doesn't seem to store this
+                    'color': color_int,
+                    'flags': 0,  # No special flags for now
+                }
+                
+                page_data['text_blocks'].append(text_block)
+                
+                if verbose and page_nr <= 5:
+                    logger.info(f"    Added text block at ({mcf_x_spread}, {mcf_y}) size {mcf_w}x{mcf_h}")
+                continue
+            
+            # Handle photo frames
+            if photo_model_id is None:
+                # Frame has text but we already handled it above
+                continue
+            
+            photo = photo_by_model_id.get(photo_model_id)
             
             if verbose and page_nr <= 5:  # Detailed debug for first 5 pages
                 if photo:
                     photo_info = photo_info_map.get(photo['photo_id'])
                     if photo_info:
                         filename = Path(photo_info['path']).name
-                        logger.info(f"  Frame {frame_idx}: global_photo_idx={global_photo_idx}, photo='{filename}'")
+                        logger.info(f"  Frame {frame_idx} (id={frame_id}): photo_id={photo_model_id}, photo='{filename}'")
                     else:
-                        logger.info(f"  Frame {frame_idx}: global_photo_idx={global_photo_idx}, photo UUID not in map")
+                        logger.info(f"  Frame {frame_idx} (id={frame_id}): photo_id={photo_model_id}, UUID not in map")
                 else:
-                    logger.info(f"  Frame {frame_idx}: global_photo_idx={global_photo_idx}, photo=NOT FOUND")
-            
-            global_photo_idx += 1
+                    logger.info(f"  Frame {frame_idx} (id={frame_id}): photo_id={photo_model_id}, NOT FOUND in photos table")
             
             if not photo:
                 if verbose and page_nr <= 5:
-                    logger.warning(f"    No photo at index {global_photo_idx - 1}")
+                    logger.warning(f"    Photo model_id {photo_model_id} not found in photos table")
                 continue
                 
             photo_info = photo_info_map.get(photo['photo_id'])
@@ -409,7 +481,7 @@ def _build_mimeo_photobook(mimeo_data: Dict[str, Any],
                 'height': mcf_h,
                 'data': photo_path.read_bytes(),  # Provide bytes for mcf_writer to save with correct filename
                 'format': photo_path.suffix.lstrip('.').lower(),
-                'index': global_photo_idx - 1,
+                'index': global_photo_idx,  # Sequential index for image naming
                 'cutout_scale': scale,
                 'cutout_left': cutout_left,
                 'cutout_top': cutout_top,
@@ -421,6 +493,7 @@ def _build_mimeo_photobook(mimeo_data: Dict[str, Any],
             
             page_data['images'].append(image_data)
             photos_copied += 1
+            global_photo_idx += 1  # Increment for next photo
         
         pages.append(page_data)
     

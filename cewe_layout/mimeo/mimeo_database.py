@@ -149,27 +149,67 @@ class MimeoProject:
         
         return layouts
     
-    def get_photo_frame_mappings(self) -> List[Dict[str, Any]]:
-        """Get photo-to-frame mappings from KHProjectPhotoFrame table.
+    def get_photo_frame_mappings(self) -> Dict[int, int]:
+        """Get photo-to-frame mappings from KHProjectFrameAttribute table.
         
-        This table may be empty in some projects, in which case the mapping
-        might be implicit (e.g., photo index maps to frame index).
+        The actual mapping is stored in KHProjectFrameAttribute with key='projectPhotoId',
+        which links frameId to photo modelId.
         
         Returns:
-            List of mapping dicts with:
-                - photo_id: Reference to KHProjectPhoto.modelId
-                - frame_id: Reference to KHProjectFrame.modelId
+            Dict mapping frame_id -> photo_id (both are modelId values)
         """
-        rows = self._execute_query("SELECT * FROM KHProjectPhotoFrame")
+        rows = self._execute_query(
+            "SELECT frameId, value FROM KHProjectFrameAttribute WHERE key = 'projectPhotoId'"
+        )
         
-        mappings = []
+        mappings = {}
         for row in rows:
-            mappings.append({
-                'photo_id': row['photoId'],
-                'frame_id': row['frameId'],
-            })
+            frame_id = row['frameId']
+            photo_id = int(row['value'])  # value is stored as string
+            mappings[frame_id] = photo_id
         
         return mappings
+    
+    def get_frame_text(self) -> Dict[int, Dict[str, Any]]:
+        """Get text content for frames from KHProjectFrameAttribute table.
+        
+        Text frames have various text-related attributes:
+        - rawText: The actual text content
+        - textStyleName: Font style identifier
+        - textColor: RGB color values
+        - textType: Type of text (0=user text, 1=title, 2=page number, etc.)
+        
+        Returns:
+            Dict mapping frame_id -> {text, style_name, color, text_type}
+        """
+        # Get all text-related attributes for frames
+        rows = self._execute_query(
+            "SELECT frameId, key, value FROM KHProjectFrameAttribute "
+            "WHERE key IN ('rawText', 'textStyleName', 'textColor', 'textType') "
+            "ORDER BY frameId"
+        )
+        
+        # Group by frame_id
+        frame_text = {}
+        for row in rows:
+            frame_id = row['frameId']
+            key = row['key']
+            value = row['value']
+            
+            if frame_id not in frame_text:
+                frame_text[frame_id] = {}
+            
+            if key == 'rawText':
+                frame_text[frame_id]['text'] = value
+            elif key == 'textStyleName':
+                frame_text[frame_id]['style_name'] = value
+            elif key == 'textColor':
+                frame_text[frame_id]['color'] = value
+            elif key == 'textType':
+                frame_text[frame_id]['text_type'] = int(value) if value else 0
+        
+        # Only return frames that have text
+        return {fid: data for fid, data in frame_text.items() if 'text' in data}
     
     def extract_all(self) -> Dict[str, Any]:
         """Extract all relevant data from Mimeo project.
@@ -180,12 +220,14 @@ class MimeoProject:
                 - photos: List of photos
                 - frames: List of layout frames
                 - layouts: List of page layouts
-                - photo_frame_mappings: Photo-to-frame mappings
+                - frame_to_photo: Dict mapping frame_id -> photo_id (from KHProjectFrameAttribute)
+                - frame_text: Dict mapping frame_id -> text data
         """
         return {
             'metadata': self.get_project_metadata(),
             'photos': self.get_photos(),
             'frames': self.get_frames(),
             'layouts': self.get_layouts(),
-            'photo_frame_mappings': self.get_photo_frame_mappings(),
+            'frame_to_photo': self.get_photo_frame_mappings(),
+            'frame_text': self.get_frame_text(),
         }
