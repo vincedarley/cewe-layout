@@ -6,21 +6,23 @@ from pathlib import Path
 from typing import Dict, Any, Optional
 import hashlib
 from .pdf_extractor import find_closest_book_size, BOOK_SIZES
+from ..photobook import Photobook
 
 
-def calculate_image_relative_sizes(pdf_content: Dict[str, Any]):
+def calculate_image_relative_sizes(photobook: Photobook):
     """Calculate relative sizes for all images across all pages.
     
     Finds the smallest image area and uses it as size 1.0,
     then scales all other images proportionally.
     
     Args:
-        pdf_content: Content dictionary from extract_pdf_content
+        photobook: Photobook instance
     """
     # Collect all image areas
     all_areas = []
-    for page in pdf_content['pages']:
-        for img in page['images']:
+    for i in range(photobook.get_page_count()):
+        page = photobook.get_page(i)
+        for img in page.get_images():
             area = img['width'] * img['height']
             all_areas.append((img, area))
     
@@ -36,14 +38,14 @@ def calculate_image_relative_sizes(pdf_content: Dict[str, Any]):
         img['relative_size'] = relative_size
 
 
-def write_mcf_project(pdf_content: Dict[str, Any], output_path: str, verbose: bool = False, insidecovers: bool = False):
-    """Write extracted PDF content as CEWE MCF project.
+def write_mcf_project(photobook: Photobook, output_path: str, verbose: bool = False, insidecovers: bool = False):
+    """Write photobook content as CEWE MCF project.
     
     Args:
-        pdf_content: Content dictionary from extract_pdf_content
+        photobook: Photobook instance (PDFPhotobook, MimeoPhotobook, etc.)
         output_path: Path to output .xmcf directory
         verbose: Print detailed info
-        insidecovers: Whether PDF includes inside cover pages (affects page mapping)
+        insidecovers: Whether photobook includes inside cover pages (affects page mapping)
     """
     output_dir = Path(output_path)
     
@@ -57,7 +59,7 @@ def write_mcf_project(pdf_content: Dict[str, Any], output_path: str, verbose: bo
         print(f"Creating MCF file: {mcf_path}")
     
     # Build MCF XML structure
-    root = create_mcf_xml(pdf_content, output_dir, verbose, insidecovers)
+    root = create_mcf_xml(photobook, output_dir, verbose, insidecovers)
     
     # Write prettified XML
     xml_str = prettify_xml(root)
@@ -112,23 +114,23 @@ def _create_page_mapping(pdf_page_count: int, insidecovers: bool) -> Dict[str, O
     return mapping
 
 
-def create_mcf_xml(pdf_content: Dict[str, Any], output_dir: Path, verbose: bool = False, insidecovers: bool = False) -> ET.Element:
+def create_mcf_xml(photobook: Photobook, output_dir: Path, verbose: bool = False, insidecovers: bool = False) -> ET.Element:
     """Create the main MCF XML structure.
     
     Args:
-        pdf_content: Extracted PDF content
+        photobook: Photobook instance (PDFPhotobook, MimeoPhotobook, etc.)
         output_dir: Output directory for saving images
         verbose: Print detailed info
-        insidecovers: Whether PDF includes inside cover pages (affects page mapping)
+        insidecovers: Whether photobook includes inside cover pages (affects page mapping)
         
     Returns:
         Root XML element
     """
     # Calculate relative sizes for all images across all pages
-    calculate_image_relative_sizes(pdf_content)
+    calculate_image_relative_sizes(photobook)
     
     # Create page mapping
-    page_mapping = _create_page_mapping(len(pdf_content['pages']), insidecovers)
+    page_mapping = _create_page_mapping(photobook.get_page_count(), insidecovers)
     
     # Create fotobook element as root (no mcf wrapper)
     fotobook = ET.Element('fotobook')
@@ -140,17 +142,18 @@ def create_mcf_xml(pdf_content: Dict[str, Any], output_dir: Path, verbose: bool 
     
     # Get cover dimensions (use front cover if available, else back cover)
     if front_cover_idx is not None:
-        cover_page = pdf_content['pages'][front_cover_idx]
-        pdf_cover_width_mcf = round(cover_page['width'])
-        pdf_cover_height_mcf = round(cover_page['height'])
+        cover_page = photobook.get_page(front_cover_idx)
+        pdf_cover_width_mcf = round(cover_page.get_width())
+        pdf_cover_height_mcf = round(cover_page.get_height())
     elif back_cover_idx is not None:
-        cover_page = pdf_content['pages'][back_cover_idx]
-        pdf_cover_width_mcf = round(cover_page['width'])
-        pdf_cover_height_mcf = round(cover_page['height'])
+        cover_page = photobook.get_page(back_cover_idx)
+        pdf_cover_width_mcf = round(cover_page.get_width())
+        pdf_cover_height_mcf = round(cover_page.get_height())
     else:
         # Fallback: use first page dimensions
-        pdf_cover_width_mcf = round(pdf_content['pages'][0]['width'])
-        pdf_cover_height_mcf = round(pdf_content['pages'][0]['height'])
+        first_page = photobook.get_page(0)
+        pdf_cover_width_mcf = round(first_page.get_width())
+        pdf_cover_height_mcf = round(first_page.get_height())
     
     # Get interior page dimensions (use first interior content page)
     # Find first non-cover page for interior dimensions
@@ -162,9 +165,9 @@ def create_mcf_xml(pdf_content: Dict[str, Any], output_dir: Path, verbose: bool 
             break
     
     if interior_page_idx is not None:
-        interior_page = pdf_content['pages'][interior_page_idx]
-        pdf_interior_width_mcf = round(interior_page['width'])
-        pdf_interior_height_mcf = round(interior_page['height'])
+        interior_page = photobook.get_page(interior_page_idx)
+        pdf_interior_width_mcf = round(interior_page.get_width())
+        pdf_interior_height_mcf = round(interior_page.get_height())
     else:
         # Fallback: assume same as cover
         pdf_interior_width_mcf = pdf_cover_width_mcf
@@ -200,9 +203,9 @@ def create_mcf_xml(pdf_content: Dict[str, Any], output_dir: Path, verbose: bool 
     # WITHOUT --insidecovers: PDF has [front, content..., back] → content pages = N-2
     # WITH --insidecovers: PDF has [front, inside_front, content..., inside_back, back] → content pages = N-4
     if insidecovers:
-        normal_page_count = len(pdf_content['pages']) - 4  # Exclude front, inside_front, inside_back, back
+        normal_page_count = photobook.get_page_count() - 4  # Exclude front, inside_front, inside_back, back
     else:
-        normal_page_count = len(pdf_content['pages']) - 2  # Exclude front, back
+        normal_page_count = photobook.get_page_count() - 2  # Exclude front, back
     
     # Set all required fotobook attributes
     fotobook.set('art_id', str(cewe_dimensions['art_id']))
@@ -226,9 +229,9 @@ def create_mcf_xml(pdf_content: Dict[str, Any], output_dir: Path, verbose: bool 
     # Inside back cover is pagenr="0", so it doesn't count toward normalpages
     # Calculate this before calling add_cewe_boilerplate_elements
     if insidecovers:
-        num_content_pages = len(pdf_content['pages']) - 4
+        num_content_pages = photobook.get_page_count() - 4
     else:
-        num_content_pages = len(pdf_content['pages']) - 2
+        num_content_pages = photobook.get_page_count() - 2
     normalpages = num_content_pages  # Highest numbered page (1..N)
     add_cewe_boilerplate_elements(fotobook, normalpages)
     
@@ -242,17 +245,21 @@ def create_mcf_xml(pdf_content: Dict[str, Any], output_dir: Path, verbose: bool 
     
     if front_pdf_idx is not None and back_pdf_idx is not None:
         # Create combined back+front cover spread
+        # Get page data dicts for backward compatibility with create_cover_spread_element
+        front_page = photobook.get_page(front_pdf_idx)
+        back_page = photobook.get_page(back_pdf_idx)
         cover_page = create_cover_spread_element(
-            pdf_content['pages'][front_pdf_idx],   # Front cover (right half)
-            pdf_content['pages'][back_pdf_idx],    # Back cover (left half)
+            front_page._page_data,   # Front cover (right half)
+            back_page._page_data,    # Back cover (left half)
             output_dir, cewe_cover_width_mcf, cewe_cover_height_mcf, verbose,
             pdf_cover_width_mcf, pdf_cover_height_mcf
         )
         fotobook.append(cover_page)
     elif front_pdf_idx is not None:
         # Only front cover available
+        front_page = photobook.get_page(front_pdf_idx)
         cover_page = create_cover_spread_element(
-            pdf_content['pages'][front_pdf_idx], None,
+            front_page._page_data, None,
             output_dir, cewe_cover_width_mcf, cewe_cover_height_mcf, verbose,
             pdf_cover_width_mcf, pdf_cover_height_mcf
         )
@@ -275,7 +282,8 @@ def create_mcf_xml(pdf_content: Dict[str, Any], output_dir: Path, verbose: bool 
     # Create page 0 element - either with content (insidecovers) or empty (no insidecovers)
     # Inside covers use interior page dimensions
     if inside_front_pdf_idx is not None:
-        inside_front_data = pdf_content['pages'][inside_front_pdf_idx]
+        inside_front_page_obj = photobook.get_page(inside_front_pdf_idx)
+        inside_front_data = inside_front_page_obj._page_data
         # Get PDF dimensions from the actual page data
         pdf_page0_width = round(inside_front_data['width'])
         pdf_page0_height = round(inside_front_data['height'])
@@ -292,7 +300,8 @@ def create_mcf_xml(pdf_content: Dict[str, Any], output_dir: Path, verbose: bool 
     # Add page 1's areas to page 0's element (page 1 is right side of the spread)
     page1_pdf_idx = page_mapping.get(1)
     if page1_pdf_idx is not None:
-        page1_data = pdf_content['pages'][page1_pdf_idx]
+        page1_page_obj = photobook.get_page(page1_pdf_idx)
+        page1_data = page1_page_obj._page_data
         # Get PDF dimensions from the actual page data
         pdf_page1_width = round(page1_data['width'])
         pdf_page1_height = round(page1_data['height'])
@@ -318,9 +327,9 @@ def create_mcf_xml(pdf_content: Dict[str, Any], output_dir: Path, verbose: bool 
     # Calculate how many content pages we have from the mapping
     # Content pages are sequential from 1 to N (not including inside covers at 0 and N+1)
     if insidecovers:
-        num_content_pages = len(pdf_content['pages']) - 4  # Exclude front, inside_front, inside_back, back
+        num_content_pages = photobook.get_page_count() - 4  # Exclude front, inside_front, inside_back, back
     else:
-        num_content_pages = len(pdf_content['pages']) - 2  # Exclude front, back
+        num_content_pages = photobook.get_page_count() - 2  # Exclude front, back
     
     max_content_ui_page = num_content_pages
     
@@ -338,7 +347,8 @@ def create_mcf_xml(pdf_content: Dict[str, Any], output_dir: Path, verbose: bool 
             if pdf_idx is None:
                 continue
                 
-            page_data = pdf_content['pages'][pdf_idx]
+            page_obj = photobook.get_page(pdf_idx)
+            page_data = page_obj._page_data
             cewe_pagenr = ui_page  # UI page number = CEWE page number
             
             # Even pages (left side of spread) contain areas for both this and next page
@@ -359,7 +369,8 @@ def create_mcf_xml(pdf_content: Dict[str, Any], output_dir: Path, verbose: bool 
                 next_pdf_idx = page_mapping.get(next_ui_page)
                 # Add next page if it exists in mapping (content page or inside back cover)
                 if next_pdf_idx is not None and next_ui_page <= max_content_ui_page + 1:
-                    next_page_data = pdf_content['pages'][next_pdf_idx]
+                    next_page_obj = photobook.get_page(next_pdf_idx)
+                    next_page_data = next_page_obj._page_data
                     # Get PDF dimensions from the actual page data
                     pdf_odd_width = round(next_page_data['width'])
                     pdf_odd_height = round(next_page_data['height'])
@@ -397,7 +408,7 @@ def create_mcf_xml(pdf_content: Dict[str, Any], output_dir: Path, verbose: bool 
     if inside_back_ui_page % 2 == 0:
         raise RuntimeError(f"ERROR: Inside back cover calculated as UI page {inside_back_ui_page} (even). "
                           f"It must be odd (right side). max_content_ui_page={max_content_ui_page}, "
-                          f"content_pages={len(pdf_content['pages']) - 4 if insidecovers else len(pdf_content['pages']) - 2}")
+                          f"content_pages={photobook.get_page_count() - 4 if insidecovers else photobook.get_page_count() - 2}")
     
     inside_back_pdf_idx = page_mapping.get(inside_back_ui_page)
     # NOTE: Inside back cover page element is always EMPTY because we already added
