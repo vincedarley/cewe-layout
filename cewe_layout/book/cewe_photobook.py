@@ -146,7 +146,17 @@ class CEWEPhotobook(Photobook):
     def get_metadata(self) -> Dict[str, str]:
         """Get CEWE project metadata."""
         return self._metadata
-    
+
+    def allow_spreads(self) -> bool:
+        if self._is_canvas: return False
+        if self._is_calendar: return False
+        return True
+
+    def page_label(self) -> str:
+        if self._is_canvas: return "Canvas"
+        if self._is_calendar: return "Month"
+        return "Page"
+
     def has_covers(self) -> bool:
         """Whether book has front and back covers."""
         return self._has_covers
@@ -169,11 +179,7 @@ class CEWEPhotobook(Photobook):
     def get_native_unit_name(self) -> str:
         """Get name of native coordinate unit."""
         return "MCF units"
-    
-    def is_canvas(self) -> bool:
-        """Whether this is a canvas product (single large page)."""
-        return self._is_canvas
-    
+
     def is_calendar(self) -> bool:
         """Whether this is a calendar product (monthly pages)."""
         return self._is_calendar

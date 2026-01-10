@@ -91,14 +91,12 @@ class LayoutViewer:
         self.index = 0
         self.layout_mgr = LayoutManager()
         
-        # Detect Canvas/Calendar mode from first page
-        self.is_canvas = False
+        # Detect Calendar mode from first page
         self.is_calendar = False
         self.calendar_edge_gaps = None
         if self.book.get_page_count() > 0:
             first_page = self.book.get_page(0)
             first_info = first_page.get_page_info()
-            self.is_canvas = first_info.get('is_canvas', False)
             self.is_calendar = first_info.get('is_calendar', False)
             if self.is_calendar:
                 self.calendar_edge_gaps = first_info.get('calendar_edge_gaps')
@@ -120,9 +118,7 @@ class LayoutViewer:
         self.debug_var = tk.BooleanVar(value=False)
         
         # Spread mode flag - when True, show two pages (even+odd) as a spread
-        # For Canvas only (single page), this is forced to True and locked
-        # For Calendar (multiple standalone pages), spread mode is disabled (single pages only)
-        self.spread_mode = tk.BooleanVar(value=self.is_canvas)
+        self.spread_mode = tk.BooleanVar(value=False)
         
         # Track current spread pages (list of 1 or 2 page numbers)
         self.current_spread_pages = []
@@ -287,14 +283,9 @@ class LayoutViewer:
         # For Canvas mode, hide all page navigation controls
         # For Calendar mode, show navigation but with 'Month:' label
         nav_frame = ttk.Frame(self.ctrlWin)
-        if not self.is_canvas:
+        if self.book.has_multiple_pages():
             nav_frame.grid(row=0, column=0, sticky='w', padx=4, pady=4)
-        if self.is_canvas:
-            page_label = 'Canvas:'
-        elif self.is_calendar:
-            page_label = 'Month:'
-        else:
-            page_label = 'Page:'
+        page_label = self.book.page_label() + ':'
         self.page_num_var = tk.StringVar(value=page_label)
         self.page_num_label = ttk.Label(nav_frame, textvariable=self.page_num_var, font=('TkDefaultFont', 9))
         self.page_num_label.pack(side='left', padx=(0,4))
@@ -304,7 +295,7 @@ class LayoutViewer:
         next_btn.pack(side='left')
         
         goto_frame = ttk.Frame(self.ctrlWin)
-        if not self.is_canvas:
+        if self.book.has_multiple_pages():
             goto_frame.grid(row=0, column=1, sticky='w', padx=4, pady=4)
         ttk.Label(goto_frame, text='Go to:').pack(side='left', pady=2)
         self.goto_var = tk.StringVar()
@@ -317,11 +308,10 @@ class LayoutViewer:
         self.page_range_label = ttk.Label(goto_frame, textvariable=self.page_range_var, foreground='gray')
         self.page_range_label.pack(side='left', padx=(8,0))
         
-        # Spread mode checkbox (disabled for Canvas and Calendar - always single pages)
-        is_spread_disabled = self.is_canvas or self.is_calendar
-        spread_check = ttk.Checkbutton(goto_frame, text='Spread', variable=self.spread_mode, 
+        # Spread mode checkbox (if allowed)
+        spread_check = ttk.Checkbutton(goto_frame, text='Spread', variable=self.spread_mode,
                                        command=self._on_spread_mode_change,
-                                       state='disabled' if is_spread_disabled else 'normal')
+                                       state='disabled' if not self.book.allow_spreads() else 'normal')
         spread_check.pack(side='left', padx=(8,0))
         
         # Draw cropped checkbox (applies cutout/scale transformations from MCF)
@@ -1062,13 +1052,8 @@ class LayoutViewer:
 
         if self.book.get_page_count() == 0:
             # Update page number display
-            if self.is_canvas:
-                self.page_num_var.set('Canvas:')
-            elif self.is_calendar:
-                self.page_num_var.set('Month:')
-            else:
-                self.page_num_var.set('Page:')
-            
+            self.page_num_var.set('Empty:')
+
             # Render empty page
             canvas_w, canvas_h = self._get_canvas_dimensions()
             self.page_renderer.render_empty_page(canvas_w, canvas_h, 'No pages found')
@@ -1145,16 +1130,12 @@ class LayoutViewer:
         dimensions_str = f'{width_cm:.1f}cm x {height_cm:.1f}cm'
         text_label = 'text' if len(all_texts) == 1 else 'texts'
 
-        title = f'{self.photobook_name} - '
+        title = f'{self.photobook_name} - ' + self.book.page_label()
         # Update window title with photobook/canvas/calendar name and page info
-        if self.is_canvas:
-            title += 'Canvas' # Canvas mode: show as "Canvas" not "Page"
-        elif self.is_calendar:
-            title += f'Month {self.current_spread_pages[0]}' # Calendar mode: show as "Month" not "Page"
-        elif len(self.current_spread_pages) == 2:
-            title += f'Pages {self.current_spread_pages[0]}-{self.current_spread_pages[1]}'
+        if len(self.current_spread_pages) == 2:
+            title += f's  {self.current_spread_pages[0]}-{self.current_spread_pages[1]}'
         else:
-            title += f'Page {self.current_spread_pages[0]}'
+            title += f' {self.current_spread_pages[0]}'
 
         title += f', {dimensions_str} : {len(all_photos)} photos'
         if all_texts: title += f', {len(all_texts)} {text_label}'
@@ -1164,7 +1145,7 @@ class LayoutViewer:
         # Canvas mode: always treat as single page (no spread navigation)
         # Calendar mode: treat as single pages (no spreads), but allow navigation
         # Photobook mode: determine which pages to render based on spread mode
-        if self.is_canvas or self.is_calendar or not self.spread_mode.get():
+        if not self.spread_mode.get():
             # Single page modes
             page_indices = [self.index]
             self.current_spread_pages = [self.book.get_page(self.index).get_page_number()]
@@ -1268,14 +1249,13 @@ class LayoutViewer:
                     self.current_spread_pages = [current_pageno]
 
         # Update page number display
-        if self.is_canvas:
-            self.page_num_var.set('Canvas:')
-        elif self.is_calendar:
-            self.page_num_var.set(f'Month {self.current_spread_pages[0]}:')
-        elif len(self.current_spread_pages) == 2:
-            self.page_num_var.set(f'Pages {self.current_spread_pages[0]}-{self.current_spread_pages[1]}:')
+        display = self.book.page_label()
+        if len(self.current_spread_pages) == 2:
+            display += f's  {self.current_spread_pages[0]}-{self.current_spread_pages[1]}'
         else:
-            self.page_num_var.set(f'Page {self.current_spread_pages[0]}:')
+            display += f' {self.current_spread_pages[0]}'
+        self.page_num_var.set(display)
+
         return page_indices
 
     def _on_photo_swap(self, source_pageno, source_photo_idx, dest_pageno, dest_photo_idx):

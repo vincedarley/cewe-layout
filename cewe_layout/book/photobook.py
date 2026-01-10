@@ -139,7 +139,16 @@ class Photobook(ABC):
         - Other format-specific metadata
         """
         pass
-    
+
+    def allow_spreads(self) -> bool:
+        return True
+
+    def page_label(self) -> str:
+        return "Page"
+
+    def has_multiple_pages(self) -> bool:
+        return self.get_page_count() > 1
+
     @abstractmethod
     def has_covers(self) -> bool:
         """Whether book has front and back covers.
@@ -151,7 +160,7 @@ class Photobook(ABC):
     
     @abstractmethod
     def has_inside_covers(self) -> bool:
-        """Whether book has dedicated inside cover pages."""
+        """Whether book has inside cover pages which can contain content."""
         pass
     
     @abstractmethod
@@ -160,55 +169,29 @@ class Photobook(ABC):
         pass
     
     def get_front_cover_page(self) -> PhotobookPage:
-        """Get front cover page.
-        
-        Returns:
-            Front cover page
-            
-        Raises:
-            ValueError: If no front cover found (should never happen)
-        """
-        for i in range(self.get_page_count()):
-            page = self.get_page(i)
-            if page.get_page_type() == PageType.FRONT_COVER:
-                return page
-        raise ValueError("Photobook must have a front cover")
-    
+        """Get front cover page, or None if not present."""
+        if not self.has_covers():
+            return None
+        return self.get_page(0)
+
     def get_back_cover_page(self) -> PhotobookPage:
-        """Get back cover page.
-        
-        Returns:
-            Back cover page
-            
-        Raises:
-            ValueError: If no back cover found (should never happen)
-        """
-        for i in range(self.get_page_count()):
-            page = self.get_page(i)
-            if page.get_page_type() == PageType.BACK_COVER:
-                return page
-        raise ValueError("Photobook must have a back cover")
-    
+        """Get back cover page, or None if not present."""
+        if not self.has_covers():
+            return None
+        return self.get_page(self.get_page_count()-1)
+
     def get_inside_front_page(self) -> Optional[PhotobookPage]:
         """Get inside front cover page, or None if not present."""
         if not self.has_inside_covers():
             return None
-        for i in range(self.get_page_count()):
-            page = self.get_page(i)
-            if page.get_page_type() == PageType.INSIDE_FRONT:
-                return page
-        return None
-    
+        return self.get_page(1)
+
     def get_inside_back_page(self) -> Optional[PhotobookPage]:
         """Get inside back cover page, or None if not present."""
         if not self.has_inside_covers():
             return None
-        for i in range(self.get_page_count()):
-            page = self.get_page(i)
-            if page.get_page_type() == PageType.INSIDE_BACK:
-                return page
-        return None
-    
+        return self.get_page(self.get_page_count()-2)
+
     def get_content_pages(self) -> List[Tuple[int, PhotobookPage]]:
         """Get all content pages as (index, page) tuples.
         
