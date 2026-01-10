@@ -126,6 +126,19 @@ class MimeoProject:
                 - height: Page height
                 - background_color: Page background color (if available)
         """
+        # Get layout background colors via treatmentId -> layer -> fillColor
+        # Query: layout.treatmentId -> KHProjectTreatmentLayer.treatmentId -> layerId -> KHProjectLayerAttribute.fillColor
+        bg_colors = {}
+        bg_rows = self._execute_query(
+            "SELECT DISTINCT l.modelId, la.value "
+            "FROM KHProjectLayout l "
+            "JOIN KHProjectTreatmentLayer tl ON l.treatmentId = tl.treatmentId "
+            "JOIN KHProjectLayerAttribute la ON tl.layerId = la.layerId "
+            "WHERE la.key = 'fillColor'"
+        )
+        for row in bg_rows:
+            bg_colors[row['modelId']] = row['value']
+        
         rows = self._execute_query("SELECT * FROM KHProjectLayout ORDER BY sequence")
         
         layouts = []
@@ -141,9 +154,10 @@ class MimeoProject:
             if 'height' in row.keys():
                 layout['height'] = row['height']
             
-            # Add background color if column exists
-            if 'backgroundColor' in row.keys():
-                layout['background_color'] = row['backgroundColor']
+            # Add background color if available
+            model_id = row['modelId']
+            if model_id in bg_colors:
+                layout['background_color'] = bg_colors[model_id]
             
             layouts.append(layout)
         

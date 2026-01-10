@@ -17,15 +17,19 @@ logger = logging.getLogger(__name__)
 class PDFPhotobookPage(PhotobookPage):
     """PDF photobook page with coordinates in PDF points."""
     
-    def __init__(self, page_data: Dict[str, Any], page_type: PageType):
+    def __init__(self, page_data: Dict[str, Any], page_type: PageType, page_number, index: int):
         """Initialize PDF photobook page.
         
         Args:
             page_data: Page data dict from pdf_extractor with 'width', 'height', 'images', 'text_blocks'
             page_type: Type of this page
+            page_number: Page number (str for covers, int for content)
+            index: Page index in PDF (0-based)
         """
         self._page_data = page_data
         self._page_type = page_type
+        self._page_number = page_number
+        self._index = index
     
     def get_width(self) -> float:
         """Get page width in PDF points."""
@@ -52,6 +56,38 @@ class PDFPhotobookPage(PhotobookPage):
     def get_page_type(self) -> PageType:
         """Get the type of this page."""
         return self._page_type
+    
+    def get_page_number(self):
+        """Get page number/identifier."""
+        return self._page_number
+    
+    def get_page_info(self) -> Dict[str, Any]:
+        """Get page info as dictionary for backward compatibility.
+        
+        Returns dict matching the format expected by gui.py.
+        """
+        # Determine origin_left based on page type/number
+        # For PDF, we use standard CEWE layout: left pages have origin_left=0
+        is_left_page = False
+        if isinstance(self._page_number, int):
+            # Even page numbers are on the right in CEWE
+            is_left_page = (self._page_number % 2 == 1)
+        elif self._page_number == "F":
+            # Front cover is considered right page
+            is_left_page = False
+        elif self._page_number == "B":
+            # Back cover is considered left page
+            is_left_page = True
+        
+        return {
+            'photos': self.get_images(),
+            'texts': self.get_text_blocks(),
+            'page_width': self.get_width(),
+            'page_height': self.get_height(),
+            'origin_left': 0.0 if is_left_page else self.get_width(),
+            'background_id': self._page_data.get('background_id'),
+            'is_cover': self._page_type in (PageType.FRONT_COVER, PageType.BACK_COVER)
+        }
     
     def get_raw_data(self) -> Dict[str, Any]:
         """Get the underlying page data dict (for compatibility with existing code)."""
@@ -183,11 +219,12 @@ class PDFPhotobook(Photobook):
         if page_data is None:
             raise ValueError(f"Page {index} data not available")
         
-        # Determine page type based on index and insidecovers flag
+        # Determine page type and page number based on index and insidecovers flag
         page_type = self._get_page_type(index)
+        page_number = self._get_page_number(index)
         
         # Create and cache page
-        page = PDFPhotobookPage(page_data, page_type)
+        page = PDFPhotobookPage(page_data, page_type, page_number, index)
         self._pages_cache[index] = page
         return page
     
@@ -221,9 +258,43 @@ class PDFPhotobook(Photobook):
             else:
                 return PageType.CONTENT
     
+    def _get_page_number(self, index: int):
+        """Determine page number from index.
+        
+        Args:
+            index: PDF page index (0-based)
+            
+        Returns:
+            Page number (str for covers, int for content/inside covers)
+        """
+        if self._has_inside_covers:
+            # WITH inside covers: [0="F", 1=0, 2..N-3=1..(N-4), N-2=(N-3), N-1="B"]
+            if index == 0:
+                return "F"
+            elif index == 1:
+                return 0  # Inside front cover
+            elif index == self._page_count - 1:
+                return "B"
+            elif index == self._page_count - 2:
+                return self._page_count - 3  # Inside back cover
+            else:
+                return index - 1  # Content pages start at 1
+        else:
+            # WITHOUT inside covers: [0="F", 1..N-2=1..(N-2), N-1="B"]
+            if index == 0:
+                return "F"
+            elif index == self._page_count - 1:
+                return "B"
+            else:
+                return index  # Content pages start at 1
+    
     def get_metadata(self) -> Dict[str, str]:
         """Get PDF metadata."""
         return self._metadata
+    
+    def has_covers(self) -> bool:
+        """PDF books always have front and back covers."""
+        return True
     
     def has_inside_covers(self) -> bool:
         """Whether book has dedicated inside cover pages."""

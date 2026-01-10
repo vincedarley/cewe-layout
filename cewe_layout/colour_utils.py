@@ -321,6 +321,49 @@ def get_color_rgb(color_code):
     hex_color = hex_color.lstrip('#')
     return tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
 
+def find_closest_color_code(rgba_str: str) -> int:
+    """Find the closest CEWE color code for a given RGBA string.
+    
+    Args:
+        rgba_str: RGBA color string in format "R,G,B,A" where values are either:
+                  - 0.0-1.0 (normalized)
+                  - 0-255 (byte values)
+    
+    Returns:
+        CEWE color code (integer) from COLOR_MAP that most closely matches the input
+    """
+    # Parse RGBA string
+    try:
+        parts = rgba_str.split(',')
+        r, g, b = [float(p) for p in parts[:3]]
+        
+        # Normalize to 0-255 range
+        # If values are <= 1.0, they're normalized; otherwise they're already 0-255
+        if r <= 1.0 and g <= 1.0 and b <= 1.0:
+            r, g, b = int(r * 255), int(g * 255), int(b * 255)
+        else:
+            r, g, b = int(r), int(g), int(b)
+    except (ValueError, IndexError):
+        # Default to black if parsing fails
+        return 212  # Black
+    
+    # Find closest color by Euclidean distance
+    min_distance = float('inf')
+    closest_code = 212  # Default to black
+    
+    for code, hex_color in COLOR_MAP.items():
+        hex_color = hex_color.lstrip('#')
+        map_r, map_g, map_b = tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
+        
+        # Calculate Euclidean distance in RGB space
+        distance = ((r - map_r) ** 2 + (g - map_g) ** 2 + (b - map_b) ** 2) ** 0.5
+        
+        if distance < min_distance:
+            min_distance = distance
+            closest_code = code
+    
+    return closest_code
+
 def getBackgroundAndFrameColour(background_id) -> tuple[str, str]:
     if background_id:
         try:

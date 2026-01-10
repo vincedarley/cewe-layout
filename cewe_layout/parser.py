@@ -6,6 +6,7 @@ import os
 import glob
 import logging
 from .page_utils import determine_page_owner_of_area, page_sort_key
+from .book.cewe_photobook import CEWEPhotobook
 
 logger = logging.getLogger(__name__)
 
@@ -587,7 +588,8 @@ def extract_pages_info(fotobook_root):
         is_cover = page_data.get('is_cover', False)
         logger.debug(f"  Page {page_num}: {len(page_data['photos'])} photos, {len(page_data['texts'])} texts (cover={is_cover})")
     
-    return pages
+    # Return CEWEPhotobook instance instead of raw list
+    return CEWEPhotobook(pages)
 
 
 def _parseImageArea(imageTag, area_width: float, area_height: float, area_left: float, area_top: float,

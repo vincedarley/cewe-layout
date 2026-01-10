@@ -6,9 +6,9 @@
 # save the book in CEWE Creator, I expect the coverWidth may change slightly.
 
 BOOK_SIZES = {
-    'ALB45': {'coverWidth': 3975, 'coverHeight': 1530, 'pageWidth': 3800, 'pageHeight': 1480, 'art_id': 8068},
-    'ALB42': {'coverWidth': 7870, 'coverHeight': 2960, 'pageWidth': 7640, 'pageHeight': 2900, 'art_id': 9896},
-    'ALB35': {'coverWidth': 5575, 'coverHeight': 2100, 'pageWidth': 5400, 'pageHeight': 2050, 'art_id': 9759},
+    'L landscape': {'productname': 'ALB45', 'coverWidth': 3975, 'coverHeight': 1530, 'pageWidth': 3800, 'pageHeight': 1480, 'art_id': 8068},
+    'XXL landscape': {'productname': 'ALB42', 'coverWidth': 7870, 'coverHeight': 2960, 'pageWidth': 7640, 'pageHeight': 2900, 'art_id': 9896},
+    'XL landscape': {'productname': 'ALB35', 'coverWidth': 5575, 'coverHeight': 2100, 'pageWidth': 5400, 'pageHeight': 2050, 'art_id': 9759},
 }
 
 

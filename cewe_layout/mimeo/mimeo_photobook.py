@@ -16,15 +16,19 @@ logger = logging.getLogger(__name__)
 class MimeoPhotobookPage(PhotobookPage):
     """Mimeo photobook page with coordinates in Mimeo units."""
     
-    def __init__(self, page_data: Dict[str, Any], page_type: PageType):
+    def __init__(self, page_data: Dict[str, Any], page_type: PageType, page_number, index: int):
         """Initialize Mimeo photobook page.
         
         Args:
             page_data: Page data dict with 'width', 'height', 'images', 'text_blocks'
             page_type: Type of this page
+            page_number: Page number (str for covers, int for content)
+            index: Page index in book (0-based)
         """
         self._page_data = page_data
         self._page_type = page_type
+        self._page_number = page_number
+        self._index = index
     
     def get_width(self) -> float:
         """Get page width in Mimeo units."""
@@ -51,6 +55,25 @@ class MimeoPhotobookPage(PhotobookPage):
     def get_page_type(self) -> PageType:
         """Get the type of this page."""
         return self._page_type
+    
+    def get_page_number(self):
+        """Get page number/identifier."""
+        return self._page_number
+    
+    def get_page_info(self) -> Dict[str, Any]:
+        """Get page info as dictionary for backward compatibility.
+        
+        Returns dict matching the format expected by gui.py.
+        """
+        return {
+            'photos': self.get_images(),
+            'texts': self.get_text_blocks(),
+            'page_width': self.get_width(),
+            'page_height': self.get_height(),
+            'origin_left': 0.0,  # Mimeo uses left page layout
+            'background_id': self._page_data.get('background_id'),
+            'is_cover': self._page_type in (PageType.FRONT_COVER, PageType.BACK_COVER)
+        }
     
     def get_raw_data(self) -> Dict[str, Any]:
         """Get the underlying page data dict (for compatibility)."""
@@ -101,31 +124,40 @@ class MimeoPhotobook(Photobook):
         
         page_data = self._pages[index]
         
-        # Determine page type based on position:
-        # Page 1 (index 0) = Front cover
-        # Page 2 (index 1) = Inside front cover
-        # Pages 3-88 (index 2-87) = Content pages (86 pages)
-        # Page 89 (index 88) = Inside back cover (empty)
-        # Page 90 (index 89) = Back cover
+        # Determine page type and page number based on position:
+        # Page 1 (index 0) = Front cover ("F")
+        # Page 2 (index 1) = Inside front cover (0)
+        # Pages 3-88 (index 2-87) = Content pages (1-86)
+        # Page 89 (index 88) = Inside back cover (87)
+        # Page 90 (index 89) = Back cover ("B")
         if index == 0:
             page_type = PageType.FRONT_COVER
+            page_number = "F"
         elif index == 1:
             page_type = PageType.INSIDE_FRONT
+            page_number = 0
         elif index == self._page_count - 1:
             page_type = PageType.BACK_COVER
+            page_number = "B"
         elif index == self._page_count - 2:
             page_type = PageType.INSIDE_BACK
+            page_number = self._page_count - 3  # Content page count + 1
         else:
             page_type = PageType.CONTENT
+            page_number = index - 1  # Offset by inside front cover
         
         # Create and cache page
-        page = MimeoPhotobookPage(page_data, page_type)
+        page = MimeoPhotobookPage(page_data, page_type, page_number, index)
         self._pages_cache[index] = page
         return page
     
     def get_metadata(self) -> Dict[str, str]:
         """Get Mimeo project metadata."""
         return self._metadata
+    
+    def has_covers(self) -> bool:
+        """Mimeo books have front and back covers."""
+        return True
     
     def has_inside_covers(self) -> bool:
         """Mimeo books have inside covers."""

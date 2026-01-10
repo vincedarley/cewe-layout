@@ -16,6 +16,7 @@ from ..book.mcf_writer import write_mcf_project
 from ..book.utils import BOOK_SIZES
 from ..photos import get_image_dimensions
 from ..writer import _calculate_cutout
+from ..colour_utils import find_closest_color_code
 
 logger = logging.getLogger(__name__)
 
@@ -340,6 +341,16 @@ def _build_mimeo_photobook(mimeo_data: Dict[str, Any],
             'images': [],
             'text_blocks': []
         }
+        
+        # Add background color if available
+        # Convert Mimeo RGBA color to CEWE color code
+        if 'background_color' in layout:
+            bg_rgba = layout['background_color']
+            bg_code = find_closest_color_code(bg_rgba)
+            page_data['background_id'] = bg_code
+            
+            if verbose and page_nr <= 3:
+                logger.info(f"  Background: {bg_rgba} -> CEWE code {bg_code}")
         
         # Debug output
         if verbose:

@@ -81,7 +81,7 @@ def get_modifier_symbol():
 class LayoutViewer:
     def __init__(self, root, mcf_root, mcf_file_path, pdf_content: PDFPhotobook=None, insidecovers=False):
         # mcf_root is the parsed XML root; mcf_file_path is the full path to the .mcf file
-        self.pages = extract_pages_info(mcf_root)
+        self.book = extract_pages_info(mcf_root)
         self.mcf_file_path = mcf_file_path
         self.pdf_content : PDFPhotobook = pdf_content  # Store PDF content if provided
         self.insidecovers = insidecovers  # Whether PDF includes inside cover pages
@@ -95,8 +95,9 @@ class LayoutViewer:
         self.is_canvas = False
         self.is_calendar = False
         self.calendar_edge_gaps = None
-        if self.pages:
-            _, first_info = self.pages[0]
+        if self.book.get_page_count() > 0:
+            first_page = self.book.get_page(0)
+            first_info = first_page.get_page_info()
             self.is_canvas = first_info.get('is_canvas', False)
             self.is_calendar = first_info.get('is_calendar', False)
             if self.is_calendar:
@@ -139,7 +140,7 @@ class LayoutViewer:
         # Identify inside cover pages once (page 0 and last numeric page)
         self.inside_front_cover_page = 0  # Page 0 is always inside front cover
         self.inside_back_cover_page = None
-        numeric_pages = [(p, info) for p, info in self.pages if isinstance(p, int) and p > 0]
+        numeric_pages = [(page.get_page_number(), page.get_page_info()) for page in self.book if isinstance(page.get_page_number(), int) and page.get_page_number() > 0]
         if numeric_pages:
             last_page_num, last_page_info = numeric_pages[-1]
             # Inside back cover is always the last numeric page, which must be odd (right side)
@@ -159,7 +160,9 @@ class LayoutViewer:
         self.improved_photos = {}  # Maps original_filename -> improved_filename
         
         # initialize layout manager with originals from file
-        for pageno, info in self.pages:
+        for page in self.book:
+            pageno = page.get_page_number()
+            info = page.get_page_info()
             self.layout_mgr.set_original(pageno, info.get('photos', []), info.get('texts', []))
             photos = info.get('photos', [])
             texts = info.get('texts', [])
@@ -223,7 +226,7 @@ class LayoutViewer:
         # Add 5mm (50 MCF units) margin on all sides, just for display purposes. 
         # It is not a part of the actual book!
         self.margin_mcf = 50.0
-        _, first_page_info = self.pages[0]
+        first_page_info = self.book.get_page(0).get_page_info()
         page_w = first_page_info.get('page_width')
         page_h = first_page_info.get('page_height')
         
@@ -716,7 +719,9 @@ class LayoutViewer:
         # Find the first page that needs work (is completely empty or has empty rects)
         # Skip inside cover pages UNLESS --insidecovers flag was given (then they have content)
         
-        for idx, (pageno, info) in enumerate(self.pages):
+        for idx, page in self.book.enumerate_pages():
+            pageno = page.get_page_number()
+            info = page.get_page_info()
             # Skip inside cover pages only if they're empty (no --insidecovers flag)
             if not self.insidecovers:
                 if pageno == self.inside_front_cover_page or pageno == self.inside_back_cover_page:
@@ -736,17 +741,17 @@ class LayoutViewer:
 
         # Start at front cover if all pages are complete
         # Look for "F" (front cover) first, then first normal page (1)
-        for idx, (pageno, _) in enumerate(self.pages):
-            if pageno == "F":
+        for idx, page in self.book.enumerate_pages():
+            if page.get_page_number() == "F":
                 return idx
         
         # If no front cover, start at first normal page (page 1)
-        for idx, (pageno, _) in enumerate(self.pages):
-            if pageno == 1:
+        for idx, page in self.book.enumerate_pages():
+            if page.get_page_number() == 1:
                 return idx
         
         # This shouldn't happen - every photobook should have at least page 1
-        raise RuntimeError(f"Unable to find valid starting page. Pages: {[p for p, _ in self.pages]}")
+        raise RuntimeError(f"Unable to find valid starting page. Pages: {self.book.get_page_numbers()}")
 
     def _setup_keyboard_shortcuts(self):
         """Setup keyboard shortcuts for common actions."""
@@ -931,7 +936,9 @@ class LayoutViewer:
         page_data_list = []
         
         for page_idx in page_indices:
-            pageno, info = self.pages[page_idx]
+            page = self.book.get_page(page_idx)
+            pageno = page.get_page_number()
+            info = page.get_page_info()
             current_layout = self.layout_mgr.get_current(pageno)
             photos = current_layout.photos if current_layout else info.get('photos', [])
             texts = current_layout.texts if current_layout else info.get('texts', [])
@@ -991,6 +998,15 @@ class LayoutViewer:
         else:  # 'text'
             self._delete_text(item_index, pageno)
     
+    @property
+    def pages(self):
+        """Compatibility property for pdf2cewe module.
+        
+        Returns a list of (page_number, page_info) tuples matching the old format.
+        This is a temporary shim for code that hasn't been migrated to use self.book yet.
+        """
+        return [(page.get_page_number(), page.get_page_info()) for page in self.book]
+    
     def _ui_page_to_pdf_page(self, ui_pageno):
         """Map UI page number to PDF page index.
         
@@ -1044,7 +1060,7 @@ class LayoutViewer:
         # Clear status message when changing pages
         self.status_var.set('')
 
-        if not self.pages:
+        if self.book.get_page_count() == 0:
             # Update page number display
             if self.is_canvas:
                 self.page_num_var.set('Canvas:')
@@ -1068,7 +1084,9 @@ class LayoutViewer:
         all_texts = []
         
         for page_idx in page_indices:
-            pageno_i, info_i = self.pages[page_idx]
+            page = self.book.get_page(page_idx)
+            pageno_i = page.get_page_number()
+            info_i = page.get_page_info()
             current_layout_i = self.layout_mgr.get_current(pageno_i)
             photos_i = current_layout_i.photos if current_layout_i else info_i.get('photos', [])
             texts_i = current_layout_i.texts if current_layout_i else info_i.get('texts', [])
@@ -1076,7 +1094,7 @@ class LayoutViewer:
             all_texts.extend(texts_i)
         
         # Get page dimensions for title
-        first_page_info = self.pages[page_indices[0]][1]
+        first_page_info = self.book.get_page(page_indices[0]).get_page_info()
         page_width_mcf = first_page_info.get('page_width')
         page_height_mcf = first_page_info.get('page_height')
 
@@ -1094,7 +1112,8 @@ class LayoutViewer:
         # Check if any rendered pages are protected inside covers
         protected_pages = []
         for page_idx in page_indices:
-            pageno_i, _ = self.pages[page_idx]
+            page = self.book.get_page(page_idx)
+            pageno_i = page.get_page_number()
             if pageno_i in self.protected_inside_covers:
                 protected_pages.append(pageno_i)
         
@@ -1148,15 +1167,16 @@ class LayoutViewer:
         if self.is_canvas or self.is_calendar or not self.spread_mode.get():
             # Single page modes
             page_indices = [self.index]
-            self.current_spread_pages = [self.pages[self.index][0]]
+            self.current_spread_pages = [self.book.get_page(self.index).get_page_number()]
         else:
             # Spread mode: handle covers specially. This chunk of code is ridiculously over-complicated
             # We should really simplify it a lot.  It tries to cope with edge-cases that don't exist.
 
             # Covers (page 0 and max page) can form a spread with each other
             # but NOT with normal pages (1...N)
-            current_pageno = self.pages[self.index][0]
-            current_info = self.pages[self.index][1]
+            current_page = self.book.get_page(self.index)
+            current_pageno = current_page.get_page_number()
+            current_info = current_page.get_page_info()
             is_current_cover = current_info.get('is_cover', False)
 
             # Find max normal page and covers
@@ -1165,7 +1185,9 @@ class LayoutViewer:
                 if current_pageno == "F":
                     # Front cover (page "F") - check if back cover exists for spread
                     back_cover_idx = None
-                    for i, (pn, info) in enumerate(self.pages):
+                    for i, page in self.book.enumerate_pages():
+                        pn = page.get_page_number()
+                        info = page.get_page_info()
                         if pn == "B" and info.get('is_cover', False):
                             back_cover_idx = i
                             break
@@ -1181,7 +1203,9 @@ class LayoutViewer:
                 else:
                     # Back cover (page "B") - check if front cover exists for spread
                     front_cover_idx = None
-                    for i, (pn, info) in enumerate(self.pages):
+                    for i, page in self.book.enumerate_pages():
+                        pn = page.get_page_number()
+                        info = page.get_page_info()
                         if pn == "F" and info.get('is_cover', False):
                             front_cover_idx = i
                             break
@@ -1201,41 +1225,43 @@ class LayoutViewer:
                     # Current page is even - it goes on left, find next odd page for right
                     left_idx = self.index
                     # Find next page (should be odd if pages are consecutive)
-                    if self.index < len(self.pages) - 1:
-                        right_pageno = self.pages[self.index + 1][0]
-                        right_info = self.pages[self.index + 1][1]
+                    if self.index < self.book.get_page_count() - 1:
+                        right_page = self.book.get_page(self.index + 1)
+                        right_pageno = right_page.get_page_number()
+                        right_info = right_page.get_page_info()
                         # Don't pair with covers
                         if not right_info.get('is_cover', False):
                             right_idx = self.index + 1
                             page_indices = [left_idx, right_idx]
-                            self.current_spread_pages = [self.pages[left_idx][0], self.pages[right_idx][0]]
+                            self.current_spread_pages = [self.book.get_page(left_idx).get_page_number(), self.book.get_page(right_idx).get_page_number()]
                         else:
                             # Next page is a cover, show current alone
                             page_indices = [left_idx]
-                            self.current_spread_pages = [self.pages[left_idx][0]]
+                            self.current_spread_pages = [self.book.get_page(left_idx).get_page_number()]
                     else:
                         # Even page is last page - show it alone
                         page_indices = [left_idx]
-                        self.current_spread_pages = [self.pages[left_idx][0]]
+                        self.current_spread_pages = [self.book.get_page(left_idx).get_page_number()]
                 elif isinstance(current_pageno, int):
                     # Current page is odd - find previous even page for left
                     if self.index > 0:
-                        left_pageno = self.pages[self.index - 1][0]
-                        left_info = self.pages[self.index - 1][1]
+                        left_page = self.book.get_page(self.index - 1)
+                        left_pageno = left_page.get_page_number()
+                        left_info = left_page.get_page_info()
                         # Don't pair with covers
                         if not left_info.get('is_cover', False):
                             left_idx = self.index - 1
                             right_idx = self.index
                             page_indices = [left_idx, right_idx]
-                            self.current_spread_pages = [self.pages[left_idx][0], self.pages[right_idx][0]]
+                            self.current_spread_pages = [self.book.get_page(left_idx).get_page_number(), self.book.get_page(right_idx).get_page_number()]
                         else:
                             # Previous page is a cover, show current alone
                             page_indices = [self.index]
-                            self.current_spread_pages = [self.pages[self.index][0]]
+                            self.current_spread_pages = [self.book.get_page(self.index).get_page_number()]
                     else:
                         # Odd page is first page - show it alone
                         page_indices = [self.index]
-                        self.current_spread_pages = [self.pages[self.index][0]]
+                        self.current_spread_pages = [self.book.get_page(self.index).get_page_number()]
                 else:
                     # Non-integer page number that's not a cover - shouldn't happen, show alone
                     page_indices = [self.index]
@@ -1312,7 +1338,7 @@ class LayoutViewer:
             pageno: Page number that owns this photo
             filename: Filename of the photo to delete
         """
-        if not self.pages:
+        if self.book.get_page_count() == 0:
             return
         
         current_layout = self.layout_mgr.get_current(pageno)
@@ -1383,7 +1409,7 @@ class LayoutViewer:
             text_index: 0-based index of text box in the page's layout
             pageno: Page number that owns this text
         """
-        if not self.pages:
+        if self.book.get_page_count() == 0:
             return
         
         current_layout = self.layout_mgr.get_current(pageno)
@@ -1480,11 +1506,13 @@ class LayoutViewer:
     
     def _handle_dropped_files(self, file_paths):
         """Process dropped/selected photo files and add to current page."""
-        if not self.pages:
+        if self.book.get_page_count() == 0:
             self.show_status('No pages available', error=True)
             return
         
-        pageno, info = self.pages[self.index]
+        page = self.book.get_page(self.index)
+        pageno = page.get_page_number()
+        info = page.get_page_info()
         
         # Check if this is a protected inside cover page (when --insidecovers not provided)
         if pageno in self.protected_inside_covers:
@@ -1715,7 +1743,7 @@ class LayoutViewer:
     
     def update_weights_display(self):
         """Update the weights and cost display for the current page."""
-        if not self.pages:
+        if self.book.get_page_count() == 0:
             return
         
         # In spread mode, combine data from both pages
@@ -1732,11 +1760,12 @@ class LayoutViewer:
             # Find the page info for both pages
             page_info_left = None
             page_info_right = None
-            for pn, info in self.pages:
+            for page in self.book:
+                pn = page.get_page_number()
                 if pn == self.current_spread_pages[0]:
-                    page_info_left = info
+                    page_info_left = page.get_page_info()
                 elif pn == self.current_spread_pages[1]:
-                    page_info_right = info
+                    page_info_right = page.get_page_info()
             
             if not page_info_left:
                 return
@@ -1749,8 +1778,9 @@ class LayoutViewer:
                     all_texts.extend(current_layout.texts)
                 else:
                     # Fallback to original
-                    for pn_check, info_check in self.pages:
-                        if pn_check == pn:
+                    for page_check in self.book:
+                        if page_check.get_page_number() == pn:
+                            info_check = page_check.get_page_info()
                             all_photos.extend(info_check.get('photos', []))
                             all_texts.extend(info_check.get('texts', []))
                             break
@@ -1763,7 +1793,9 @@ class LayoutViewer:
             origin_left = info.get('origin_left')
         else:
             # Single page mode
-            pageno, info = self.pages[self.index]
+            page = self.book.get_page(self.index)
+            pageno = page.get_page_number()
+            info = page.get_page_info()
             current_layout = self.layout_mgr.get_current(pageno)
             photos = current_layout.photos if current_layout else info.get('photos', [])
             texts = current_layout.texts if current_layout else info.get('texts', [])
@@ -2311,11 +2343,13 @@ class LayoutViewer:
 
     def add_text_box(self):
         """Add a new text box to the current page."""
-        if not self.pages:
+        if self.book.get_page_count() == 0:
             self.show_status('No pages available', error=True)
             return
         
-        pageno, info = self.pages[self.index]
+        page = self.book.get_page(self.index)
+        pageno = page.get_page_number()
+        info = page.get_page_info()
         current_layout = self.layout_mgr.get_current(pageno)
         photos = current_layout.photos if current_layout else info.get('photos', [])
         texts = current_layout.texts if current_layout else info.get('texts', [])
@@ -2417,10 +2451,12 @@ class LayoutViewer:
         When gap changes, transform layout: MCF → gap-free (old gaps) → MCF (new gaps).
         This adjusts item positions/sizes to match the new gap values.
         """
-        if not self.pages:
+        if self.book.get_page_count() == 0:
             return
         try:
-            pageno, info = self.pages[self.index]
+            page = self.book.get_page(self.index)
+            pageno = page.get_page_number()
+            info = page.get_page_info()
             
             # For calendars, edge gap cannot be changed - return early
             if self.is_calendar:
@@ -2485,10 +2521,12 @@ class LayoutViewer:
         When gap changes, transform layout: MCF → gap-free (old gaps) → MCF (new gaps).
         This adjusts item positions/sizes to match the new gap values.
         """
-        if not self.pages:
+        if self.book.get_page_count() == 0:
             return
         try:
-            pageno, info = self.pages[self.index]
+            page = self.book.get_page(self.index)
+            pageno = page.get_page_number()
+            info = page.get_page_info()
             
             # Get OLD gaps before changing
             old_edge_gap = self.layout_mgr.get_edge_gap(pageno)
@@ -2537,10 +2575,12 @@ class LayoutViewer:
         When individual edge gaps change, transform layout: MCF → gap-free (old gaps) → MCF (new gaps).
         This adjusts item positions/sizes to match the new gap values.
         """
-        if not self.pages:
+        if self.book.get_page_count() == 0:
             return
         try:
-            pageno, info = self.pages[self.index]
+            page = self.book.get_page(self.index)
+            pageno = page.get_page_number()
+            info = page.get_page_info()
             
             # For calendars, edge gap cannot be changed - return early
             if self.is_calendar:
@@ -2640,7 +2680,8 @@ class LayoutViewer:
         if not current_layout:
             return  # No layout to transform
         
-        _, info = self.pages[self.index]
+        page = self.book.get_page(self.index)
+        info = page.get_page_info()
         page_w = info.get('page_width')
         page_h = info.get('page_height')
         origin_left = info.get('origin_left', 0.0)
@@ -2729,14 +2770,17 @@ class LayoutViewer:
     def prev_page(self):
         if self.spread_mode.get():
             # In spread mode, navigate to previous even page (or cover spread)
-            current_pageno = self.pages[self.index][0]
-            current_info = self.pages[self.index][1]
+            current_page = self.book.get_page(self.index)
+            current_pageno = current_page.get_page_number()
+            current_info = current_page.get_page_info()
             is_current_cover = current_info.get('is_cover', False)
             
             if is_current_cover:
                 # Navigate from cover spread to last normal even page
-                for i in range(len(self.pages) - 1, -1, -1):
-                    pageno, info = self.pages[i]
+                for i in range(self.book.get_page_count() - 1, -1, -1):
+                    page = self.book.get_page(i)
+                    pageno = page.get_page_number()
+                    info = page.get_page_info()
                     if not info.get('is_cover', False) and isinstance(pageno, int) and pageno % 2 == 0:
                         # Found last normal even page
                         self._goto_page(i, f'Loading page {pageno}...')
@@ -2746,14 +2790,18 @@ class LayoutViewer:
             
             # Find previous even page (normal pages only)
             for i in range(self.index - 1, -1, -1):
-                pageno, info = self.pages[i]
+                page = self.book.get_page(i)
+                pageno = page.get_page_number()
+                info = page.get_page_info()
                 if not info.get('is_cover', False) and isinstance(pageno, int) and pageno % 2 == 0:
                     self._goto_page(i, f'Loading pages {pageno}-{pageno+1}...')
                     return
             
             # No more even pages before - check for front cover
-            for i in range(len(self.pages)):
-                pageno, info = self.pages[i]
+            for i in range(self.book.get_page_count()):
+                page = self.book.get_page(i)
+                pageno = page.get_page_number()
+                info = page.get_page_info()
                 if pageno == "F" and info.get('is_cover', False):
                     self._goto_page(i, 'Loading covers...')
                     return
@@ -2763,22 +2811,26 @@ class LayoutViewer:
         else:
             # Single page mode: move to previous page in list
             if self.index > 0:
-                pageno = self.pages[self.index-1][0]
-                self._goto_page(self.index -1, f'Loading page {pageno}...')
+                page = self.book.get_page(self.index - 1)
+                pageno = page.get_page_number()
+                self._goto_page(self.index - 1, f'Loading page {pageno}...')
             else:
                 return
 
     def next_page(self):
         if self.spread_mode.get():
             # In spread mode, navigate to next even page (or cover spread)
-            current_pageno = self.pages[self.index][0]
-            current_info = self.pages[self.index][1]
+            current_page = self.book.get_page(self.index)
+            current_pageno = current_page.get_page_number()
+            current_info = current_page.get_page_info()
             is_current_cover = current_info.get('is_cover', False)
             
             if is_current_cover:
                 # Navigate forward from cover spread to first normal page (page 1)
-                for i in range(len(self.pages)):
-                    pageno, info = self.pages[i]
+                for i in range(self.book.get_page_count()):
+                    page = self.book.get_page(i)
+                    pageno = page.get_page_number()
+                    info = page.get_page_info()
                     if not info.get('is_cover', False):
                         # Found first normal page
                         self._goto_page(i, f'Loading page {pageno}...')
@@ -2794,15 +2846,18 @@ class LayoutViewer:
                 # Current is a cover, shouldn't reach here but handle it
                 start_search = self.index + 1
             
-            for i in range(start_search, len(self.pages)):
-                pageno, info = self.pages[i]
+            for i in range(start_search, self.book.get_page_count()):
+                page = self.book.get_page(i)
+                pageno = page.get_page_number()
+                info = page.get_page_info()
                 if not info.get('is_cover', False) and isinstance(pageno, int) and pageno % 2 == 0:
                     msg = f'Loading page {pageno}...'
 
                     # Check if there's an odd page following
-                    if i < len(self.pages) - 1:
-                        next_pageno = self.pages[i + 1][0]
-                        next_info = self.pages[i + 1][1]
+                    if i < self.book.get_page_count() - 1:
+                        next_page = self.book.get_page(i + 1)
+                        next_pageno = next_page.get_page_number()
+                        next_info = next_page.get_page_info()
                         if not next_info.get('is_cover', False):
                             msg = f'Loading pages {pageno}-{next_pageno}...'
 
@@ -2810,8 +2865,10 @@ class LayoutViewer:
                     return
             
             # No more normal even pages - check for back cover
-            for i in range(len(self.pages)):
-                pageno, info = self.pages[i]
+            for i in range(self.book.get_page_count()):
+                page = self.book.get_page(i)
+                pageno = page.get_page_number()
+                info = page.get_page_info()
                 if pageno == "B" and info.get('is_cover', False):
                     self._goto_page(i, 'Loading covers...')
                     return
@@ -2821,9 +2878,10 @@ class LayoutViewer:
             return
         else:
             # Single page mode: move to next page in list
-            if self.index < len(self.pages) - 1:
-                pageno = self.pages[self.index+1][0]
-                self._goto_page(self.index+1,f'Loading page {pageno}...')
+            if self.index < self.book.get_page_count() - 1:
+                page = self.book.get_page(self.index + 1)
+                pageno = page.get_page_number()
+                self._goto_page(self.index + 1, f'Loading page {pageno}...')
             else:
                 self.show_status('Last page of book')
                 return
@@ -2844,8 +2902,8 @@ class LayoutViewer:
                 return
         
         # find index for page number
-        for i,(pn,_) in enumerate(self.pages):
-            if pn == v:
+        for i, page in self.book.enumerate_pages():
+            if page.get_page_number() == v:
                 self._goto_page(i, f'Loading page {v}...')
                 return
 
@@ -2860,14 +2918,14 @@ class LayoutViewer:
     
     def _update_page_range_display(self):
         """Update the page range label to show valid page numbers."""
-        if not self.pages:
+        if self.book.get_page_count() == 0:
             self.page_range_var.set('')
             return
         
         # Find min/max numeric pages and check for covers
-        has_front_cover = any(pn == "F" for pn, _ in self.pages)
-        has_back_cover = any(pn == "B" for pn, _ in self.pages)
-        numeric_pages = [pn for pn, _ in self.pages if isinstance(pn, int)]
+        has_front_cover = any(page.get_page_number() == "F" for page in self.book)
+        has_back_cover = any(page.get_page_number() == "B" for page in self.book)
+        numeric_pages = [page.get_page_number() for page in self.book if isinstance(page.get_page_number(), int)]
         
         if numeric_pages:
             min_page = min(numeric_pages)
@@ -2924,21 +2982,24 @@ class LayoutViewer:
     def _on_spread_mode_change(self):
         """Handle spread mode checkbox toggle - re-render current page(s)."""
         # Update canvas aspect ratio and window geometry based on spread mode
-        _, first_page_info = self.pages[0]
+        first_page = self.book.get_page(0)
+        first_page_info = first_page.get_page_info()
         page_w = first_page_info.get('page_width')
         page_h = first_page_info.get('page_height')
         
         if self.spread_mode.get():
             # Entering spread mode: navigate to nearest even page (unless on a cover)
-            current_pageno = self.pages[self.index][0]
-            current_info = self.pages[self.index][1]
+            current_page = self.book.get_page(self.index)
+            current_pageno = current_page.get_page_number()
+            current_info = current_page.get_page_info()
             is_current_cover = current_info.get('is_cover', False)
             
             # Only navigate if not on a cover and on odd page
             if current_pageno % 2 != 0 and not is_current_cover:
                 # Current page is odd - navigate to previous even page if possible
                 for i in range(self.index - 1, -1, -1):
-                    if self.pages[i][0] % 2 == 0:
+                    page = self.book.get_page(i)
+                    if page.get_page_number() % 2 == 0:
                         self.index = i
                         break
             
@@ -2990,7 +3051,8 @@ class LayoutViewer:
                 return
         
         # Get current page number (CEWE numbering: 0=cover, 1=first page, etc.)
-        current_pageno = self.pages[self.index][0]
+        current_page = self.book.get_page(self.index)
+        current_pageno = current_page.get_page_number()
         
         # Map UI page to PDF page index
         pdf_page_index = self._ui_page_to_pdf_page(current_pageno)
@@ -3039,7 +3101,8 @@ class LayoutViewer:
             photos_to_replace: List of photo indices to replace (empty = all photos)
         """
         # Get page info for rendering and dimension calculations
-        _, page_info = self.pages[self.index]
+        page = self.book.get_page(self.index)
+        page_info = page.get_page_info()
         page_width = page_info.get('page_width')
         page_height = page_info.get('page_height')
         origin_left = page_info.get('origin_left', 0.0)
@@ -3187,7 +3250,8 @@ class LayoutViewer:
         print(f"Saving segmentation images to: {photos_dir}")
         
         # Get page info for dimension information
-        _, page_info = self.pages[self.index]
+        page = self.book.get_page(self.index)
+        page_info = page.get_page_info()
         
         # Get composite image metadata for scaling calculations
         composite_image = self.pending_segmentation.get('composite_image')
@@ -3328,7 +3392,8 @@ class LayoutViewer:
             self.modified_pages.add(self.current_spread_pages[1])
         else:
             # Single page mode - mark current page only
-            pageno, _ = self.pages[self.index]
+            page = self.book.get_page(self.index)
+            pageno = page.get_page_number()
             self.modified_pages.add(pageno)
         self._update_modified_pages_display()
     
@@ -3528,7 +3593,9 @@ class LayoutViewer:
                 original_xml_photos_by_page = {}  # pageno -> set of filenames from ORIGINAL XML
                 
                 for page_idx in page_indices:
-                    pageno, info = self.pages[page_idx]
+                    page = self.book.get_page(page_idx)
+                    pageno = page.get_page_number()
+                    info = page.get_page_info()
                     page_infos.append((pageno, info))
                     
                     # Store original XML photos for later comparison
@@ -3753,7 +3820,7 @@ class LayoutViewer:
                     for pn, photos_list, texts_list in [(page_numbers[0], photos_page0, texts_page0), 
                                                          (page_numbers[1], photos_page1, texts_page1)]:
                         if photos_list or texts_list:
-                            page_info = next((p[1] for p in self.pages if p[0] == pn), None)
+                            page_info = next((p.get_page_info() for p in self.book if p.get_page_number() == pn), None)
                             if page_info:
                                 page_w = page_info.get('page_width')
                                 page_h = page_info.get('page_height')
@@ -3774,7 +3841,9 @@ class LayoutViewer:
                 
             else:
                 # Single page mode - original logic
-                pageno, info = self.pages[self.index]
+                page = self.book.get_page(self.index)
+                pageno = page.get_page_number()
+                info = page.get_page_info()
                 current_layout = self.layout_mgr.get_current(pageno)
                 photos = current_layout.photos if current_layout else info.get('photos', [])
 
@@ -3951,7 +4020,8 @@ class LayoutViewer:
 
     def undo_layout(self):
         """Revert to previous layout variant."""
-        pageno, info = self.pages[self.index]
+        page = self.book.get_page(self.index)
+        pageno = page.get_page_number()
         if self.layout_mgr.undo_layout(pageno):
             self.show_status(f'Reverted to previous layout for page {pageno}')
             self.render_page()
@@ -3978,11 +4048,13 @@ class LayoutViewer:
             return  # User cancelled
         
         # Get current page info
-        if not self.pages or self.index >= len(self.pages):
+        if self.book.get_page_count() == 0 or self.index >= self.book.get_page_count():
             self.status_var.set('No page to export')
             return
         
-        pageno, info = self.pages[self.index]
+        page = self.book.get_page(self.index)
+        pageno = page.get_page_number()
+        info = page.get_page_info()
         current_layout = self.layout_mgr.get_current(pageno)
         photos = current_layout.photos if current_layout else info.get('photos', [])
         texts = current_layout.texts if current_layout else info.get('texts', [])
@@ -4009,7 +4081,7 @@ class LayoutViewer:
         4. Writes layout changes to the MCF file (with backup)
         5. Clears the in-memory layout history and modified pages tracking
         """
-        if not self.pages or not self.mcf_file_path:
+        if self.book.get_page_count() == 0 or not self.mcf_file_path:
             self.show_status('Cannot save: no MCF file path', error=True)
             return
         
@@ -4264,9 +4336,11 @@ class LayoutViewer:
 
     def equal_sizes(self):
         """Set all preferred sizes to 1.0 (baseline size like EXIF defaults)."""
-        if not self.pages:
+        if self.book.get_page_count() == 0:
             return
-        pageno, info = self.pages[self.index]
+        page = self.book.get_page(self.index)
+        pageno = page.get_page_number()
+        info = page.get_page_info()
         current_layout = self.layout_mgr.get_current(pageno)
         photos = current_layout.photos if current_layout else info.get('photos', [])
         texts = current_layout.texts if current_layout else info.get('texts', [])
@@ -4286,9 +4360,11 @@ class LayoutViewer:
     
     def stored_sizes(self):
         """Restore preferred sizes from original layout areas."""
-        if not self.pages:
+        if self.book.get_page_count() == 0:
             return
-        pageno, info = self.pages[self.index]
+        page = self.book.get_page(self.index)
+        pageno = page.get_page_number()
+        info = page.get_page_info()
         page_w = info.get('page_width')
         page_h = info.get('page_height')
         origin_left = info.get('origin_left', 0.0)
@@ -4302,7 +4378,8 @@ class LayoutViewer:
 
     def use_original(self):
         """Discard current layout and revert to original from file."""
-        pageno, info = self.pages[self.index]
+        page = self.book.get_page(self.index)
+        pageno = page.get_page_number()
         self.layout_mgr.clear_layouts(pageno)
         self.layout_mgr.clear_gaps(pageno)  # Also reset gap values to original
         self.show_status(f'Reverted page {pageno} to original layout.')
@@ -4310,11 +4387,13 @@ class LayoutViewer:
 
     def _search_photo_improvements(self):
         """Search for higher-quality versions of photos on current page."""
-        if not self.pages:
+
+        if self.book.get_page_count() == 0:
             self.show_status('No pages available', error=True)
             return
         
-        pageno, info = self.pages[self.index]
+        page = self.book.get_page(self.index)
+        pageno = page.get_page_number()
         
         # Check if this is a protected inside cover page
         if pageno in self.protected_inside_covers:

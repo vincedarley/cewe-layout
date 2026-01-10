@@ -6,7 +6,7 @@ system - translation to different formats happens separately.
 """
 
 from abc import ABC, abstractmethod
-from typing import Dict, Any, Optional, List, Tuple
+from typing import Dict, Any, Optional, List, Tuple, Union, Iterator
 from enum import Enum
 
 
@@ -69,6 +69,32 @@ class PhotobookPage(ABC):
     def get_page_type(self) -> PageType:
         """Get the type of this page."""
         pass
+    
+    @abstractmethod
+    def get_page_number(self) -> Union[str, int]:
+        """Get page number/identifier.
+        
+        Returns:
+            "F" for front cover, "B" for back cover,
+            0 for inside front, N+1 for inside back,
+            1..N for content pages
+        """
+        pass
+    
+    @abstractmethod
+    def get_page_info(self) -> Dict[str, Any]:
+        """Get page info as dictionary for backward compatibility.
+        
+        Returns dict with keys:
+            - 'photos': list of photo dicts (same as get_images())
+            - 'texts': list of text dicts (same as get_text_blocks())
+            - 'page_width': width in native units
+            - 'page_height': height in native units
+            - 'origin_left': x-offset for spread layout (0.0 for left page)
+            - 'background_id': optional background color code
+            - 'is_cover': True if this is a cover page
+        """
+        pass
 
 
 class Photobook(ABC):
@@ -111,6 +137,15 @@ class Photobook(ABC):
         - 'author': Author name
         - 'description': Book description
         - Other format-specific metadata
+        """
+        pass
+    
+    @abstractmethod
+    def has_covers(self) -> bool:
+        """Whether book has front and back covers.
+        
+        Books either have both covers or neither - can't have just one.
+        Canvas/calendar products may not have covers.
         """
         pass
     
@@ -191,3 +226,36 @@ class Photobook(ABC):
     def get_native_unit_name(self) -> str:
         """Get name of native coordinate unit (e.g., 'PDF points', 'Mimeo units', 'MCF units')."""
         pass
+    
+    def __iter__(self) -> Iterator[PhotobookPage]:
+        """Allow iteration over pages: for page in photobook:"""
+        for i in range(self.get_page_count()):
+            yield self.get_page(i)
+    
+    def enumerate_pages(self) -> Iterator[Tuple[int, PhotobookPage]]:
+        """Enumerate pages with indices: for idx, page in photobook.enumerate_pages():"""
+        for i in range(self.get_page_count()):
+            yield (i, self.get_page(i))
+    
+    def is_valid_index(self, index: int) -> bool:
+        """Check if index is within valid range [0, page_count)."""
+        return 0 <= index < self.get_page_count()
+    
+    def get_page_numbers(self) -> List[Union[str, int]]:
+        """Get list of all page numbers for all pages."""
+        return [page.get_page_number() for page in self]
+    
+    def find_page_by_number(self, page_number: Union[str, int]) -> Optional[PhotobookPage]:
+        """Find page with specific number (e.g., 'F', 'B', 1, 2, etc.).
+        
+        Returns None if not found.
+        """
+        for page in self:
+            if page.get_page_number() == page_number:
+                return page
+        return None
+    
+    def get_numeric_pages(self) -> List[PhotobookPage]:
+        """Get only content pages (integer page numbers > 0, exclude covers)."""
+        return [page for page in self 
+                if isinstance(page.get_page_number(), int) and page.get_page_number() > 0]
