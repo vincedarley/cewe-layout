@@ -124,6 +124,7 @@ class MimeoProject:
                 - index: Page index (sequence)
                 - width: Page width
                 - height: Page height
+                - layout_type_id: Layout type (1=single page, 4=spread)
                 - background_color: Page background color (if available)
         """
         # Get layout background colors via treatmentId -> layer -> fillColor
@@ -153,6 +154,10 @@ class MimeoProject:
                 layout['width'] = row['width']
             if 'height' in row.keys():
                 layout['height'] = row['height']
+            
+            # Add layout type ID (1=single page, 4=spread)
+            if 'layoutTypeId' in row.keys():
+                layout['layout_type_id'] = row['layoutTypeId']
             
             # Add background color if available
             model_id = row['modelId']

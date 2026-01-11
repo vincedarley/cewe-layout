@@ -1,4 +1,4 @@
-"""Diagnostic script to examine coordinate transformation for Mimeo pages 29, 30."""
+"""Diagnostic script to examine coordinate transformation for Mimeo pages."""
 from pathlib import Path
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -21,24 +21,16 @@ if len(layouts) < 31:
     print("ERROR: Not enough layouts found")
     sys.exit(1)
 
-# Get page dimensions for transformer
-first_content_layout = layouts[2]  # Use content page, not cover
-mimeo_page_width = first_content_layout['width']
-mimeo_page_height = first_content_layout['height']
-
-transformer = MimeoCoordinateTransformer(mimeo_page_width, mimeo_page_height)
+# Create transformer (no dimensions needed - passed per-transform)
+transformer = MimeoCoordinateTransformer()
 POINTS_TO_MCF = transformer.POINTS_TO_MCF
 
-print(f"Mimeo page dimensions: {mimeo_page_width} x {mimeo_page_height} points")
 print(f"POINTS_TO_MCF conversion factor: {POINTS_TO_MCF}")
 print()
 
-# Examine Mimeo pages 29, 30
-# Mimeo layout indices: 0=Front, 1=Inside Front, 2...N=content pages
-# Mimeo page 29 is layout index 29
-
-for mimeo_page_num in [29, 30]:
-    layout_index = mimeo_page_num  # Direct index
+# Examine Mimeo pages 1 (front cover) and 29 (content page)
+for mimeo_page_num in [1, 29]:
+    layout_index = mimeo_page_num - 1  # 0-indexed (page 1 = index 0)
     
     page_layout = layouts[layout_index]
     page_id = page_layout['model_id']
@@ -60,7 +52,10 @@ for mimeo_page_num in [29, 30]:
     print(f"Mimeo Page {mimeo_page_num} → MCF Page {mcf_page} ({'RIGHT' if is_right_page else 'LEFT'})")
     print(f"Layout model_id: {page_id}, sequence: {page_layout['index']}")
     if page_width != 'N/A':
-        print(f"Page size: {page_width:.2f} x {page_height:.2f} points")
+        print(f"Page size: {page_width:.2f} x {page_height:.2f} points (this specific page)")
+        mcf_page_width = int(page_width * POINTS_TO_MCF)
+        mcf_page_height = int(page_height * POINTS_TO_MCF)
+        print(f"MCF size: {mcf_page_width} x {mcf_page_height} MCF = {mcf_page_width/10:.1f} x {mcf_page_height/10:.1f} cm")
     print()
 
     # Find all frames on this page
@@ -77,9 +72,10 @@ for mimeo_page_num in [29, 30]:
         mimeo_bottom = frame['y'] - frame['height'] / 2  # Y increases upward in Mimeo
         mimeo_top = frame['y'] + frame['height'] / 2
         
-        # Transform to MCF coordinates
+        # Transform to MCF coordinates (using THIS PAGE's dimensions)
         mcf_x, mcf_y, mcf_w, mcf_h = transformer.transform(
             frame['x'], frame['y'], frame['width'], frame['height'],
+            page_width, page_height,
             is_right_page=is_right_page
         )
         
@@ -96,9 +92,13 @@ for mimeo_page_num in [29, 30]:
 
 print()
 print("=" * 80)
-print("EXPECTED vs ACTUAL in data.mcf:")
+print("SUMMARY:")
 print("=" * 80)
-print("Page 27 (Mimeo 29, RIGHT): Expected left=3188, top=-18")
-print("Page 28 (Mimeo 30, LEFT):  Expected left=-18, top=-18")
+print(f"Front cover dimensions: {layouts[0]['width']} x {layouts[0]['height']} points")
+print(f"Content page dimensions: {layouts[2]['width']} x {layouts[2]['height']} points")
+print(f"Difference: {layouts[0]['width'] - layouts[2]['width']:.2f} x {layouts[0]['height'] - layouts[2]['height']:.2f} points")
+print(f"           = {(layouts[0]['width'] - layouts[2]['width']) * POINTS_TO_MCF:.0f} x {(layouts[0]['height'] - layouts[2]['height']) * POINTS_TO_MCF:.0f} MCF")
 print()
-print("Check actual values in 2016-test-converted.xmcf/data.mcf")
+print("Each page is now transformed using its ACTUAL page dimensions,")
+print("so cover pages and content pages will have correct sizes in the MCF.")
+
