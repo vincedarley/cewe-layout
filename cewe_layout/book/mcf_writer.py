@@ -204,7 +204,7 @@ def create_mcf_xml(photobook: Photobook, output_dir: Path, verbose: bool = False
     fotobook.set('folderID', '8418b9a9-25ab-445b-ab58-d6d7901f2105')
     fotobook.set('imagedir', '')
     fotobook.set('isDataMcf', '0')
-    fotobook.set('productname', book_size_id)
+    fotobook.set('productname', str(cewe_dimensions['productname']))
     fotobook.set('startdatecalendarium', '')
     fotobook.set('useSpineLogo', '1')
     fotobook.set('version', '4.0')
@@ -720,7 +720,7 @@ def create_image_area(img: Dict[str, Any], output_dir: Path, z_position: int, ve
         if verbose:
             camera_name = img.get('camera_filename', 'unknown')
             uuid_name = img.get('original_filename', 'unknown')
-            print(f"  Saved image: {image_filename} (camera: {camera_name}, uuid: {uuid_name})")
+            #print(f"  Saved image: {image_filename} (camera: {camera_name}, uuid: {uuid_name})")
     else:
         # File should already exist (pre-copied by converter)
         if not image_path.exists():

@@ -389,7 +389,7 @@ def _build_mimeo_photobook(mimeo_data: Dict[str, Any],
             bg_rgba = layout['background_color']
             bg_code = find_closest_color_code(bg_rgba)
             
-            if verbose and page_nr <= 3:
+            if verbose and page_nr <= 5:
                 logger.info(f"  Background: {bg_rgba} -> CEWE code {bg_code}")
         
         # For spread pages, split frames into left and right halves
@@ -406,8 +406,8 @@ def _build_mimeo_photobook(mimeo_data: Dict[str, Any],
             # We'll create two pages from this spread
             # Store frame lists for each page to process
             pages_to_create = [
-                ('left', left_frames, False),   # (side_name, frames, is_right_page)
-                ('right', right_frames, True)
+                ('left', left_frames),   # (side_name, frames)
+                ('right', right_frames)
             ]
         else:
             # Regular single page - process all frames together
@@ -416,12 +416,12 @@ def _build_mimeo_photobook(mimeo_data: Dict[str, Any],
                 logger.info(f"PAGE {page_nr} Mimeo (MCF={base_mcf_page}) (page_id={page_id}): {len(page_frames)} frames")
             
             pages_to_create = [
-                (None, page_frames, None)  # is_right calculated inside loop from mcf_page
+                (None, page_frames)  
             ]
         
         # Process each page (one for regular pages, two for spreads)
         for side_info in pages_to_create:
-            side_name, frames_for_this_page, page_is_right = side_info
+            side_name, frames_for_this_page = side_info
             
             # Calculate MCF page identifier for THIS specific page
             if layout_idx == 0:
@@ -566,12 +566,11 @@ def _build_mimeo_photobook(mimeo_data: Dict[str, Any],
                         logger.warning(f"    Photo file not found: {photo_path}")
                     continue
                 
-                image_dims = get_image_dimensions(photo_path)
-                if not image_dims:
-                    logger.warning(f"Could not read dimensions: {photo_path}")
-                    continue
+                # Load image to get dimensions
+                from PIL import Image
                 
-                image_width, image_height = image_dims
+                img = Image.open(photo_path)
+                image_width, image_height = img.size
                 
                 # Calculate cutout
                 scale, cutout_left, cutout_top = _calculate_cutout(
@@ -608,7 +607,7 @@ def _build_mimeo_photobook(mimeo_data: Dict[str, Any],
                     'top': mcf_y,
                     'width': mcf_w,
                     'height': mcf_h,
-                    'data': photo_path.read_bytes(),  # Provide bytes for mcf_writer to save with correct filename
+                    'data': photo_path.read_bytes(),
                     'format': photo_path.suffix.lstrip('.').lower(),
                     'index': global_photo_idx,  # Sequential index for image naming
                     'cutout_scale': scale,
@@ -617,7 +616,8 @@ def _build_mimeo_photobook(mimeo_data: Dict[str, Any],
                     'original_width': image_width,
                     'original_height': image_height,
                     'camera_filename': photo_info['original_filename'],  # Original camera filename (e.g., IMG_7750.JPG)
-                    'original_filename': photo_path.name  # Filesystem UUID name for debug
+                    'original_filename': photo_path.name,  # Filesystem UUID name for debug
+                    'orientation': photo_info.get('orientation', 1)  # EXIF orientation from Photos database
                 }
                 
                 page_data['images'].append(image_data)

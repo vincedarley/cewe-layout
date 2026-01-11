@@ -80,19 +80,25 @@ class PhotosLibraryMapper:
                 - 'directory': Directory code (e.g., 'F')
                 - 'stored_filename': Filename in originals/ (e.g., 'FF94EA43...jpeg')
                 - 'path': Full path to photo file
+                - 'current_orientation': EXIF orientation value (1-8), user-adjusted
+                - 'original_orientation': EXIF orientation value (1-8) from camera
             Returns None if UUID not found
         """
         try:
             conn = sqlite3.connect(f'file:{self.db_path}?mode=ro', uri=True)
             cursor = conn.cursor()
             
-            # Query Photos 5+ schema
+            # Query Photos 5+ schema including orientation
+            # ZORIENTATION contains the current orientation (may be user-adjusted)
+            # ZORIGINALORIENTATION contains the original EXIF orientation from camera
             cursor.execute("""
                 SELECT 
                     ZASSET.ZUUID,
                     ZADDITIONALASSETATTRIBUTES.ZORIGINALFILENAME,
                     ZASSET.ZDIRECTORY,
-                    ZASSET.ZFILENAME
+                    ZASSET.ZFILENAME,
+                    ZASSET.ZORIENTATION,
+                    ZADDITIONALASSETATTRIBUTES.ZORIGINALORIENTATION
                 FROM ZASSET
                 JOIN ZADDITIONALASSETATTRIBUTES 
                     ON ZADDITIONALASSETATTRIBUTES.ZASSET = ZASSET.Z_PK
@@ -103,7 +109,7 @@ class PhotosLibraryMapper:
             conn.close()
             
             if row:
-                uuid_str, original_filename, directory, stored_filename = row
+                uuid_str, original_filename, directory, stored_filename, current_orientation, original_orientation = row
                 photo_path = self.photos_library_path / 'originals' / directory / stored_filename
                 
                 return {
@@ -111,7 +117,9 @@ class PhotosLibraryMapper:
                     'original_filename': original_filename,
                     'directory': directory,
                     'stored_filename': stored_filename,
-                    'path': str(photo_path)
+                    'path': str(photo_path),
+                    'current_orientation': current_orientation if current_orientation is not None else 1,
+                    'original_orientation': original_orientation if original_orientation is not None else 1
                 }
             
             return None

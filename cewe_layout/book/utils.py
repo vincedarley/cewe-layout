@@ -361,9 +361,9 @@ class ResizeTransformer:
             origin_left: ORIGINAL origin offset for right pages (old_width for right, 0 for left)
         
         Returns:
-            Tuple[int, int, int, int] | None: (new_left_mcf, new_top_mcf, new_width_mcf, new_height_mcf)
+            Tuple[int, int, int, int]: (new_left_mcf, new_top_mcf, new_width_mcf, new_height_mcf)
             Returns coordinates in NEW spread coordinate system (using new_width for right pages)
-            Returns None if rectangle is completely cropped out of new page bounds
+            Always returns transformed coordinates, even if they end up off-page
         """
         # Convert from OLD spread coordinates to page-relative coordinates
         page_relative_left = left_mcf - origin_left
@@ -383,30 +383,14 @@ class ResizeTransformer:
         new_page_left = new_content_left + self.bleed_mcf
         new_page_top = new_content_top + self.bleed_mcf
         
-        # Check if rectangle is completely outside new page bounds
-        # Rectangle is cropped ONLY if it doesn't intersect the content area at all
-        content_area_width = self.new_width - 2 * self.bleed_mcf
-        content_area_height = self.new_height - 2 * self.bleed_mcf
-        
-        # Rectangle is completely cropped if:
-        # - Its right edge is before the left edge of content area, OR
-        # - Its left edge is after the right edge of content area, OR
-        # - Its bottom edge is before the top edge of content area, OR
-        # - Its top edge is after the bottom edge of content area
-        rect_right = new_content_left + new_width
-        rect_bottom = new_content_top + new_height
-        
-        if (rect_right <= 0 or  # Completely to the left
-            new_content_left >= content_area_width or  # Completely to the right
-            rect_bottom <= 0 or  # Completely above
-            new_content_top >= content_area_height):  # Completely below
-            return None
-        
         # Convert back to NEW spread coordinates
         # For right pages: add NEW origin_left (new_width), not old origin_left
         new_origin_left = self.new_width if origin_left > 0 else 0
         new_spread_left = new_page_left + new_origin_left
         
+        # Always return transformed coordinates, even if off-page
+        # For rendering/display, we want to show everything so the user can see what happened
+        # Content that ends up off-page after transformation is still visible to the user
         return (int(new_spread_left), int(new_page_top), int(new_width), int(new_height))
     
     def transform_origin_left(self, origin_left: float) -> int:

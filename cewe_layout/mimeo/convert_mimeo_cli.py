@@ -63,9 +63,12 @@ def main():
     
     # Set up logging
     logging.basicConfig(
-        level=logging.DEBUG if args.verbose else logging.INFO,
+        level=logging.INFO,
         format='%(levelname)s: %(message)s'
     )
+    
+    # Suppress PIL debug output
+    logging.getLogger('PIL').setLevel(logging.WARNING)
         
     # Validate paths
     if not args.ppb.exists():
