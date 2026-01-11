@@ -10,15 +10,16 @@ from .book.utils import BOOK_SIZES, find_closest_book_size, calculate_resize_imp
 class ResizeWindow:
     """Window for resizing a photobook to different dimensions."""
     
-    def __init__(self, parent, book, mcf_file_path):
+    def __init__(self, parent, viewer, mcf_file_path):
         """Initialize the resize window.
         
         Args:
             parent: Parent Tk window
-            book: Photobook instance to resize
+            viewer: LayoutViewer instance
             mcf_file_path: Path to the MCF file
         """
-        self.book = book
+        self.viewer = viewer
+        self.book = viewer.book
         self.mcf_file_path = mcf_file_path
         
         # Create toplevel window
@@ -330,26 +331,22 @@ class ResizeWindow:
             bleed_mm=3
         )
         
-        # Set transformer on the book
-        self.book.resize_transformer = transformer
+        # Set transformer on the viewer (triggers re-render)
+        self.viewer.set_resize_transformer(transformer)
         
-        # Close the resize window
-        self.window.destroy()
-        
-        # Trigger page re-render (the gui.py will pick up the transformer from book)
-        # Note: The parent window's render will be triggered automatically when this window closes
+        # Don't destroy the window - user may want to adjust settings
     
     def _save_resized(self):
         """Save the resized photobook (not yet implemented)."""
         pass
 
 
-def open_resize_window(parent, book, mcf_file_path):
+def open_resize_window(parent, viewer, mcf_file_path):
     """Open the resize book window.
     
     Args:
         parent: Parent Tk window
-        book: Photobook instance to resize
+        viewer: LayoutViewer instance
         mcf_file_path: Path to the MCF file
     """
-    ResizeWindow(parent, book, mcf_file_path)
+    ResizeWindow(parent, viewer, mcf_file_path)

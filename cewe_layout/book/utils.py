@@ -358,14 +358,14 @@ class ResizeTransformer:
             top_mcf: Top position in original MCF coordinates
             width_mcf: Width in original MCF units
             height_mcf: Height in original MCF units
-            origin_left: Origin offset for right pages (not used in transform, passed through)
+            origin_left: ORIGINAL origin offset for right pages (old_width for right, 0 for left)
         
         Returns:
             Tuple[int, int, int, int] | None: (new_left_mcf, new_top_mcf, new_width_mcf, new_height_mcf)
+            Returns coordinates in NEW spread coordinate system (using new_width for right pages)
             Returns None if rectangle is completely cropped out of new page bounds
         """
-        # Convert from spread coordinates to page-relative coordinates
-        # (origin_left is passed in but not used in the transform - caller handles it)
+        # Convert from OLD spread coordinates to page-relative coordinates
         page_relative_left = left_mcf - origin_left
         
         # Apply transformation relative to content area (accounting for bleed)
@@ -402,8 +402,10 @@ class ResizeTransformer:
             new_content_top >= content_area_height):  # Completely below
             return None
         
-        # Convert back to spread coordinates by adding origin_left back
-        new_spread_left = new_page_left + origin_left
+        # Convert back to NEW spread coordinates
+        # For right pages: add NEW origin_left (new_width), not old origin_left
+        new_origin_left = self.new_width if origin_left > 0 else 0
+        new_spread_left = new_page_left + new_origin_left
         
         return (int(new_spread_left), int(new_page_top), int(new_width), int(new_height))
     

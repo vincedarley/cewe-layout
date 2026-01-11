@@ -153,6 +153,9 @@ class LayoutViewer:
             if self.inside_back_cover_page is not None:
                 self.protected_inside_covers.add(self.inside_back_cover_page)
         
+        # Book resize transformer (None = no resizing active)
+        self.resize_transformer = None
+        
         # Track photo improvements (photos upgraded with -up suffix)
         self.improved_photos = {}  # Maps original_filename -> improved_filename
         
@@ -939,55 +942,55 @@ class LayoutViewer:
             # Apply resize transformer if active
             page_width = info.get('page_width')
             page_height = info.get('page_height')
-            origin_left = info.get('origin_left', 0.0)
+            origin_left_original = info.get('origin_left', 0.0)
             
-            if self.book.resize_transformer:
+            if self.resize_transformer:
                 # Transform page dimensions
-                page_width, page_height = self.book.resize_transformer.transform_page_dimensions()
+                page_width, page_height = self.resize_transformer.transform_page_dimensions()
                 # Transform origin_left for right pages
-                origin_left = self.book.resize_transformer.transform_origin_left(origin_left)
+                origin_left = self.resize_transformer.transform_origin_left(origin_left_original)
                 
                 # Transform photo rectangles
+                # NOTE: transform_rect expects ORIGINAL origin_left, not transformed
                 transformed_photos = []
                 for photo in photos:
-                    result = self.book.resize_transformer.transform_rect(
+                    new_left, new_top, new_width, new_height = self.resize_transformer.transform_rect(
                         photo.get('area_left', 0),
                         photo.get('area_top', 0),
                         photo.get('area_width', 0),
                         photo.get('area_height', 0),
-                        origin_left if origin_left > 0 else 0
+                        origin_left_original
                     )
-                    if result is not None:  # Not cropped out
-                        new_left, new_top, new_width, new_height = result
-                        # Create new photo dict with transformed coordinates
-                        transformed_photo = photo.copy()
-                        transformed_photo['area_left'] = new_left
-                        transformed_photo['area_top'] = new_top
-                        transformed_photo['area_width'] = new_width
-                        transformed_photo['area_height'] = new_height
-                        transformed_photos.append(transformed_photo)
+                    # Create new photo dict with transformed coordinates
+                    transformed_photo = photo.copy()
+                    transformed_photo['area_left'] = new_left
+                    transformed_photo['area_top'] = new_top
+                    transformed_photo['area_width'] = new_width
+                    transformed_photo['area_height'] = new_height
+                    transformed_photos.append(transformed_photo)
                 photos = transformed_photos
                 
                 # Transform text rectangles
+                # NOTE: transform_rect expects ORIGINAL origin_left, not transformed
                 transformed_texts = []
                 for text in texts:
-                    result = self.book.resize_transformer.transform_rect(
+                    new_left, new_top, new_width, new_height = self.resize_transformer.transform_rect(
                         text.get('area_left', 0),
                         text.get('area_top', 0),
                         text.get('area_width', 0),
                         text.get('area_height', 0),
-                        origin_left if origin_left > 0 else 0
+                        origin_left_original
                     )
-                    if result is not None:  # Not cropped out
-                        new_left, new_top, new_width, new_height = result
-                        # Create new text dict with transformed coordinates
-                        transformed_text = text.copy()
-                        transformed_text['area_left'] = new_left
-                        transformed_text['area_top'] = new_top
-                        transformed_text['area_width'] = new_width
-                        transformed_text['area_height'] = new_height
-                        transformed_texts.append(transformed_text)
+                    # Create new text dict with transformed coordinates
+                    transformed_text = text.copy()
+                    transformed_text['area_left'] = new_left
+                    transformed_text['area_top'] = new_top
+                    transformed_text['area_width'] = new_width
+                    transformed_text['area_height'] = new_height
+                    transformed_texts.append(transformed_text)
                 texts = transformed_texts
+            else:
+                origin_left = origin_left_original
             
             # Get composite image from PDF content if available
             composite_image = None
@@ -1138,6 +1141,10 @@ class LayoutViewer:
         first_page_info = self.book.get_page(page_indices[0]).get_page_info()
         page_width_mcf = first_page_info.get('page_width')
         page_height_mcf = first_page_info.get('page_height')
+        
+        # Apply resize transformer to dimensions if active
+        if self.resize_transformer:
+            page_width_mcf, page_height_mcf = self.resize_transformer.transform_page_dimensions()
 
         title = self._getPageWinTitle(all_photos, all_texts, page_width_mcf, page_height_mcf)
         self.root.title(title)
@@ -1185,9 +1192,9 @@ class LayoutViewer:
         height_cm = page_height_mcf / 100.0
         
         # If resize transformer is active, show both original and resized dimensions
-        if self.book.resize_transformer:
-            orig_width = (self.book.resize_transformer.old_width * len(self.current_spread_pages)) / 100.0
-            orig_height = self.book.resize_transformer.old_height / 100.0
+        if self.resize_transformer:
+            orig_width = (self.resize_transformer.old_width * len(self.current_spread_pages)) / 100.0
+            orig_height = self.resize_transformer.old_height / 100.0
             dimensions_str = f'{orig_width:.1f}cm x {orig_height:.1f}cm resized to {width_cm:.1f}cm x {height_cm:.1f}cm'
         else:
             dimensions_str = f'{width_cm:.1f}cm x {height_cm:.1f}cm'
@@ -4074,7 +4081,7 @@ class LayoutViewer:
 
     def resize_book(self):
         """Open the resize book window."""
-        open_resize_window(self.root, self.book, self.mcf_file_path)
+        open_resize_window(self.root, self, self.mcf_file_path)
 
     def export_to_pdf(self):
         """Export current page to PDF with photos and white text boxes only."""
@@ -4431,6 +4438,15 @@ class LayoutViewer:
         self.layout_mgr.clear_layouts(pageno)
         self.layout_mgr.clear_gaps(pageno)  # Also reset gap values to original
         self.show_status(f'Reverted page {pageno} to original layout.')
+        self.render_page()
+    
+    def set_resize_transformer(self, transformer):
+        """Set the resize transformer and trigger page re-render.
+        
+        Args:
+            transformer: ResizeTransformer instance or None to clear
+        """
+        self.resize_transformer = transformer
         self.render_page()
 
     def _search_photo_improvements(self):
