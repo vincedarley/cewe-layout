@@ -154,7 +154,8 @@ class LayoutViewer:
                 self.protected_inside_covers.add(self.inside_back_cover_page)
         
         # Book resize transformer (None = no resizing active)
-        self.resize_transformer = None
+        self.resize_cover_transformer = None
+        self.resize_content_transformer = None
         
         # Track photo improvements (photos upgraded with -up suffix)
         self.improved_photos = {}  # Maps original_filename -> improved_filename
@@ -943,18 +944,22 @@ class LayoutViewer:
             page_width = info.get('page_width')
             page_height = info.get('page_height')
             origin_left_original = info.get('origin_left', 0.0)
+            is_cover = info.get('is_cover', False)
             
-            if self.resize_transformer:
+            # Select appropriate transformer based on page type
+            resize_transformer = self.resize_cover_transformer if is_cover else self.resize_content_transformer
+            
+            if resize_transformer:
                 # Transform page dimensions
-                page_width, page_height = self.resize_transformer.transform_page_dimensions()
+                page_width, page_height = resize_transformer.transform_page_dimensions()
                 # Transform origin_left for right pages
-                origin_left = self.resize_transformer.transform_origin_left(origin_left_original)
+                origin_left = resize_transformer.transform_origin_left(origin_left_original)
                 
                 # Transform photo rectangles
                 # NOTE: transform_rect expects ORIGINAL origin_left, not transformed
                 transformed_photos = []
                 for photo in photos:
-                    new_left, new_top, new_width, new_height = self.resize_transformer.transform_rect(
+                    new_left, new_top, new_width, new_height = resize_transformer.transform_rect(
                         photo.get('area_left', 0),
                         photo.get('area_top', 0),
                         photo.get('area_width', 0),
@@ -974,7 +979,7 @@ class LayoutViewer:
                 # NOTE: transform_rect expects ORIGINAL origin_left, not transformed
                 transformed_texts = []
                 for text in texts:
-                    new_left, new_top, new_width, new_height = self.resize_transformer.transform_rect(
+                    new_left, new_top, new_width, new_height = resize_transformer.transform_rect(
                         text.get('area_left', 0),
                         text.get('area_top', 0),
                         text.get('area_width', 0),
@@ -1141,10 +1146,12 @@ class LayoutViewer:
         first_page_info = self.book.get_page(page_indices[0]).get_page_info()
         page_width_mcf = first_page_info.get('page_width')
         page_height_mcf = first_page_info.get('page_height')
+        is_cover = first_page_info.get('is_cover', False)
         
-        # Apply resize transformer to dimensions if active
-        if self.resize_transformer:
-            page_width_mcf, page_height_mcf = self.resize_transformer.transform_page_dimensions()
+        # Apply resize transformer to dimensions if active (use appropriate transformer for page type)
+        resize_transformer = self.resize_cover_transformer if is_cover else self.resize_content_transformer
+        if resize_transformer:
+            page_width_mcf, page_height_mcf = resize_transformer.transform_page_dimensions()
 
         title = self._getPageWinTitle(all_photos, all_texts, page_width_mcf, page_height_mcf)
         self.root.title(title)
@@ -1192,9 +1199,14 @@ class LayoutViewer:
         height_cm = page_height_mcf / 100.0
         
         # If resize transformer is active, show both original and resized dimensions
-        if self.resize_transformer:
-            orig_width = (self.resize_transformer.old_width * len(self.current_spread_pages)) / 100.0
-            orig_height = self.resize_transformer.old_height / 100.0
+        # Use the first page to determine which transformer (cover or content)
+        first_pageno = self.current_spread_pages[0]
+        is_cover = first_pageno in ("F", "B")
+        resize_transformer = self.resize_cover_transformer if is_cover else self.resize_content_transformer
+        
+        if resize_transformer:
+            orig_width = (resize_transformer.old_width * len(self.current_spread_pages)) / 100.0
+            orig_height = resize_transformer.old_height / 100.0
             dimensions_str = f'{orig_width:.1f}cm x {orig_height:.1f}cm resized to {width_cm:.1f}cm x {height_cm:.1f}cm'
         else:
             dimensions_str = f'{width_cm:.1f}cm x {height_cm:.1f}cm'
@@ -4440,13 +4452,15 @@ class LayoutViewer:
         self.show_status(f'Reverted page {pageno} to original layout.')
         self.render_page()
     
-    def set_resize_transformer(self, transformer):
-        """Set the resize transformer and trigger page re-render.
+    def set_resize_transformers(self, cover_transformer, content_transformer):
+        """Set the resize transformers and trigger page re-render.
         
         Args:
-            transformer: ResizeTransformer instance or None to clear
+            cover_transformer: ResizeTransformer instance for cover pages or None
+            content_transformer: ResizeTransformer instance for content pages or None
         """
-        self.resize_transformer = transformer
+        self.resize_cover_transformer = cover_transformer
+        self.resize_content_transformer = content_transformer
         self.render_page()
 
     def _search_photo_improvements(self):

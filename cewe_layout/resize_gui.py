@@ -25,7 +25,7 @@ class ResizeWindow:
         # Create toplevel window
         self.window = tk.Toplevel(parent)
         self.window.title('Resize Book')
-        self.window.geometry('600x700')
+        self.window.geometry('600x750')
         
         # Main frame with padding
         main_frame = ttk.Frame(self.window, padding=10)
@@ -49,29 +49,44 @@ class ResizeWindow:
         section_frame = ttk.LabelFrame(parent, text='Current Book Size', padding=10)
         section_frame.pack(fill='x', pady=(0, 10))
         
-        # Get the first page to determine current size
         if self.book.get_page_count() > 0:
-            first_page = self.book.get_first_content_page()
-            page_info = first_page.get_page_info()
+            # Get cover page dimensions (front cover)
+            cover_page = self.book.get_page(0)  # Front cover is first page
+            cover_info = cover_page.get_page_info()
+            cover_width_mcf = cover_info.get('page_width', 0)
+            cover_height_mcf = cover_info.get('page_height', 0)
+            cover_width_cm = cover_width_mcf / 100.0
+            cover_height_cm = cover_height_mcf / 100.0
+            cover_aspect = cover_width_mcf / cover_height_mcf if cover_height_mcf > 0 else 0
             
-            # Extract dimensions (in MCF units, divide by 100 for cm)
-            page_width_mcf = page_info.get('page_width', 0)
-            page_height_mcf = page_info.get('page_height', 0)
-            width_cm = page_width_mcf / 100.0
-            height_cm = page_height_mcf / 100.0
+            # Get content page dimensions
+            content_page = self.book.get_first_content_page()
+            content_info = content_page.get_page_info()
+            content_width_mcf = content_info.get('page_width', 0)
+            content_height_mcf = content_info.get('page_height', 0)
+            content_width_cm = content_width_mcf / 100.0
+            content_height_cm = content_height_mcf / 100.0
+            content_aspect = content_width_mcf / content_height_mcf if content_height_mcf > 0 else 0
             
-            # Calculate aspect ratio
-            aspect_ratio = page_width_mcf / page_height_mcf if page_height_mcf > 0 else 0
+            # Display cover dimensions
+            cover_label = ttk.Label(section_frame, text='Cover pages:', font=('TkDefaultFont', 10, 'bold'))
+            cover_label.pack(anchor='w')
+            cover_size_text = f'{cover_width_cm:.1f} cm × {cover_height_cm:.1f} cm (aspect ratio: {cover_aspect:.2f})'
+            cover_size_label = ttk.Label(section_frame, text=cover_size_text)
+            cover_size_label.pack(anchor='w', padx=(20, 0))
+            cover_mcf_text = f'({cover_width_mcf} × {cover_height_mcf} MCF units)'
+            cover_mcf_label = ttk.Label(section_frame, text=cover_mcf_text, foreground='gray')
+            cover_mcf_label.pack(anchor='w', padx=(20, 0), pady=(0, 10))
             
-            # Display dimensions
-            size_text = f'{width_cm:.1f} cm × {height_cm:.1f} cm (aspect ratio: {aspect_ratio:.2f})'
-            size_label = ttk.Label(section_frame, text=size_text, font=('TkDefaultFont', 12, 'bold'))
-            size_label.pack()
-            
-            # Also show in MCF units
-            mcf_text = f'({page_width_mcf} × {page_height_mcf} MCF units)'
-            mcf_label = ttk.Label(section_frame, text=mcf_text, foreground='gray')
-            mcf_label.pack()
+            # Display content dimensions
+            content_label = ttk.Label(section_frame, text='Content pages:', font=('TkDefaultFont', 10, 'bold'))
+            content_label.pack(anchor='w')
+            content_size_text = f'{content_width_cm:.1f} cm × {content_height_cm:.1f} cm (aspect ratio: {content_aspect:.2f})'
+            content_size_label = ttk.Label(section_frame, text=content_size_text)
+            content_size_label.pack(anchor='w', padx=(20, 0))
+            content_mcf_text = f'({content_width_mcf} × {content_height_mcf} MCF units)'
+            content_mcf_label = ttk.Label(section_frame, text=content_mcf_text, foreground='gray')
+            content_mcf_label.pack(anchor='w', padx=(20, 0))
             
             # Show page count
             page_count_text = f'{self.book.get_page_count()} pages in book'
@@ -79,14 +94,18 @@ class ResizeWindow:
             page_count_label.pack(pady=(10, 0))
             
             # Store current dimensions for later use
-            self.current_width = page_width_mcf
-            self.current_height = page_height_mcf
+            self.current_cover_width = cover_width_mcf
+            self.current_cover_height = cover_height_mcf
+            self.current_content_width = content_width_mcf
+            self.current_content_height = content_height_mcf
         else:
             # No pages
             no_pages_label = ttk.Label(section_frame, text='No pages in book', foreground='red')
             no_pages_label.pack()
-            self.current_width = 0
-            self.current_height = 0
+            self.current_cover_width = 0
+            self.current_cover_height = 0
+            self.current_content_width = 0
+            self.current_content_height = 0
     
     def _create_new_size_section(self, parent):
         """Create the section for selecting new book size.
@@ -102,7 +121,7 @@ class ResizeWindow:
         self.size_keys = []
         
         for book_key, dimensions in BOOK_SIZES.items():
-            # Page dimensions are for spread (2 pages), so divide by 2 for single page
+            # Use content page dimensions for display (spread dimensions, so divide by 2 for single page)
             page_width = dimensions['pageWidth'] / 2
             page_height = dimensions['pageHeight']
             width_cm = page_width / 100.0
@@ -114,11 +133,11 @@ class ResizeWindow:
             self.size_options.append(option_text)
             self.size_keys.append(book_key)
         
-        # Determine default selection
+        # Determine default section (use content page dimensions)
         default_value = ''
-        if self.current_width > 0 and self.current_height > 0:
+        if self.current_content_width > 0 and self.current_content_height > 0:
             # find_closest_book_size compares to pageWidth/2, so pass single page width
-            closest_key = find_closest_book_size(self.current_width, self.current_height)
+            closest_key = find_closest_book_size(self.current_content_width, self.current_content_height)
             # Find index of this key in our list
             if closest_key in self.size_keys:
                 default_index = self.size_keys.index(closest_key)
@@ -137,38 +156,40 @@ class ResizeWindow:
             self.size_menu.config(width=50)
             self.size_menu.pack(fill='x', pady=(0, 10))
         
-        # Scaling options
-        scaling_label = ttk.Label(section_frame, text='Scaling:')
-        scaling_label.pack(anchor='w', pady=(10, 5))
+        # Scaling options - label and menu on same line
+        scaling_frame = ttk.Frame(section_frame)
+        scaling_frame.pack(fill='x', pady=(10, 10))
         
-        # 1. None: just places the content without scaling (but does adjust x-coordinates so that items on the right
-        # hand page of a spread are indeed on the right hand page)
-        # 2. None (center on page): as 'None' but shifts x/y so that the centers of the old and new pages are exactly
-        # aligned. When moving to a larger page size this will leave pleasant margins around the content.
-        # 3. Fit (may have margins): scales content uniformly to fit within new page size, preserving aspect ratio;
-        # the dimension that is tightest will fit exactly, the other dimension may have margins. If the tight
-        # dimension has bleed in the old page size, it will also have the same bleed in the new size (e.g. 3mm)
-        # 4. Fill (crop to avoid margins): as with the previous option (so preserves aspect ratio), except that the 
-        # looser dimension is used to decide on the scaling, so that is the dimension that fills the new page size 
-        # exactly, and the other dimension may be cropped.
-        # 5. Fill (may change aspect ratio): now we ensure both dimensions exactly fill the new page size (and exactly
-        # preserve any bleed), but this option does not preserve the aspect ratio of the content. This does not
-        # mean photos will be distorted - typically in CEWE photos are always cropped to fit their frames, so a change
-        # in aspect ratio of the layout will mean a change in crop of the photos.
+        scaling_label = ttk.Label(scaling_frame, text='Scaling:')
+        scaling_label.pack(side='left', padx=(0, 5))
+        
         scaling_options = ['None', 'None (center on page)', 'Fit (may have margins)', 'Fill (crop to avoid margins)', 'Fill (may change aspect ratio)']
         self.scaling_var = tk.StringVar(value='None')
-        self.scaling_menu = tk.OptionMenu(section_frame, self.scaling_var, *scaling_options)
-        self.scaling_menu.config(width=50)
-        self.scaling_menu.pack(fill='x', pady=(0, 10))
+        self.scaling_menu = tk.OptionMenu(scaling_frame, self.scaling_var, *scaling_options)
+        self.scaling_menu.config(width=45)
+        self.scaling_menu.pack(side='left', fill='x', expand=True)
         
         # Info section that updates when selections change
         info_section = ttk.LabelFrame(section_frame, text='Resize Impact', padding=10)
         info_section.pack(fill='both', expand=True, pady=(10, 0))
         
-        # Create a text widget to display the impact information
-        self.info_text = tk.Text(info_section, height=12, width=60, wrap='word', 
-                                font=('TkDefaultFont', 9), state='disabled')
-        self.info_text.pack(fill='both', expand=True)
+        # Create two side-by-side text widgets
+        info_container = ttk.Frame(info_section)
+        info_container.pack(fill='both', expand=True)
+        
+        # Left side: Cover pages
+        cover_frame = ttk.LabelFrame(info_container, text='Cover Pages', padding=5)
+        cover_frame.pack(side='left', fill='both', expand=True, padx=(0, 5))
+        self.info_cover_text = tk.Text(cover_frame, height=12, width=30, wrap='word', 
+                                       font=('TkDefaultFont', 9), state='disabled')
+        self.info_cover_text.pack(fill='both', expand=True)
+        
+        # Right side: Content pages
+        content_frame = ttk.LabelFrame(info_container, text='Content Pages', padding=5)
+        content_frame.pack(side='left', fill='both', expand=True)
+        self.info_content_text = tk.Text(content_frame, height=12, width=30, wrap='word', 
+                                         font=('TkDefaultFont', 9), state='disabled')
+        self.info_content_text.pack(fill='both', expand=True)
         
         # Set up callbacks to update info when selections change
         self.size_var.trace_add('write', lambda *args: self._update_resize_info())
@@ -179,17 +200,17 @@ class ResizeWindow:
     
     def _update_resize_info(self):
         """Update the resize information display based on current selections."""
-        # Get current book aspect ratio
-        if self.current_width > 0 and self.current_height > 0:
-            current_aspect = self.current_width / self.current_height
-        else:
-            self._set_info_text('')
+        # Check if we have valid dimensions
+        if self.current_cover_width <= 0 or self.current_content_width <= 0:
+            self._set_info_text(self.info_cover_text, '')
+            self._set_info_text(self.info_content_text, '')
             return
         
         # Get selected target size
         selected = self.size_var.get()
         if not selected or selected not in self.size_options:
-            self._set_info_text('')
+            self._set_info_text(self.info_cover_text, '')
+            self._set_info_text(self.info_content_text, '')
             return
         
         # Find the corresponding book size key
@@ -198,33 +219,51 @@ class ResizeWindow:
         
         # Get target dimensions
         dimensions = BOOK_SIZES[selected_key]
-        target_width = dimensions['pageWidth'] / 2
-        target_height = dimensions['pageHeight']
-        target_aspect = target_width / target_height
+        target_cover_width = dimensions['coverWidth'] / 2
+        target_cover_height = dimensions['coverHeight']
+        target_content_width = dimensions['pageWidth'] / 2
+        target_content_height = dimensions['pageHeight']
         
         # Get selected scaling rule
         scaling_rule = self.scaling_var.get()
         
-        # Calculate resize impact (assume 3mm bleed as typical)
-        impact = calculate_resize_impact(self.current_width, self.current_height,
-                                        target_width, target_height,
-                                        scaling_rule, bleed_mm=3)
+        # Calculate resize impact for covers (assume 3mm bleed as typical)
+        cover_impact = calculate_resize_impact(self.current_cover_width, self.current_cover_height,
+                                               target_cover_width, target_cover_height,
+                                               scaling_rule, bleed_mm=3)
         
-        # Format the display
+        # Calculate resize impact for content pages
+        content_impact = calculate_resize_impact(self.current_content_width, self.current_content_height,
+                                                 target_content_width, target_content_height,
+                                                 scaling_rule, bleed_mm=3)
+        
+        # Format and display both
+        self._set_info_text(self.info_cover_text, self._format_impact(cover_impact))
+        self._set_info_text(self.info_content_text, self._format_impact(content_impact))
+    
+    def _format_impact(self, impact):
+        """Format resize impact information for display.
+        
+        Args:
+            impact: Impact dictionary from calculate_resize_impact
+            
+        Returns:
+            Formatted text string
+        """
         lines = []
         
         # Aspect ratio change
         aspect_diff_pct = impact['aspect_ratio_change_pct']
         if aspect_diff_pct > 0.01:
-            lines.append(f'Aspect ratio change: +{aspect_diff_pct:.1f}% (wider)\n')
+            lines.append(f'Aspect ratio: +{aspect_diff_pct:.1f}% (wider)\n')
         elif aspect_diff_pct < -0.01:
-            lines.append(f'Aspect ratio change: {aspect_diff_pct:.1f}% (narrower)\n')
+            lines.append(f'Aspect ratio: {aspect_diff_pct:.1f}% (narrower)\n')
         else:
-            lines.append(f'Aspect ratio change: 0% (same aspect ratio)\n')
+            lines.append(f'Aspect ratio: 0% (same)\n')
         
         # Scaling factors
         if impact['scale_x'] != impact['scale_y']:
-            lines.append(f'Scaling: {impact["scale_x"]*100:.1f}% horizontal, {impact["scale_y"]*100:.1f}% vertical\n')
+            lines.append(f'Scaling: {impact["scale_x"]*100:.1f}% H, {impact["scale_y"]*100:.1f}% V\n')
         else:
             lines.append(f'Scaling: {impact["scale_x"]*100:.1f}% (uniform)\n')
         
@@ -232,12 +271,12 @@ class ResizeWindow:
         total_crop = (impact['crop_left_mm'] + impact['crop_right_mm'] + 
                      impact['crop_top_mm'] + impact['crop_bottom_mm'])
         if total_crop > 0.1:
-            lines.append(f'\nCropping from page edges:')
+            lines.append(f'\nCrop from edges:')
             if impact['crop_left_mm'] > 0.1 or impact['crop_right_mm'] > 0.1:
-                lines.append(f'  Horizontal: {impact["crop_left_mm"]:.1f} mm left, {impact["crop_right_mm"]:.1f} mm right')
+                lines.append(f'  H: {impact["crop_left_mm"]:.1f} mm L, {impact["crop_right_mm"]:.1f} mm R')
             if impact['crop_top_mm'] > 0.1 or impact['crop_bottom_mm'] > 0.1:
-                lines.append(f'  Vertical: {impact["crop_top_mm"]:.1f} mm top, {impact["crop_bottom_mm"]:.1f} mm bottom')
-            lines.append(f'  Total: {total_crop:.1f} mm cropped\n')
+                lines.append(f'  V: {impact["crop_top_mm"]:.1f} mm T, {impact["crop_bottom_mm"]:.1f} mm B')
+            lines.append(f'  Total: {total_crop:.1f} mm\n')
         else:
             lines.append(f'\nNo page edge cropping\n')
         
@@ -247,29 +286,30 @@ class ResizeWindow:
         if total_margin > 0.1:
             lines.append(f'\nMargins added:')
             if impact['margin_left_mm'] > 0.1 or impact['margin_right_mm'] > 0.1:
-                lines.append(f'  Horizontal: {impact["margin_left_mm"]:.1f} mm left, {impact["margin_right_mm"]:.1f} mm right')
+                lines.append(f'  H: {impact["margin_left_mm"]:.1f} mm L, {impact["margin_right_mm"]:.1f} mm R')
             if impact['margin_top_mm'] > 0.1 or impact['margin_bottom_mm'] > 0.1:
-                lines.append(f'  Vertical: {impact["margin_top_mm"]:.1f} mm top, {impact["margin_bottom_mm"]:.1f} mm bottom')
-            lines.append(f'  Total: {total_margin:.1f} mm margins\n')
+                lines.append(f'  V: {impact["margin_top_mm"]:.1f} mm T, {impact["margin_bottom_mm"]:.1f} mm B')
+            lines.append(f'  Total: {total_margin:.1f} mm\n')
         else:
             lines.append(f'\nNo margins added\n')
         
         # Photo cropping
         if impact['photo_crop_pct'] > 0.1:
-            lines.append(f'\nEstimated photo cropping due to aspect ratio change: {impact["photo_crop_pct"]:.1f}%')
+            lines.append(f'\nEst. photo crop: {impact["photo_crop_pct"]:.1f}%')
         
-        self._set_info_text('\n'.join(lines))
+        return '\n'.join(lines)
     
-    def _set_info_text(self, text):
-        """Set the info text widget content.
+    def _set_info_text(self, text_widget, text):
+        """Set a text widget content.
         
         Args:
+            text_widget: Text widget to update
             text: Text to display
         """
-        self.info_text.config(state='normal')
-        self.info_text.delete('1.0', 'end')
-        self.info_text.insert('1.0', text)
-        self.info_text.config(state='disabled')
+        text_widget.config(state='normal')
+        text_widget.delete('1.0', 'end')
+        text_widget.insert('1.0', text)
+        text_widget.config(state='disabled')
     
     def _create_action_buttons_section(self, parent):
         """Create the section with action buttons and name input.
@@ -315,24 +355,36 @@ class ResizeWindow:
         
         # Get target dimensions
         dimensions = BOOK_SIZES[selected_key]
-        target_width = dimensions['pageWidth'] / 2
-        target_height = dimensions['pageHeight']
+        target_cover_width = dimensions['coverWidth'] / 2
+        target_cover_height = dimensions['coverHeight']
+        target_content_width = dimensions['pageWidth'] / 2
+        target_content_height = dimensions['pageHeight']
         
         # Get selected scaling rule
         scaling_rule = self.scaling_var.get()
         
-        # Create ResizeTransformer
-        transformer = ResizeTransformer(
-            self.current_width,
-            self.current_height,
-            int(target_width),
-            int(target_height),
+        # Create ResizeTransformer for covers
+        cover_transformer = ResizeTransformer(
+            self.current_cover_width,
+            self.current_cover_height,
+            int(target_cover_width),
+            int(target_cover_height),
             scaling_rule,
             bleed_mm=3
         )
         
-        # Set transformer on the viewer (triggers re-render)
-        self.viewer.set_resize_transformer(transformer)
+        # Create ResizeTransformer for content pages
+        content_transformer = ResizeTransformer(
+            self.current_content_width,
+            self.current_content_height,
+            int(target_content_width),
+            int(target_content_height),
+            scaling_rule,
+            bleed_mm=3
+        )
+        
+        # Set transformers on the viewer (triggers re-render)
+        self.viewer.set_resize_transformers(cover_transformer, content_transformer)
         
         # Don't destroy the window - user may want to adjust settings
     
