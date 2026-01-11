@@ -94,6 +94,7 @@ class MimeoPhotobook(Photobook):
             pages: List of page data dicts with 'width', 'height', 'images' in Mimeo units
             metadata: Book metadata (title, author, etc.)
         """
+        super().__init__()
         self._pages = pages
         self._metadata = metadata or {}
         self._page_count = len(pages)

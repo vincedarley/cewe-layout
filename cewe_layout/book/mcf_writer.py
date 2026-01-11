@@ -179,25 +179,15 @@ def create_mcf_xml(photobook: Photobook, output_dir: Path, verbose: bool = False
     cewe_dimensions = BOOK_SIZES[book_size_id]
     
     # Extract CEWE dimensions for covers and interior pages
-    cewe_cover_width_mcf = cewe_dimensions['coverWidth'] / 2  # Single page width
-    cewe_cover_height_mcf = cewe_dimensions['coverHeight']
-    cewe_interior_width_mcf = cewe_dimensions['pageWidth'] / 2  # Single page width
-    cewe_interior_height_mcf = cewe_dimensions['pageHeight']
+    # cewe_cover_width_mcf = cewe_dimensions['coverWidth'] / 2  # Single page width
+    # cewe_cover_height_mcf = cewe_dimensions['coverHeight']
+    # cewe_interior_width_mcf = cewe_dimensions['pageWidth'] / 2  # Single page width
+    # cewe_interior_height_mcf = cewe_dimensions['pageHeight']
     
     if verbose:
-        print(f"PDF cover dimensions: {input_cover_width_mcf} x {input_cover_height_mcf} MCF units")
-        print(f"PDF interior dimensions: {input_interior_width_mcf} x {input_interior_height_mcf} MCF units")
+        print(f"Book cover dimensions: {input_cover_width_mcf} x {input_cover_height_mcf} MCF units")
+        print(f"Book interior dimensions: {input_interior_width_mcf} x {input_interior_height_mcf} MCF units")
         print(f"Matched CEWE book size: {book_size_id}")
-        print(f"CEWE cover dimensions: {cewe_cover_width_mcf} x {cewe_cover_height_mcf} MCF units")
-        print(f"CEWE interior dimensions: {cewe_interior_width_mcf} x {cewe_interior_height_mcf} MCF units")
-        
-        # Calculate differences
-        cover_width_diff = ((cewe_cover_width_mcf - input_cover_width_mcf) / input_cover_width_mcf) * 100
-        cover_height_diff = ((cewe_cover_height_mcf - input_cover_height_mcf) / input_cover_height_mcf) * 100
-        interior_width_diff = ((cewe_interior_width_mcf - input_interior_width_mcf) / input_interior_width_mcf) * 100
-        interior_height_diff = ((cewe_interior_height_mcf - input_interior_height_mcf) / input_interior_height_mcf) * 100
-        print(f"Cover difference: width {cover_width_diff:+.2f}%, height {cover_height_diff:+.2f}%")
-        print(f"Interior difference: width {interior_width_diff:+.2f}%, height {interior_height_diff:+.2f}%")
     
     # CEWE pagecount = number of content pages (not including covers/inside covers)
     # WITHOUT --insidecovers: PDF has [front, content..., back] → content pages = N-2
@@ -251,7 +241,7 @@ def create_mcf_xml(photobook: Photobook, output_dir: Path, verbose: bool = False
         cover_page = create_cover_spread_element(
             front_page._page_data,   # Front cover (right half)
             back_page._page_data,    # Back cover (left half)
-            output_dir, cewe_cover_width_mcf, cewe_cover_height_mcf, verbose,
+            output_dir, input_cover_width_mcf, input_cover_height_mcf, verbose,
             input_cover_width_mcf, input_cover_height_mcf
         )
         fotobook.append(cover_page)
@@ -260,17 +250,17 @@ def create_mcf_xml(photobook: Photobook, output_dir: Path, verbose: bool = False
         front_page = photobook.get_page(front_input_idx)
         cover_page = create_cover_spread_element(
             front_page._page_data, None,
-            output_dir, cewe_cover_width_mcf, cewe_cover_height_mcf, verbose,
+            output_dir, input_cover_width_mcf, input_cover_height_mcf, verbose,
             input_cover_width_mcf, input_cover_height_mcf
         )
         fotobook.append(cover_page)
     
     # Add spine page (required structure) - uses cover dimensions
-    spine_page = create_spine_page(cewe_cover_width_mcf, cewe_cover_height_mcf)
+    spine_page = create_spine_page(input_cover_width_mcf, input_cover_height_mcf)
     fotobook.append(spine_page)
     
     # Add empty front cover fullcover page (required structure) - uses cover dimensions
-    front_cover_empty = create_empty_cover_page(cewe_cover_width_mcf, cewe_cover_height_mcf)
+    front_cover_empty = create_empty_cover_page(input_cover_width_mcf, input_cover_height_mcf)
     fotobook.append(front_cover_empty)
     
     # Add inside front cover (4th pagenr=0 emptypage) and page 1
@@ -288,11 +278,10 @@ def create_mcf_xml(photobook: Photobook, output_dir: Path, verbose: bool = False
         input_page0_width = round(inside_front_data['width'])
         input_page0_height = round(inside_front_data['height'])
         inside_front_page = create_page_element(inside_front_data, output_dir, 0, 'emptypage', False, verbose, ui_page=0,
-                                               input_page_width=input_page0_width, input_page_height=input_page0_height,
-                                               cewe_page_width=cewe_interior_width_mcf, cewe_page_height=cewe_interior_height_mcf)
+                                               input_page_width=input_page0_width, input_page_height=input_page0_height)
         z_position = 1000 + len(inside_front_data.get('images', [])) + len(inside_front_data.get('text_blocks', []))
     else:
-        inside_front_page = create_empty_page(cewe_interior_width_mcf, cewe_interior_height_mcf)
+        inside_front_page = create_empty_page(input_interior_width_mcf, input_interior_height_mcf)
         z_position = 1000
     
     fotobook.append(inside_front_page)
@@ -308,19 +297,17 @@ def create_mcf_xml(photobook: Photobook, output_dir: Path, verbose: bool = False
         for img in page1_data.get('images', []):
             img['ui_page'] = 1  # Page 1 for filename
             area = create_image_area(img, output_dir, z_position, verbose,
-                                    input_page1_width, input_page1_height,
-                                    cewe_interior_width_mcf, cewe_interior_height_mcf)
+                                    input_page1_width, input_page1_height)
             inside_front_page.append(area)
             z_position += 1
         for text_block in page1_data.get('text_blocks', []):
             area = create_text_area(text_block, z_position, verbose,
-                                   input_page1_width, input_page1_height,
-                                   cewe_interior_width_mcf, cewe_interior_height_mcf)
+                                   input_page1_width, input_page1_height)
             inside_front_page.append(area)
             z_position += 1
     
     # Create empty page 1 element (placeholder for right side)
-    empty_page_1 = create_empty_content_page(cewe_interior_width_mcf, cewe_interior_height_mcf, 1)
+    empty_page_1 = create_empty_content_page(input_interior_width_mcf, input_interior_height_mcf, 1)
     fotobook.append(empty_page_1)
     
     # Add content pages
@@ -359,8 +346,7 @@ def create_mcf_xml(photobook: Photobook, output_dir: Path, verbose: bool = False
                 
                 # Even page (left page of spread) - create page element with areas
                 page_elem = create_page_element(page_data, output_dir, cewe_pagenr, 'normalpage', False, verbose, ui_page=ui_page,
-                                               input_page_width=input_even_width, input_page_height=input_even_height,
-                                               cewe_page_width=cewe_interior_width_mcf, cewe_page_height=cewe_interior_height_mcf)
+                                               input_page_width=input_even_width, input_page_height=input_even_height)
                 fotobook.append(page_elem)
                 
                 # If there's a next odd page in our mapping, add its areas too
@@ -381,21 +367,19 @@ def create_mcf_xml(photobook: Photobook, output_dir: Path, verbose: bool = False
                         # Use next_ui_page for the odd (right) page images
                         img['ui_page'] = next_ui_page
                         area = create_image_area(img, output_dir, z_position, verbose,
-                                                input_odd_width, input_odd_height,
-                                                cewe_interior_width_mcf, cewe_interior_height_mcf)
+                                                input_odd_width, input_odd_height)
                         page_elem.append(area)
                         z_position += 1
                     for text_block in next_page_data.get('text_blocks', []):
                         area = create_text_area(text_block, z_position, verbose,
-                                               input_odd_width, input_odd_height,
-                                               cewe_interior_width_mcf, cewe_interior_height_mcf)
+                                               input_odd_width, input_odd_height)
                         page_elem.append(area)
                         z_position += 1
                     
                     # Create an empty page element for the odd (right) page
                     # UNLESS it's the inside back cover (which is created separately)
                     if next_ui_page != max_content_ui_page + 1:
-                        odd_page_elem = create_empty_content_page(cewe_interior_width_mcf, cewe_interior_height_mcf, cewe_pagenr + 1)
+                        odd_page_elem = create_empty_content_page(input_odd_width, input_odd_height, cewe_pagenr + 1)
                         fotobook.append(odd_page_elem)
     
     # Add inside back cover (last pagenr=0 emptypage)
@@ -415,15 +399,13 @@ def create_mcf_xml(photobook: Photobook, output_dir: Path, verbose: bool = False
     # all its areas to page 60's element in the loop above (when next_ui_page == max_content_ui_page + 1)
     # This empty page element is just the required CEWE structure placeholder
     # Inside back cover uses interior page dimensions
-    inside_back_page = create_empty_page(cewe_interior_width_mcf, cewe_interior_height_mcf)
+    inside_back_page = create_empty_page(input_interior_width_mcf, input_interior_height_mcf)
     fotobook.append(inside_back_page)
     
     return fotobook
 
 
-def scale_area_to_cewe(left: float, top: float, width: float, height: float,
-                       input_width: float, input_height: float,
-                       cewe_width: float, cewe_height: float) -> tuple[float, float, float, float]:
+def scale_area_to_cewe(left: float, top: float, width: float, height: float) -> tuple[float, float, float, float]:
     """Scale area coordinates from PDF dimensions to CEWE dimensions.
     
     Maps the area from PDF page space to CEWE page space, preserving relative
@@ -434,26 +416,12 @@ def scale_area_to_cewe(left: float, top: float, width: float, height: float,
         top: Top coordinate in PDF space
         width: Width in PDF space
         height: Height in PDF space
-        input_width: PDF page width (single page)
-        input_height: PDF page height
-        cewe_width: CEWE page width (single page)
-        cewe_height: CEWE page height
         
     Returns:
         Tuple of (scaled_left, scaled_top, scaled_width, scaled_height)
     """
-    # Calculate scale factors
-    # Note: For spread coordinates, width scale applies to full spread width (2*page_width)
-    width_scale = cewe_width / input_width
-    height_scale = cewe_height / input_height
     
-    # Scale all dimensions
-    scaled_left = left * width_scale
-    scaled_top = top * height_scale
-    scaled_width = width * width_scale
-    scaled_height = height * height_scale
-    
-    return scaled_left, scaled_top, scaled_width, scaled_height
+    return left, top, width, height
 
 
 def create_spine_page(page_width_mcf: float, page_height_mcf: float) -> ET.Element:
@@ -551,15 +519,13 @@ def create_cover_spread_element(front_page_data: Dict[str, Any], back_page_data:
         for img in back_page_data.get('images', []):
             img['ui_page'] = 'B'  # Back cover identifier
             area = create_image_area(img, output_dir, z_position, verbose,
-                                    input_page_width, input_page_height,
-                                    page_width_mcf, page_height_mcf)
+                                    input_page_width, input_page_height)
             page.append(area)
             z_position += 1
         
         for text_block in back_page_data.get('text_blocks', []):
             area = create_text_area(text_block, z_position, verbose,
-                                   input_page_width, input_page_height,
-                                   page_width_mcf, page_height_mcf)
+                                   input_page_width, input_page_height)
             page.append(area)
             z_position += 1
     
@@ -568,15 +534,13 @@ def create_cover_spread_element(front_page_data: Dict[str, Any], back_page_data:
     for img in front_page_data.get('images', []):
         img['ui_page'] = 'F'  # Front cover identifier
         area = create_image_area(img, output_dir, z_position, verbose,
-                                input_page_width, input_page_height,
-                                page_width_mcf, page_height_mcf)
+                                input_page_width, input_page_height)
         page.append(area)
         z_position += 1
     
     for text_block in front_page_data.get('text_blocks', []):
         area = create_text_area(text_block, z_position, verbose,
-                               input_page_width, input_page_height,
-                               page_width_mcf, page_height_mcf)
+                               input_page_width, input_page_height) 
         page.append(area)
         z_position += 1
     
@@ -648,8 +612,7 @@ def create_empty_content_page(page_width_mcf: float, page_height_mcf: float, pag
 def create_page_element(page_data: Dict[str, Any], output_dir: Path,
                        cewe_pagenr: int, page_type: str, is_cover: bool, verbose: bool = False,
                        is_first_content_dummy: bool = False, ui_page = None,
-                       input_page_width: float = None, input_page_height: float = None,
-                       cewe_page_width: float = None, cewe_page_height: float = None) -> ET.Element:
+                       input_page_width: float = None, input_page_height: float = None) -> ET.Element:
     """Create a page element with images and text.
     
     Args:
@@ -677,8 +640,8 @@ def create_page_element(page_data: Dict[str, Any], output_dir: Path,
     # CEWE photobooks use two-page spreads
     # bundlesize = width of spread (2 pages side-by-side) × height of one page
     # Use CEWE dimensions for bundlesize (not PDF dimensions)
-    page_width_mcf = cewe_page_width
-    page_height_mcf = cewe_page_height
+    page_width_mcf = input_page_width
+    page_height_mcf = input_page_height
 
     # Spread width is double the single page width
     spread_width_mcf = page_width_mcf * 2
@@ -697,16 +660,14 @@ def create_page_element(page_data: Dict[str, Any], output_dir: Path,
         # Use UI page number if provided, otherwise fall back to PDF page_num
         img['ui_page'] = ui_page if ui_page is not None else page_data.get('page_num', cewe_pagenr)
         area = create_image_area(img, output_dir, z_position, verbose,
-                                input_page_width, input_page_height,
-                                cewe_page_width, cewe_page_height)
+                                input_page_width, input_page_height)
         page.append(area)
         z_position += 1
     
     # Add text areas
     for text_block in page_data['text_blocks']:
         area = create_text_area(text_block, z_position, verbose,
-                               input_page_width, input_page_height,
-                               cewe_page_width, cewe_page_height)
+                               input_page_width, input_page_height)
         page.append(area)
         z_position += 1
     
@@ -714,8 +675,7 @@ def create_page_element(page_data: Dict[str, Any], output_dir: Path,
 
 
 def create_image_area(img: Dict[str, Any], output_dir: Path, z_position: int, verbose: bool = False,
-                     input_page_width: float = None, input_page_height: float = None,
-                     cewe_page_width: float = None, cewe_page_height: float = None) -> ET.Element:
+                     input_page_width: float = None, input_page_height: float = None) -> ET.Element:
     """Create an image area element.
     
     Args:
@@ -725,8 +685,6 @@ def create_image_area(img: Dict[str, Any], output_dir: Path, z_position: int, ve
         verbose: Print detailed info
         input_page_width: Original PDF page width (for scaling)
         input_page_height: Original PDF page height (for scaling)
-        cewe_page_width: Target CEWE page width (for scaling)
-        cewe_page_height: Target CEWE page height (for scaling)
         
     Returns:
         Area XML element
@@ -776,9 +734,7 @@ def create_image_area(img: Dict[str, Any], output_dir: Path, z_position: int, ve
     # Scale coordinates from PDF to CEWE dimensions if scaling info provided
     # Note: Coordinates are in spread space, so use 2*page_width for spread width
     scaled_left, scaled_top, scaled_width, scaled_height = scale_area_to_cewe(
-        img['left'], img['top'], img['width'], img['height'],
-        input_page_width * 2, input_page_height,  # PDF spread dimensions
-        cewe_page_width * 2, cewe_page_height  # CEWE spread dimensions
+        img['left'], img['top'], img['width'], img['height']
     )
     
     # Create area element
@@ -814,8 +770,7 @@ def create_image_area(img: Dict[str, Any], output_dir: Path, z_position: int, ve
 
 
 def create_text_area(text_block: Dict[str, Any], z_position: int, verbose: bool = False,
-                    input_page_width: float = None, input_page_height: float = None,
-                    cewe_page_width: float = None, cewe_page_height: float = None) -> ET.Element:
+                    input_page_width: float = None, input_page_height: float = None) -> ET.Element:
     """Create a text area element.
     
     Args:
@@ -833,10 +788,7 @@ def create_text_area(text_block: Dict[str, Any], z_position: int, verbose: bool 
     # Scale coordinates from PDF to CEWE dimensions if scaling info provided
     # Note: Coordinates are in spread space, so use 2*page_width for spread width
     scaled_left, scaled_top, scaled_width, scaled_height = scale_area_to_cewe(
-        text_block['left'], text_block['top'], text_block['width'], text_block['height'],
-        input_page_width * 2, input_page_height,  # PDF spread dimensions
-        cewe_page_width * 2, cewe_page_height  # CEWE spread dimensions
-    )
+        text_block['left'], text_block['top'], text_block['width'], text_block['height'])
     
     area = ET.Element('area')
     area.set('areatype', 'textarea')

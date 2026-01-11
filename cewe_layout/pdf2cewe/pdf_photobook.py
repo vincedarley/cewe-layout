@@ -116,6 +116,7 @@ class PDFPhotobook(Photobook):
             page_to_ui: Mapping from PDF index to UI page (required for on-demand mode)
             verbose: Print detailed extraction info (for on-demand mode)
         """
+        super().__init__()
         # Batch mode: pages provided upfront
         if pages is not None:
             self._pages = pages

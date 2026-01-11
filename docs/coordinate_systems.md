@@ -131,3 +131,144 @@ x_mcf_spread = pdf_x * PT_TO_MCF + (page_width_mcf if is_right_page else 0)
 - ❌ No PT_TO_MCF conversions outside pdf_extractor.py
 - ❌ No canvas pixel calculations outside page_gui.py
 
+---
+
+## 4. Mimeo Photos Coordinates
+
+### System Properties
+
+| Property | Mimeo Photos | CEWE/MCF |
+|----------|--------------|----------|
+| **Units** | Points (1/72 inch) | MCF (0.1mm) |
+| **Origin** | Bottom-left | Top-left |
+| **Y-axis** | Increases upward | Increases downward |
+| **Anchor** | Center-based | Top-left |
+| **Scope** | Per single page | Per spread |
+| **Bleed** | All 4 edges | 3 edges (not spine) |
+
+### Conversion Factor
+
+```python
+POINTS_TO_MCF = 25.4 / 72 / 0.1  # = 3.527778
+```
+
+### 5-Step Transformation
+
+The `MimeoCoordinateTransformer` class handles conversion from Mimeo to MCF coordinates:
+
+```python
+def transform(self, mimeo_x, mimeo_y, mimeo_w, mimeo_h, is_right_page=False):
+    # Step 1: Center-based → Top-left-based
+    mimeo_x_topleft = mimeo_x - mimeo_w / 2
+    mimeo_y_topleft = mimeo_y - mimeo_h / 2
+    
+    # Step 2: Y-flip (bottom-left origin → top-left origin)
+    mimeo_y_topleft = self.mimeo_page_height - mimeo_y_topleft - mimeo_h
+    
+    # Step 3: Per-page → Per-spread (offset right pages)
+    if is_right_page:
+        mimeo_x_topleft += self.mimeo_page_width
+    
+    # Step 4: Points → MCF
+    mcf_x = mimeo_x_topleft * self.POINTS_TO_MCF
+    mcf_y = mimeo_y_topleft * self.POINTS_TO_MCF
+    mcf_w = mimeo_w * self.POINTS_TO_MCF
+    mcf_h = mimeo_h * self.POINTS_TO_MCF
+    
+    # Step 5: Adjust bleed for CEWE constraints
+    mcf_x, mcf_w = self._adjust_spine_bleed(mcf_x, mcf_w, is_right_page)
+    
+    return int(mcf_x), int(mcf_y), int(mcf_w), int(mcf_h)
+```
+
+### Bleed Adjustment (Step 5)
+
+**Problem:** Mimeo allows bleed on all 4 edges; CEWE only allows bleed on 3 edges (NOT on spine/binding).
+
+**Solution:** Remove spine bleed only; preserve outer edge bleed:
+
+- **Left pages** (spine on RIGHT at x=page_width):
+  - **Remove spine bleed**: if `x + w > page_width` (small overhang <2cm), clip width
+  - **Preserve spread-spanning**: if overhang ≥2cm, it's intentional (don't clip)
+  - **Allow outer bleed**: negative `x` is OK (outer edge can bleed freely)
+
+- **Right pages** (spine on LEFT at x=page_width):
+  - **Remove spine bleed**: if `x < page_width`, adjust `x = page_width` and reduce `w`
+  - **Allow outer bleed**: `x + w` can exceed `2*page_width` (outer edge can bleed freely)
+
+```python
+def _adjust_spine_bleed(self, mcf_x, mcf_w, is_right_page):
+    MAX_BLEED_MCF = 200  # 2cm threshold for spread-spanning detection
+    
+    if is_right_page:
+        # Remove spine bleed (left edge must be >= page_width)
+        if mcf_x < self.mcf_page_width:
+            bleed = self.mcf_page_width - mcf_x
+            mcf_x = self.mcf_page_width
+            mcf_w -= bleed
+        
+        # Outer edge (right) bleed is allowed - no adjustment
+        
+    else:
+        # Remove spine bleed (right edge must be <= page_width, unless spread-spanning)
+        overhang = (mcf_x + mcf_w) - self.mcf_page_width
+        if 0 < overhang < MAX_BLEED_MCF:
+            mcf_w -= overhang
+        # Large overhang (≥2cm) preserved as spread-spanning photo
+        
+        # Outer edge (left) bleed is allowed - negative x OK
+    
+    return mcf_x, mcf_w
+```
+
+### Example: Pages 29 & 30 (with Bleed Adjustment)
+
+**Mimeo Database Values (identical frame on both pages):**
+- Page dimensions: 909×702 points = 32.07×24.77 cm
+- Frame center: (454.5, 351.0) points
+- Frame size: 919.33×712.32 points
+
+**Page 29 (Right page):**
+```
+Step 1 (Center→TopLeft): x = 454.5 - 919.33/2 = -5.165, y = 351.0 - 712.32/2 = -5.16
+Step 2 (Y-flip): y = 702 - (-5.16) - 712.32 = -5.16
+Step 3 (Right offset): x = -5.165 + 909 = 903.835
+Step 4 (Points→MCF): x = 903.835 × 3.527778 = 3188 MCF, y = -18 MCF
+                      w = 3243 MCF, h = 2512 MCF
+Step 5 (Bleed adjust): x = 3188 < 3206 (page_width) → SPINE BLEED!
+                       Adjust: x = 3206, w = 3243 - 18 = 3225 MCF
+→ Final MCF: (3206, -18, 3225, 2512) = 32.06×-0.18 cm, 32.25×25.12 cm
+```
+
+**Page 30 (Left page):**
+```
+Steps 1-4: Same as page 29 up to MCF conversion
+           x = -18 MCF, y = -18 MCF, w = 3243 MCF, h = 2512 MCF
+Step 5 (Bleed adjust): x = -18 (outer edge bleed - OK)
+                       x + w = -18 + 3243 = 3225 > 3206 (page_width) → SPINE BLEED!
+                       Adjust: w = 3206 - (-18) = 3224 MCF
+→ Final MCF: (-18, -18, 3224, 2512) = -0.18×-0.18 cm, 32.24×25.12 cm
+```
+
+**Physical Verification:**
+- Spread dimensions: 3206×2476 MCF = 32.06×24.76 cm ✓ (matches 32.07×24.77 cm physical)
+- Left page: x=-18 MCF = -0.18 cm (1.8mm bleed on outer edge - allowed)
+- Right page: x=3206 MCF (no spine bleed - adjusted from 3188)
+- Bleed adjustment: ~18 MCF (~2mm) removed from spine edges
+
+### Integration
+
+**Where Used:**
+- `cewe_layout/mimeo/mimeo_co5 steps in order (center→topleft, Y-flip, page→spread, points→MCF, bleed adjust)
+- ✅ Right-page offset happens BEFORE MCF conversion (Step 3 before Step 4)
+- ✅ Use content page dimensions (layouts[2]), NOT cover dimensions (layouts[0])
+- ✅ Bleed adjustment removes spine bleed but preserves spread-spanning photos (>2cm overhang)
+- ❌ Never treat Mimeo coordinates as if already in MCF units
+- ❌ Never skip the center-to-topleft conversion (Mimeo anchors at center)
+- ❌ Never allow negative x on right pages or x+w > page_width on left pages (spine bleed
+- ✅ All Mimeo coordinates are in points (1/72"), never MCF
+- ✅ Transform must apply all 4 steps in order (center→topleft, Y-flip, page→spread, points→MCF)
+- ✅ Right-page offset happens BEFORE MCF conversion (Step 3 before Step 4)
+- ❌ Never treat Mimeo coordinates as if already in MCF units
+- ❌ Never skip the center-to-topleft conversion (Mimeo anchors at center)
+

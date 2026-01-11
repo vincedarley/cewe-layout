@@ -19,11 +19,12 @@ def find_closest_book_size(width: int, height: int) -> str:
     of each book size, selecting the one with minimum total absolute difference.
 
     Args:
-        width: Page width in MCF units (spread width, not single page)
+        width: Page width in MCF units (single page, not spread)
         height: Page height in MCF units
 
     Returns:
-        Book size key (e.g., 'ALB45', 'ALB42') with closest matching dimensions
+        Book size descriptor (e.g., 'L landscape', 'XXL landscape') with closest matching dimensions.
+        Use the 'productname' key in BOOK_SIZES for internal product code.
 
     Raises:
         ValueError: If BOOK_SIZES is empty
@@ -51,3 +52,377 @@ def find_closest_book_size(width: int, height: int) -> str:
             best_match = book_key
 
     return best_match
+
+
+def calculate_resize_impact(old_width: float, old_height: float, 
+                           new_width: float, new_height: float,
+                           scaling_rule: str, bleed_mm: float = 0) -> dict:
+    """Calculate the impact of resizing a page with a given scaling rule.
+    
+    Args:
+        old_width: Current page width in MCF units
+        old_height: Current page height in MCF units
+        new_width: Target page width in MCF units
+        new_height: Target page height in MCF units
+        scaling_rule: One of the 5 scaling options
+        bleed_mm: Bleed amount in mm (typically 0 or 3)
+    
+    Returns:
+        Dictionary containing:
+            - 'crop_left_mm': Amount cropped from left edge (mm)
+            - 'crop_right_mm': Amount cropped from right edge (mm)
+            - 'crop_top_mm': Amount cropped from top edge (mm)
+            - 'crop_bottom_mm': Amount cropped from bottom edge (mm)
+            - 'margin_left_mm': Margin added to left edge (mm)
+            - 'margin_right_mm': Margin added to right edge (mm)
+            - 'margin_top_mm': Margin added to top edge (mm)
+            - 'margin_bottom_mm': Margin added to bottom edge (mm)
+            - 'aspect_ratio_change_pct': Percentage change in aspect ratio
+            - 'photo_crop_pct': Estimated percentage of photo cropping due to aspect ratio change
+            - 'scale_x': Horizontal scaling factor
+            - 'scale_y': Vertical scaling factor
+    """
+    MM_TO_MCF = 10.0
+    bleed_mcf = bleed_mm * MM_TO_MCF
+    
+    # Initialize result
+    result = {
+        'crop_left_mm': 0,
+        'crop_right_mm': 0,
+        'crop_top_mm': 0,
+        'crop_bottom_mm': 0,
+        'margin_left_mm': 0,
+        'margin_right_mm': 0,
+        'margin_top_mm': 0,
+        'margin_bottom_mm': 0,
+        'aspect_ratio_change_pct': 0,
+        'photo_crop_pct': 0,
+        'scale_x': 1.0,
+        'scale_y': 1.0,
+    }
+    
+    # Calculate old and new aspect ratios
+    old_aspect = old_width / old_height
+    new_aspect = new_width / new_height
+    aspect_change_pct = ((new_aspect - old_aspect) / old_aspect) * 100
+    result['aspect_ratio_change_pct'] = aspect_change_pct
+    
+    # Calculate content area (excluding bleed)
+    old_content_width = old_width - 2 * bleed_mcf
+    old_content_height = old_height - 2 * bleed_mcf
+    new_content_width = new_width - 2 * bleed_mcf
+    new_content_height = new_height - 2 * bleed_mcf
+    
+    if scaling_rule == 'None':
+        # No scaling, just place content
+        # Content keeps its original size
+        result['scale_x'] = 1.0
+        result['scale_y'] = 1.0
+        
+        # Calculate margins/cropping (no centering)
+        # Horizontal
+        width_diff_mcf = new_content_width - old_content_width
+        if width_diff_mcf > 0:
+            # New page is wider - add margin on right
+            result['margin_right_mm'] = width_diff_mcf / MM_TO_MCF
+        else:
+            # New page is narrower - crop right
+            result['crop_right_mm'] = -width_diff_mcf / MM_TO_MCF
+        
+        # Vertical
+        height_diff_mcf = new_content_height - old_content_height
+        if height_diff_mcf > 0:
+            # New page is taller - add margin on bottom
+            result['margin_bottom_mm'] = height_diff_mcf / MM_TO_MCF
+        else:
+            # New page is shorter - crop bottom
+            result['crop_bottom_mm'] = -height_diff_mcf / MM_TO_MCF
+    
+    elif scaling_rule == 'None (center on page)':
+        # No scaling, but center content
+        result['scale_x'] = 1.0
+        result['scale_y'] = 1.0
+        
+        # Horizontal
+        width_diff_mcf = new_content_width - old_content_width
+        if width_diff_mcf > 0:
+            # New page is wider - split margin equally
+            margin_each = width_diff_mcf / 2 / MM_TO_MCF
+            result['margin_left_mm'] = margin_each
+            result['margin_right_mm'] = margin_each
+        else:
+            # New page is narrower - split crop equally
+            crop_each = -width_diff_mcf / 2 / MM_TO_MCF
+            result['crop_left_mm'] = crop_each
+            result['crop_right_mm'] = crop_each
+        
+        # Vertical
+        height_diff_mcf = new_content_height - old_content_height
+        if height_diff_mcf > 0:
+            # New page is taller - split margin equally
+            margin_each = height_diff_mcf / 2 / MM_TO_MCF
+            result['margin_top_mm'] = margin_each
+            result['margin_bottom_mm'] = margin_each
+        else:
+            # New page is shorter - split crop equally
+            crop_each = -height_diff_mcf / 2 / MM_TO_MCF
+            result['crop_top_mm'] = crop_each
+            result['crop_bottom_mm'] = crop_each
+    
+    elif scaling_rule == 'Fit (may have margins)':
+        # Scale uniformly to fit, tightest dimension fits exactly
+        scale_x = new_content_width / old_content_width
+        scale_y = new_content_height / old_content_height
+        scale = min(scale_x, scale_y)  # Use tightest dimension
+        
+        result['scale_x'] = scale
+        result['scale_y'] = scale
+        
+        # Scaled content dimensions
+        scaled_width = old_content_width * scale
+        scaled_height = old_content_height * scale
+        
+        # Calculate margins (centering scaled content)
+        width_diff_mcf = new_content_width - scaled_width
+        if width_diff_mcf > 0:
+            margin_each = width_diff_mcf / 2 / MM_TO_MCF
+            result['margin_left_mm'] = margin_each
+            result['margin_right_mm'] = margin_each
+        
+        height_diff_mcf = new_content_height - scaled_height
+        if height_diff_mcf > 0:
+            margin_each = height_diff_mcf / 2 / MM_TO_MCF
+            result['margin_top_mm'] = margin_each
+            result['margin_bottom_mm'] = margin_each
+        
+        # No cropping with this option (it creates margins instead)
+    
+    elif scaling_rule == 'Fill (crop to avoid margins)':
+        # Scale uniformly to fill, loosest dimension fills exactly
+        scale_x = new_content_width / old_content_width
+        scale_y = new_content_height / old_content_height
+        scale = max(scale_x, scale_y)  # Use loosest dimension to fill
+        
+        result['scale_x'] = scale
+        result['scale_y'] = scale
+        
+        # Scaled content dimensions
+        scaled_width = old_content_width * scale
+        scaled_height = old_content_height * scale
+        
+        # Calculate cropping (centering scaled content)
+        width_diff_mcf = scaled_width - new_content_width
+        if width_diff_mcf > 0:
+            crop_each = width_diff_mcf / 2 / MM_TO_MCF
+            result['crop_left_mm'] = crop_each
+            result['crop_right_mm'] = crop_each
+        
+        height_diff_mcf = scaled_height - new_content_height
+        if height_diff_mcf > 0:
+            crop_each = height_diff_mcf / 2 / MM_TO_MCF
+            result['crop_top_mm'] = crop_each
+            result['crop_bottom_mm'] = crop_each
+        
+        # Estimate photo cropping due to uniform scaling with different aspect ratio
+        if abs(aspect_change_pct) > 0.01:
+            # Photos will be cropped to fit their rectangles
+            # The tighter dimension determines the crop percentage
+            aspect_ratio_factor = abs(1 - old_aspect / new_aspect)
+            result['photo_crop_pct'] = aspect_ratio_factor * 100
+    
+    elif scaling_rule == 'Fill (may change aspect ratio)':
+        # Scale each dimension independently to fill exactly
+        scale_x = new_content_width / old_content_width
+        scale_y = new_content_height / old_content_height
+        
+        result['scale_x'] = scale_x
+        result['scale_y'] = scale_y
+        
+        # No margins or cropping of the page content - fills exactly
+        # However, layout rectangles now have different aspect ratios
+        # Photos are cropped to fit their rectangles, so aspect ratio change
+        # means photos will be cropped differently
+        if abs(aspect_change_pct) > 0.01:
+            # Photos will be cropped to fit rectangles with new aspect ratio
+            # Estimate the crop percentage based on aspect ratio change
+            aspect_ratio_factor = abs(1 - old_aspect / new_aspect)
+            result['photo_crop_pct'] = aspect_ratio_factor * 100
+    
+    return result
+
+
+class ResizeTransformer:
+    """Transforms coordinates from original book size to resized book size.
+    
+    This class handles coordinate transformation when resizing photobooks, applying
+    the selected scaling mode to convert rectangles from the original page dimensions
+    to the target page dimensions.
+    """
+    
+    def __init__(self, old_width_mcf: int, old_height_mcf: int, 
+                 new_width_mcf: int, new_height_mcf: int,
+                 scaling_mode: str, bleed_mm: float = 3):
+        """Initialize resize transformer.
+        
+        Args:
+            old_width_mcf: Original single page width in MCF units
+            old_height_mcf: Original page height in MCF units
+            new_width_mcf: Target single page width in MCF units
+            new_height_mcf: Target page height in MCF units
+            scaling_mode: One of 5 scaling modes from resize_gui
+            bleed_mm: Bleed amount in mm (typically 3)
+        """
+        self.old_width = old_width_mcf
+        self.old_height = old_height_mcf
+        self.new_width = new_width_mcf
+        self.new_height = new_height_mcf
+        self.scaling_mode = scaling_mode
+        self.bleed_mm = bleed_mm
+        
+        MM_TO_MCF = 10.0
+        bleed_mcf = bleed_mm * MM_TO_MCF
+        
+        # Calculate content areas (excluding bleed)
+        old_content_width = old_width_mcf - 2 * bleed_mcf
+        old_content_height = old_height_mcf - 2 * bleed_mcf
+        new_content_width = new_width_mcf - 2 * bleed_mcf
+        new_content_height = new_height_mcf - 2 * bleed_mcf
+        
+        # Calculate scaling factors and offsets based on mode
+        if scaling_mode == 'None':
+            self.scale_x = 1.0
+            self.scale_y = 1.0
+            self.offset_x = 0
+            self.offset_y = 0
+            
+        elif scaling_mode == 'None (center on page)':
+            self.scale_x = 1.0
+            self.scale_y = 1.0
+            # Center content in new page
+            self.offset_x = (new_content_width - old_content_width) / 2
+            self.offset_y = (new_content_height - old_content_height) / 2
+            
+        elif scaling_mode == 'Fit (may have margins)':
+            # Scale uniformly, tightest dimension fits exactly
+            scale_x_ratio = new_content_width / old_content_width
+            scale_y_ratio = new_content_height / old_content_height
+            self.scale_x = min(scale_x_ratio, scale_y_ratio)
+            self.scale_y = self.scale_x  # Uniform scaling
+            
+            # Center scaled content
+            scaled_width = old_content_width * self.scale_x
+            scaled_height = old_content_height * self.scale_y
+            self.offset_x = (new_content_width - scaled_width) / 2
+            self.offset_y = (new_content_height - scaled_height) / 2
+            
+        elif scaling_mode == 'Fill (crop to avoid margins)':
+            # Scale uniformly, loosest dimension fills exactly
+            scale_x_ratio = new_content_width / old_content_width
+            scale_y_ratio = new_content_height / old_content_height
+            self.scale_x = max(scale_x_ratio, scale_y_ratio)
+            self.scale_y = self.scale_x  # Uniform scaling
+            
+            # Center scaled content (may crop)
+            scaled_width = old_content_width * self.scale_x
+            scaled_height = old_content_height * self.scale_y
+            self.offset_x = (new_content_width - scaled_width) / 2
+            self.offset_y = (new_content_height - scaled_height) / 2
+            
+        elif scaling_mode == 'Fill (may change aspect ratio)':
+            # Scale independently to fill exactly
+            self.scale_x = new_content_width / old_content_width
+            self.scale_y = new_content_height / old_content_height
+            self.offset_x = 0
+            self.offset_y = 0
+        else:
+            raise ValueError(f"Unknown scaling mode: {scaling_mode}")
+        
+        # Store bleed for later use
+        self.bleed_mcf = bleed_mcf
+    
+    def transform_page_dimensions(self):
+        """Get transformed page dimensions.
+        
+        Returns:
+            Tuple[int, int]: (new_page_width_mcf, new_page_height_mcf)
+        """
+        return (self.new_width, self.new_height)
+    
+    def transform_rect(self, left_mcf: float, top_mcf: float, 
+                      width_mcf: float, height_mcf: float,
+                      origin_left: float = 0) -> tuple:
+        """Transform a rectangle from old to new coordinate system.
+        
+        Args:
+            left_mcf: Left position in original MCF spread coordinates
+            top_mcf: Top position in original MCF coordinates
+            width_mcf: Width in original MCF units
+            height_mcf: Height in original MCF units
+            origin_left: Origin offset for right pages (not used in transform, passed through)
+        
+        Returns:
+            Tuple[int, int, int, int] | None: (new_left_mcf, new_top_mcf, new_width_mcf, new_height_mcf)
+            Returns None if rectangle is completely cropped out of new page bounds
+        """
+        # Convert from spread coordinates to page-relative coordinates
+        # (origin_left is passed in but not used in the transform - caller handles it)
+        page_relative_left = left_mcf - origin_left
+        
+        # Apply transformation relative to content area (accounting for bleed)
+        # Content starts at bleed_mcf from the page edge
+        content_relative_left = page_relative_left - self.bleed_mcf
+        content_relative_top = top_mcf - self.bleed_mcf
+        
+        # Apply scaling and offset
+        new_content_left = content_relative_left * self.scale_x + self.offset_x
+        new_content_top = content_relative_top * self.scale_y + self.offset_y
+        new_width = width_mcf * self.scale_x
+        new_height = height_mcf * self.scale_y
+        
+        # Convert back to page coordinates (add bleed back)
+        new_page_left = new_content_left + self.bleed_mcf
+        new_page_top = new_content_top + self.bleed_mcf
+        
+        # Check if rectangle is completely outside new page bounds
+        # Rectangle is cropped ONLY if it doesn't intersect the content area at all
+        content_area_width = self.new_width - 2 * self.bleed_mcf
+        content_area_height = self.new_height - 2 * self.bleed_mcf
+        
+        # Rectangle is completely cropped if:
+        # - Its right edge is before the left edge of content area, OR
+        # - Its left edge is after the right edge of content area, OR
+        # - Its bottom edge is before the top edge of content area, OR
+        # - Its top edge is after the bottom edge of content area
+        rect_right = new_content_left + new_width
+        rect_bottom = new_content_top + new_height
+        
+        if (rect_right <= 0 or  # Completely to the left
+            new_content_left >= content_area_width or  # Completely to the right
+            rect_bottom <= 0 or  # Completely above
+            new_content_top >= content_area_height):  # Completely below
+            return None
+        
+        # Convert back to spread coordinates by adding origin_left back
+        new_spread_left = new_page_left + origin_left
+        
+        return (int(new_spread_left), int(new_page_top), int(new_width), int(new_height))
+    
+    def transform_origin_left(self, origin_left: float) -> int:
+        """Transform origin_left for right pages.
+        
+        For right pages, origin_left equals the old page width (in MCF spread coordinates).
+        After resizing, it should equal the new page width.
+        
+        Args:
+            origin_left: Original origin_left value
+        
+        Returns:
+            int: Transformed origin_left value
+        """
+        if origin_left > 0:
+            # This is a right page (origin_left == old page width)
+            # Return new page width
+            return self.new_width
+        else:
+            # Left page or no origin adjustment needed
+            return 0

@@ -95,6 +95,7 @@ class CEWEPhotobook(Photobook):
             pages: List of (page_number, page_data) tuples from extract_pages_info()
             metadata: Optional book metadata
         """
+        super().__init__()
         self._pages = pages
         self._metadata = metadata or {}
         self._page_count = len(pages)

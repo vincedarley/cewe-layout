@@ -22,112 +22,148 @@ logger = logging.getLogger(__name__)
 
 
 class MimeoCoordinateTransformer:
-    """Transforms coordinates from Mimeo units to MCF spread units with scaling/padding.
+    """Transforms coordinates from Mimeo units to MCF spread units.
     
-    Mimeo coordinate system: Origin at BOTTOM-LEFT (0,0), Y increases upward
-    CEWE/MCF coordinate system: Origin at TOP-LEFT (0,0), Y increases downward
+    Mimeo coordinate system: 
+    - Origin at BOTTOM-LEFT (0,0), Y increases upward
+    - Coordinates are in Points.
+    - Coordinates are center-based
+    - Coordinates are per-single-page
+    - Bleed allowed on ALL 4 edges
+    
+    CEWE/MCF coordinate system: 
+    - Origin at TOP-LEFT (0,0), Y increases downward
+    - Coordinates are in MCF units (0.1 mm)
+    - Coordinates are top-left-based
+    - Coordinates are per-spread (left + right pages) - so things on right hand pages all have very high X values.
+    - Bleed allowed on 3 edges only (NOT on spine/binding edge)
+    
+    This transformer performs coordinate system conversion and adjusts bleed to match CEWE constraints.
+    
+    Bleed adjustment rules:
+    - Left pages: Can bleed left (outer edge), NOT right (spine)
+    - Right pages: Can bleed right (outer edge), NOT left (spine)
+    - Spine bleed is clipped (small overhang) or indicates spread-spanning photo (large overhang, preserved)
+    - Excessive outer-edge bleed (>2cm) triggers warning but is preserved
     """
+    
+    # Conversion factor from points to MCF units
+    # 1 point = 1/72 inch = 25.4mm/72 = 0.352778mm = 3.527778 MCF units
+    POINTS_TO_MCF = 25.4 / 72 / 0.1  # 3.527778
+    
+    # Maximum allowed bleed on outer edges (in MCF units)
+    # Frames extending beyond this are considered spread-spanning, not bleed
+    MAX_BLEED_MCF = 200  # 2cm = 200 MCF
     
     def __init__(self, 
                  mimeo_page_width: float, 
-                 mimeo_page_height: float,
-                 cewe_page_width_mcf: int,
-                 cewe_page_height_mcf: int,
-                 padding_left: float = 0.0,
-                 padding_top: float = 0.0,
-                 padding_right: float = 0.0,
-                 padding_bottom: float = 0.0,
-                 mode: str = 'identity'):
+                 mimeo_page_height: float):
         """Initialize coordinate transformer.
         
         Args:
-            mimeo_page_width: Width of Mimeo page in Mimeo units
-            mimeo_page_height: Height of Mimeo page in Mimeo units (from bottom to top)
-            cewe_page_width_mcf: Width of single CEWE page in MCF units (0.1mm)
-            cewe_page_height_mcf: Height of CEWE page in MCF units (0.1mm)
-            padding_left/top/right/bottom: Padding in MCF units
-            mode: 'fit' (maintain aspect ratio) or 'fill' (stretch)
+            mimeo_page_width: Width of Mimeo page in points
+            mimeo_page_height: Height of Mimeo page in points
         """
         self.mimeo_page_width = mimeo_page_width
         self.mimeo_page_height = mimeo_page_height
-        self.cewe_page_width_mcf = cewe_page_width_mcf
-        self.cewe_page_height_mcf = cewe_page_height_mcf
-        self.mode = mode
+        # Calculate MCF page width for bleed adjustment
+        self.mcf_page_width = int(mimeo_page_width * self.POINTS_TO_MCF)
         
-        # Calculate available space after padding
-        available_width = cewe_page_width_mcf - padding_left - padding_right
-        available_height = cewe_page_height_mcf - padding_top - padding_bottom
-        
-        if mode == 'fit':
-            # Maintain aspect ratio - scale uniformly
-            scale_x = available_width / mimeo_page_width
-            scale_y = available_height / mimeo_page_height
-            self.scale = min(scale_x, scale_y)
-            
-            # Calculate centering offsets
-            scaled_width = mimeo_page_width * self.scale
-            scaled_height = mimeo_page_height * self.scale
-            self.offset_x = padding_left + (available_width - scaled_width) / 2
-            self.offset_y = padding_top + (available_height - scaled_height) / 2
-        else:
-            # Stretch to fill
-            self.scale_x = available_width / mimeo_page_width
-            self.scale_y = available_height / mimeo_page_height
-            self.offset_x = padding_left
-            self.offset_y = padding_top
     
     def transform(self, mimeo_x: float, mimeo_y: float, mimeo_w: float, mimeo_h: float, is_right_page: bool = False) -> Tuple[int, int, int, int]:
-        """Transform Mimeo coordinates to MCF spread coordinates.
-        
-        Mimeo uses bottom-left origin (0,0), CEWE uses top-left origin.
-        This method handles coordinate system conversion and scaling.
+        """Transform Mimeo coordinates to MCF spread coordinates with bleed adjustment.
         
         Args:
-            mimeo_x, mimeo_y: CENTER position in Mimeo units (bottom-left origin, Y increases upward)
-            mimeo_w, mimeo_h: Size in Mimeo units
-            is_right_page: If True, offset by page_width for right side positioning
+            mimeo_x, mimeo_y: CENTER position in points (bottom-left origin, Y increases upward)
+            mimeo_w, mimeo_h: Size in points
+            is_right_page: If True, this is a right-hand page (offset x by page_width for spread positioning)
             
         Returns:
-            (x_mcf_spread, y_mcf, w_mcf, h_mcf) in MCF spread coordinates (top-left origin)
+            (x_mcf_spread, y_mcf, w_mcf, h_mcf) in CEWE spread coordinates (top-left origin, MCF units)
+            with bleed adjusted to CEWE constraints (no spine bleed)
         """
-        # Convert from center coordinates to top-left coordinates
-        # In Mimeo (bottom-left origin): top-left = (center_x - w/2, center_y + h/2)
-        # But we need to flip Y to top-left origin: y_topLeft = page_height - y_bottomLeft
-        # So: y_mcf_topLeft = page_height - (center_y + h/2)
-        #                   = page_height - center_y - h/2
+        # Step 1: Convert from center-based to top-left-based coordinates
+        # In Mimeo (center-based): left_edge = center_x - w/2
         mimeo_x_topleft = mimeo_x - mimeo_w / 2
+        
+        # Step 2: Flip Y axis from bottom-left origin to top-left origin
+        # In bottom-left origin: bottom_edge = center_y - h/2
+        # In top-left origin: top_edge = page_height - (bottom_edge + h)
+        #                              = page_height - (center_y - h/2 + h)
+        #                              = page_height - center_y - h/2
         mimeo_y_topleft = self.mimeo_page_height - mimeo_y - mimeo_h / 2
         
-        if self.mode == 'identity':
-            # No scaling, coordinates are already in MCF units
-            mcf_x = int(mimeo_x_topleft)
-            mcf_y = int(mimeo_y_topleft)
-            mcf_w = int(mimeo_w)
-            mcf_h = int(mimeo_h)
-        elif self.mode == 'fit':
-            mcf_x = int(mimeo_x_topleft * self.scale + self.offset_x)
-            mcf_y = int(mimeo_y_topleft * self.scale + self.offset_y)
-            mcf_w = int(mimeo_w * self.scale)
-            mcf_h = int(mimeo_h * self.scale)
-        else:  # 'fill' mode
-            mcf_x = int(mimeo_x_topleft * self.scale_x + self.offset_x)
-            mcf_y = int(mimeo_y_topleft * self.scale_y + self.offset_y)
-            mcf_w = int(mimeo_w * self.scale_x)
-            mcf_h = int(mimeo_h * self.scale_y)
-        
-        # Apply spread positioning: right pages offset by page_width
+        # Step 3: Convert from per-page to per-spread coordinates
+        # Right pages are offset by page_width to position them on the right side of the spread
         if is_right_page:
-            mcf_x += self.cewe_page_width_mcf
+            mimeo_x_topleft += self.mimeo_page_width
         
-        return mcf_x, mcf_y, mcf_w, mcf_h
+        # Step 4: Convert from points to MCF units
+        mcf_x = mimeo_x_topleft * self.POINTS_TO_MCF
+        mcf_y = mimeo_y_topleft * self.POINTS_TO_MCF
+        mcf_w = mimeo_w * self.POINTS_TO_MCF
+        mcf_h = mimeo_h * self.POINTS_TO_MCF
+        
+        # Step 5: Adjust bleed to match CEWE constraints (no spine bleed)
+        mcf_x, mcf_w = self._adjust_spine_bleed(mcf_x, mcf_w, is_right_page)
+        
+        return int(mcf_x), int(mcf_y), int(mcf_w), int(mcf_h)
+    
+    def _adjust_spine_bleed(self, mcf_x: float, mcf_w: float, is_right_page: bool) -> Tuple[float, float]:
+        """Adjust frame position/width to remove bleed on spine edge.
+        
+        CEWE doesn't allow bleed on the spine (binding) edge:
+        - Left pages: Spine is on RIGHT (x + w should not exceed page_width)
+        - Right pages: Spine is on LEFT (x should not be < page_width)
+        
+        Outer edge bleed IS allowed and preserved.
+        
+        Args:
+            mcf_x: Left coordinate in MCF spread units
+            mcf_w: Width in MCF units
+            is_right_page: True if right page
+            
+        Returns:
+            (adjusted_x, adjusted_w) tuple
+        """
+        if is_right_page:
+            # Right page: spine is on LEFT at x=page_width
+            # Remove any bleed into spine (x < page_width)
+            if mcf_x < self.mcf_page_width:
+                # Frame bleeds into spine - clip it
+                bleed_amount = self.mcf_page_width - mcf_x
+                mcf_x = self.mcf_page_width
+                mcf_w -= bleed_amount
+            
+            # Outer edge (right edge) bleed is ALLOWED
+            # But warn if excessive (>2cm beyond page edge) - likely an error
+            right_edge = mcf_x + mcf_w
+            page_right_edge = 2 * self.mcf_page_width
+            if right_edge > page_right_edge + self.MAX_BLEED_MCF:
+                overhang = right_edge - page_right_edge
+                logger.warning(f"Right page frame extends {overhang:.0f} MCF ({overhang/10:.1f}cm) beyond outer edge - possible error")
+            
+        else:
+            # Left page: spine is on RIGHT at x=page_width
+            # Remove any bleed into spine (x + w > page_width)
+            right_edge = mcf_x + mcf_w
+            if right_edge > self.mcf_page_width:
+                overhang = right_edge - self.mcf_page_width
+                # Only clip small bleed; large overhang means spread-spanning photo (preserve it)
+                if overhang < self.MAX_BLEED_MCF:
+                    mcf_w -= overhang
+            
+            # Outer edge (left edge) bleed is ALLOWED
+            # But warn if excessive (>2cm beyond page edge) - likely an error
+            if mcf_x < -self.MAX_BLEED_MCF:
+                logger.warning(f"Left page frame extends {abs(mcf_x):.0f} MCF ({abs(mcf_x)/10:.1f}cm) beyond outer edge - possible error")
+        
+        return mcf_x, mcf_w
 
 
 def convert_ppb_to_xmcf(ppb_path: Path,
                        photos_library_path: Path,
                        output_path: Path,
-                       book_size_id: Optional[str] = None,
-                       padding_mm: Tuple[float, float, float, float] = (0, 0, 0, 0),
-                       coordinate_mode: str = 'identity',
                        verbose: bool = False) -> None:
     """Convert Mimeo Photos .ppb project to CEWE .xmcf format."""
     # Read Mimeo project
@@ -152,54 +188,35 @@ def convert_ppb_to_xmcf(ppb_path: Path,
     
     # Get Mimeo page dimensions from database
     # Page dimensions are stored in KHProjectLayout table (width, height columns)
-    # These represent the actual page size (e.g., 909 x 702 for typical Mimeo photobook)
-    # Note: Frames may extend beyond page bounds ("bleed" system) and may overlap slightly
+    # IMPORTANT: Use content page dimensions (layouts[2]), NOT cover (layouts[0])
+    # because covers have different dimensions than content pages
     layouts = mimeo_data['layouts']
     if not layouts:
         raise ValueError("No layouts found in Mimeo project")
     
-    first_layout = layouts[0]
-    if 'width' not in first_layout or 'height' not in first_layout:
+    if len(layouts) < 3:
+        raise ValueError("Need at least 3 layouts (front, inside front, first content)")
+    
+    # Use first CONTENT page (layout 2) for dimensions, NOT front cover (layout 0)
+    content_page_layout = layouts[2]
+    if 'width' not in content_page_layout or 'height' not in content_page_layout:
         raise ValueError("Layout width/height not found in database")
     
-    mimeo_page_width = first_layout['width']
-    mimeo_page_height = first_layout['height']
+    mimeo_page_width = content_page_layout['width']
+    mimeo_page_height = content_page_layout['height']
     
     if verbose:
         logger.info(f"Detected Mimeo page: {mimeo_page_width:.2f} x {mimeo_page_height:.2f} units")
-    
-    # Determine CEWE book size
-    if book_size_id is None:
-        book_size_id = 'ALB42'  # 33x25cm → ALB42 closest
-        if verbose:
-            logger.info(f"Auto-selected: {book_size_id}")
-    
-    if book_size_id not in BOOK_SIZES:
-        raise ValueError(f"Unknown book size: {book_size_id}")
-    
-    cewe_dimensions = BOOK_SIZES[book_size_id]
-    
-    # Convert padding from mm to MCF units
-    padding_mcf = tuple(int(p * 10) for p in padding_mm)
-    
+        
     # Create coordinate transformer
     transformer = MimeoCoordinateTransformer(
         mimeo_page_width,
-        mimeo_page_height,
-        cewe_dimensions['pageWidth'] // 2,  # Single page width
-        cewe_dimensions['pageHeight'],
-        *padding_mcf,
-        coordinate_mode
+        mimeo_page_height
     )
     
     if verbose:
         logger.info(f"Transformer config:")
         logger.info(f"  Mimeo page: {mimeo_page_width} x {mimeo_page_height}")
-        logger.info(f"  CEWE single page: {cewe_dimensions['pageWidth'] // 2} x {cewe_dimensions['pageHeight']}")
-        logger.info(f"  CEWE spread: {cewe_dimensions['pageWidth']} x {cewe_dimensions['pageHeight']}")
-        logger.info(f"  Mode: {coordinate_mode}")
-        if coordinate_mode == 'fill':
-            logger.info(f"  Scale X: {transformer.scale_x:.4f}, Scale Y: {transformer.scale_y:.4f}")
     
     # Create output directory
     output_path = Path(output_path)

@@ -108,6 +108,10 @@ class Photobook(ABC):
     the source format.
     """
     
+    def __init__(self):
+        """Initialize photobook with optional resize transformer."""
+        self.resize_transformer = None  # Optional ResizeTransformer for viewing resized
+    
     @abstractmethod
     def get_page_count(self) -> int:
         """Get total number of pages (including covers)."""
@@ -128,6 +132,10 @@ class Photobook(ABC):
         """
         pass
     
+    def get_first_content_page(self) -> PhotobookPage:
+        """Get only content pages (integer page numbers > 0, exclude covers)."""
+        return self.get_page(1)   
+
     @abstractmethod
     def get_metadata(self) -> Dict[str, str]:
         """Get book metadata.
@@ -237,7 +245,7 @@ class Photobook(ABC):
             if page.get_page_number() == page_number:
                 return page
         return None
-    
+
     def get_numeric_pages(self) -> List[PhotobookPage]:
         """Get only content pages (integer page numbers > 0, exclude covers)."""
         return [page for page in self 
