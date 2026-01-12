@@ -41,16 +41,16 @@ class MimeoPhotobookPage(PhotobookPage):
     def get_images(self) -> List[Dict[str, Any]]:
         """Get list of image dictionaries.
         
-        Returns images with 'left', 'top', 'width', 'height' in Mimeo units.
+        Returns images with 'area_left', 'area_top', 'area_width', 'area_height' in Mimeo units.
         """
-        return self._page_data.get('images', [])
+        return self._page_data.get('photos', [])
     
     def get_text_blocks(self) -> List[Dict[str, Any]]:
         """Get list of text block dictionaries.
         
-        Returns text blocks with 'left', 'top', 'width', 'height' in Mimeo units.
+        Returns text blocks with 'area_left', 'area_top', 'area_width', 'area_height' in Mimeo units.
         """
-        return self._page_data.get('text_blocks', [])
+        return self._page_data.get('texts', [])
     
     def get_page_type(self) -> PageType:
         """Get the type of this page."""

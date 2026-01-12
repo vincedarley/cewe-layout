@@ -247,8 +247,8 @@ def extract_page_content(page: fitz.Page, page_num: int, total_pages: int, verbo
         'page_num': page_num,
         'width': page_rect.width,
         'height': page_rect.height,
-        'images': [],
-        'text_blocks': [],
+        'photos': [],
+        'texts': [],
         'rotation': page_rotation,  # Store for reference
     }
     
@@ -344,15 +344,15 @@ def extract_page_content(page: fitz.Page, page_num: int, total_pages: int, verbo
                     seg_data = {
                         'index': img_index * 1000 + seg_index,  # Unique index
                         'xref': xref,
-                        'left': abs_left,
-                        'top': abs_top,
-                        'width': segment_width_points,
-                        'height': segment_height_points,
+                        'area_left': abs_left,
+                        'area_top': abs_top,
+                        'area_width': segment_width_points,
+                        'area_height': segment_height_points,
                         'data': segment['data'],
                         'format': segment['format'],
                     }
                     
-                    page_data['images'].append(seg_data)
+                    page_data['photos'].append(seg_data)
                     
                     if verbose:
                         print(f"    Segment {seg_index}: {segment_width_points:.1f}x{segment_height_points:.1f} at ({abs_left:.1f}, {abs_top:.1f})")
@@ -361,15 +361,15 @@ def extract_page_content(page: fitz.Page, page_num: int, total_pages: int, verbo
                 image_data = {
                     'index': img_index,
                     'xref': xref,
-                    'left': rect.x0,
-                    'top': rect.y0,
-                    'width': rect.width,
-                    'height': rect.height,
+                    'area_left': rect.x0,
+                    'area_top': rect.y0,
+                    'area_width': rect.width,
+                    'area_height': rect.height,
                     'data': image_bytes,
                     'format': image_ext,
                 }
                 
-                page_data['images'].append(image_data)
+                page_data['photos'].append(image_data)
                 
                 if verbose:
                     print(f"  Image {img_index}: {rect.width:.1f}x{rect.height:.1f} at ({rect.x0:.1f}, {rect.y0:.1f})")
@@ -395,27 +395,27 @@ def extract_page_content(page: fitz.Page, page_num: int, total_pages: int, verbo
                     text_data = {
                         'index': text_block_index,
                         'text': text,
-                        'left': bbox[0],
-                        'top': bbox[1],
-                        'width': bbox[2] - bbox[0],
-                        'height': bbox[3] - bbox[1],
+                        'area_left': bbox[0],
+                        'area_top': bbox[1],
+                        'area_width': bbox[2] - bbox[0],
+                        'area_height': bbox[3] - bbox[1],
                         'font': span['font'],
                         'size': span['size'],
                         'color': span.get('color', 0),  # RGB color as integer
                         'flags': span['flags'],  # Font flags (bold, italic, etc.)
                     }
                     
-                    page_data['text_blocks'].append(text_data)
+                    page_data['texts'].append(text_data)
                     text_block_index += 1
                     
                     if verbose:
                         print(f"  Text: '{text[:50]}...' font={span['font']} size={span['size']:.1f}")
     
     # Merge adjacent text blocks (touching or very close vertically)
-    page_data['text_blocks'] = merge_adjacent_text_blocks(page_data['text_blocks'], verbose)
+    page_data['texts'] = merge_adjacent_text_blocks(page_data['texts'], verbose)
     
     if verbose:
-        print(f"  Found {len(page_data['images'])} images and {len(page_data['text_blocks'])} text blocks (after merging)")
+        print(f"  Found {len(page_data['photos'])} images and {len(page_data['texts'])} text blocks (after merging)")
     
     # Convert all coordinates from PDF points to MCF spread coordinates
     # This is the ONLY place PDF points are converted - everything downstream uses MCF
@@ -442,7 +442,7 @@ def merge_adjacent_text_blocks(text_blocks: List[Dict[str, Any]], verbose: bool 
         return text_blocks
     
     # Sort by vertical position (top), then horizontal position (left)
-    sorted_blocks = sorted(text_blocks, key=lambda b: (b['top'], b['left']))
+    sorted_blocks = sorted(text_blocks, key=lambda b: (b['area_top'], b['area_left']))
     
     merged = []
     current_group = [sorted_blocks[0]]
@@ -452,11 +452,11 @@ def merge_adjacent_text_blocks(text_blocks: List[Dict[str, Any]], verbose: bool 
         last_block = current_group[-1]
         
         # Calculate vertical gap (positive = gap, negative = overlap)
-        gap = block['top'] - (last_block['top'] + last_block['height'])
+        gap = block['area_top'] - (last_block['area_top'] + last_block['area_height'])
         
         # Check horizontal overlap (are they in roughly the same column?)
-        horizontal_overlap = not (block['left'] > last_block['left'] + last_block['width'] or
-                                 last_block['left'] > block['left'] + block['width'])
+        horizontal_overlap = not (block['area_left'] > last_block['area_left'] + last_block['area_width'] or
+                                 last_block['area_left'] > block['area_left'] + block['area_width'])
         
         # Merge threshold: within 5 pixels vertically and horizontally overlapping
         if abs(gap) <= 5 and horizontal_overlap:
@@ -492,10 +492,10 @@ def merge_text_group(blocks: List[Dict[str, Any]]) -> Dict[str, Any]:
         Single merged text block
     """
     # Calculate bounding box
-    left = min(b['left'] for b in blocks)
-    top = min(b['top'] for b in blocks)
-    right = max(b['left'] + b['width'] for b in blocks)
-    bottom = max(b['top'] + b['height'] for b in blocks)
+    left = min(b['area_left'] for b in blocks)
+    top = min(b['area_top'] for b in blocks)
+    right = max(b['area_left'] + b['area_width'] for b in blocks)
+    bottom = max(b['area_top'] + b['area_height'] for b in blocks)
     
     # Concatenate text with spaces
     text = ' '.join(b['text'] for b in blocks)
@@ -503,10 +503,10 @@ def merge_text_group(blocks: List[Dict[str, Any]]) -> Dict[str, Any]:
     # Use properties from first block as base
     merged = blocks[0].copy()
     merged.update({
-        'left': left,
-        'top': top,
-        'width': right - left,
-        'height': bottom - top,
+        'area_left': left,
+        'area_top': top,
+        'area_width': right - left,
+        'area_height': bottom - top,
         'text': text,
     })
     
@@ -580,27 +580,27 @@ def _convert_page_to_mcf_coordinates(page_data: Dict[str, Any], page_num: int, t
     logger.info(f"Converting UI page {page_num} to MCF: is_right={is_right_page}, x_offset={x_offset_mcf:.1f} MCF")
     
     def convert_coords(item: Dict[str, Any]) -> None:
-        """Convert left/top/width/height from PDF points to MCF spread coordinates in-place."""
-        if 'left' in item:
-            item['left'] = item['left'] * PT_TO_MCF + x_offset_mcf
-        if 'top' in item:
-            item['top'] = item['top'] * PT_TO_MCF
-        if 'width' in item:
-            item['width'] = item['width'] * PT_TO_MCF
-        if 'height' in item:
-            item['height'] = item['height'] * PT_TO_MCF
+        """Convert area_left/area_top/area_width/area_height from PDF points to MCF spread coordinates in-place."""
+        if 'area_left' in item:
+            item['area_left'] = item['area_left'] * PT_TO_MCF + x_offset_mcf
+        if 'area_top' in item:
+            item['area_top'] = item['area_top'] * PT_TO_MCF
+        if 'area_width' in item:
+            item['area_width'] = item['area_width'] * PT_TO_MCF
+        if 'area_height' in item:
+            item['area_height'] = item['area_height'] * PT_TO_MCF
     
     # Convert composite image coordinates
     if 'composite_image' in page_data and page_data['composite_image']:
         convert_coords(page_data['composite_image'])
-        logger.debug(f"  Composite: left={page_data['composite_image']['left']:.1f} MCF")
+        logger.debug(f"  Composite: area_left={page_data['composite_image']['area_left']:.1f} MCF")
     
     # Convert all image coordinates
-    for img in page_data.get('images', []):
+    for img in page_data.get('photos', []):
         convert_coords(img)
     
     # Convert all text block coordinates  
-    for text in page_data.get('text_blocks', []):
+    for text in page_data.get('texts', []):
         convert_coords(text)
     
     # Convert page dimensions from PDF points to MCF units

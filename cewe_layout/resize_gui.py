@@ -1,10 +1,13 @@
 """GUI for resizing photobooks to different dimensions."""
 
 import os
+import shutil
 import tkinter as tk
-from tkinter import ttk
+from tkinter import ttk, messagebox
+from pathlib import Path
 
 from .book.utils import BOOK_SIZES, find_closest_book_size, calculate_resize_impact, ResizeTransformer
+from .book.mcf_writer import write_mcf_project
 
 
 class ResizeWindow:
@@ -68,30 +71,40 @@ class ResizeWindow:
             content_height_cm = content_height_mcf / 100.0
             content_aspect = content_width_mcf / content_height_mcf if content_height_mcf > 0 else 0
             
-            # Display cover dimensions
-            cover_label = ttk.Label(section_frame, text='Cover pages:', font=('TkDefaultFont', 10, 'bold'))
+            # Create container for side-by-side layout
+            dims_container = ttk.Frame(section_frame)
+            dims_container.pack(fill='x', pady=(0, 10))
+            
+            # Left column: Cover pages
+            cover_frame = ttk.Frame(dims_container)
+            cover_frame.pack(side='left', fill='both', expand=True, padx=(0, 10))
+            
+            cover_label = ttk.Label(cover_frame, text='Cover pages:', font=('TkDefaultFont', 10, 'bold'))
             cover_label.pack(anchor='w')
             cover_size_text = f'{cover_width_cm:.1f} cm × {cover_height_cm:.1f} cm (aspect ratio: {cover_aspect:.2f})'
-            cover_size_label = ttk.Label(section_frame, text=cover_size_text)
-            cover_size_label.pack(anchor='w', padx=(20, 0))
+            cover_size_label = ttk.Label(cover_frame, text=cover_size_text)
+            cover_size_label.pack(anchor='w', padx=(10, 0))
             cover_mcf_text = f'({cover_width_mcf} × {cover_height_mcf} MCF units)'
-            cover_mcf_label = ttk.Label(section_frame, text=cover_mcf_text, foreground='gray')
-            cover_mcf_label.pack(anchor='w', padx=(20, 0), pady=(0, 10))
+            cover_mcf_label = ttk.Label(cover_frame, text=cover_mcf_text, foreground='gray')
+            cover_mcf_label.pack(anchor='w', padx=(10, 0))
             
-            # Display content dimensions
-            content_label = ttk.Label(section_frame, text='Content pages:', font=('TkDefaultFont', 10, 'bold'))
+            # Right column: Content pages
+            content_frame = ttk.Frame(dims_container)
+            content_frame.pack(side='left', fill='both', expand=True)
+            
+            content_label = ttk.Label(content_frame, text='Content pages:', font=('TkDefaultFont', 10, 'bold'))
             content_label.pack(anchor='w')
             content_size_text = f'{content_width_cm:.1f} cm × {content_height_cm:.1f} cm (aspect ratio: {content_aspect:.2f})'
-            content_size_label = ttk.Label(section_frame, text=content_size_text)
-            content_size_label.pack(anchor='w', padx=(20, 0))
+            content_size_label = ttk.Label(content_frame, text=content_size_text)
+            content_size_label.pack(anchor='w', padx=(10, 0))
             content_mcf_text = f'({content_width_mcf} × {content_height_mcf} MCF units)'
-            content_mcf_label = ttk.Label(section_frame, text=content_mcf_text, foreground='gray')
-            content_mcf_label.pack(anchor='w', padx=(20, 0))
+            content_mcf_label = ttk.Label(content_frame, text=content_mcf_text, foreground='gray')
+            content_mcf_label.pack(anchor='w', padx=(10, 0))
             
-            # Show page count
+            # Show page count (centered below both columns)
             page_count_text = f'{self.book.get_page_count()} pages in book'
             page_count_label = ttk.Label(section_frame, text=page_count_text)
-            page_count_label.pack(pady=(10, 0))
+            page_count_label.pack()
             
             # Store current dimensions for later use
             self.current_cover_width = cover_width_mcf
@@ -271,31 +284,31 @@ class ResizeWindow:
         total_crop = (impact['crop_left_mm'] + impact['crop_right_mm'] + 
                      impact['crop_top_mm'] + impact['crop_bottom_mm'])
         if total_crop > 0.1:
-            lines.append(f'\nCrop from edges:')
+            lines.append(f'Crop from edges:')
             if impact['crop_left_mm'] > 0.1 or impact['crop_right_mm'] > 0.1:
                 lines.append(f'  H: {impact["crop_left_mm"]:.1f} mm L, {impact["crop_right_mm"]:.1f} mm R')
             if impact['crop_top_mm'] > 0.1 or impact['crop_bottom_mm'] > 0.1:
                 lines.append(f'  V: {impact["crop_top_mm"]:.1f} mm T, {impact["crop_bottom_mm"]:.1f} mm B')
             lines.append(f'  Total: {total_crop:.1f} mm\n')
         else:
-            lines.append(f'\nNo page edge cropping\n')
+            lines.append(f'No page edge cropping\n')
         
         # Margins
         total_margin = (impact['margin_left_mm'] + impact['margin_right_mm'] + 
                        impact['margin_top_mm'] + impact['margin_bottom_mm'])
         if total_margin > 0.1:
-            lines.append(f'\nMargins added:')
+            lines.append(f'Margins added:')
             if impact['margin_left_mm'] > 0.1 or impact['margin_right_mm'] > 0.1:
                 lines.append(f'  H: {impact["margin_left_mm"]:.1f} mm L, {impact["margin_right_mm"]:.1f} mm R')
             if impact['margin_top_mm'] > 0.1 or impact['margin_bottom_mm'] > 0.1:
                 lines.append(f'  V: {impact["margin_top_mm"]:.1f} mm T, {impact["margin_bottom_mm"]:.1f} mm B')
             lines.append(f'  Total: {total_margin:.1f} mm\n')
         else:
-            lines.append(f'\nNo margins added\n')
+            lines.append(f'No margins added\n')
         
         # Photo cropping
         if impact['photo_crop_pct'] > 0.1:
-            lines.append(f'\nEst. photo crop: {impact["photo_crop_pct"]:.1f}%')
+            lines.append(f'Est. photo crop: {impact["photo_crop_pct"]:.1f}%')
         
         return '\n'.join(lines)
     
@@ -389,8 +402,111 @@ class ResizeWindow:
         # Don't destroy the window - user may want to adjust settings
     
     def _save_resized(self):
-        """Save the resized photobook (not yet implemented)."""
-        pass
+        """Save the resized photobook."""
+        # Get output directory name from UI
+        output_name = self.name_var.get().strip()
+        if not output_name:
+            messagebox.showerror("Error", "Please enter a name for the resized photobook")
+            return
+        
+        # Validate selections
+        selected = self.size_var.get()
+        if not selected or selected not in self.size_options:
+            messagebox.showerror("Error", "Please select a target book size")
+            return
+        
+        # Get target dimensions and transformers (same as _view_resized)
+        selected_index = self.size_options.index(selected)
+        selected_key = self.size_keys[selected_index]
+        
+        dimensions = BOOK_SIZES[selected_key]
+        target_cover_width = dimensions['coverWidth'] / 2
+        target_cover_height = dimensions['coverHeight']
+        target_content_width = dimensions['pageWidth'] / 2
+        target_content_height = dimensions['pageHeight']
+        
+        scaling_rule = self.scaling_var.get()
+        
+        # Create ResizeTransformers
+        cover_transformer = ResizeTransformer(
+            self.current_cover_width,
+            self.current_cover_height,
+            int(target_cover_width),
+            int(target_cover_height),
+            scaling_rule,
+            bleed_mm=3
+        )
+        
+        content_transformer = ResizeTransformer(
+            self.current_content_width,
+            self.current_content_height,
+            int(target_content_width),
+            int(target_content_height),
+            scaling_rule,
+            bleed_mm=3
+        )
+        
+        # Determine output directory path (sibling to current photobook)
+        if not self.mcf_file_path:
+            messagebox.showerror("Error", "No photobook file path available")
+            return
+        
+        current_dir = Path(self.mcf_file_path).parent
+        parent_dir = current_dir.parent
+        output_dir = parent_dir / output_name
+        
+        # Check if output directory already exists
+        if output_dir.exists():
+            response = messagebox.askyesno(
+                "Directory Exists",
+                f"Directory '{output_name}' already exists. Overwrite?"
+            )
+            if not response:
+                return
+            # Remove existing directory
+            shutil.rmtree(output_dir)
+        
+        try:
+            # Create output directory
+            output_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Copy all photo files from current photobook directory
+            # Get list of image files (look for common image extensions)
+            image_extensions = {'.jpg', '.jpeg', '.png', '.bmp', '.tif', '.tiff', '.heic', '.heif'}
+            photo_count = 0
+            
+            for file_path in current_dir.iterdir():
+                if file_path.is_file() and file_path.suffix.lower() in image_extensions:
+                    # Copy the file to output directory
+                    shutil.copy2(file_path, output_dir / file_path.name)
+                    photo_count += 1
+            
+            # Write the transformed MCF file
+            # Note: write_mcf_project expects a Photobook instance
+            # We pass the transformers to apply the coordinate transformations
+            write_mcf_project(
+                self.book,
+                str(output_dir),
+                verbose=True,
+                insidecovers=False,  # Assuming standard photobook structure
+                cover_transformer=cover_transformer,
+                content_transformer=content_transformer
+            )
+            
+            # Success message
+            messagebox.showinfo(
+                "Success",
+                f"Resized photobook saved to:\n{output_dir}\n\n"
+                f"Copied {photo_count} photos\n"
+                f"Scaling: {scaling_rule}"
+            )
+            
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to save resized photobook:\n{str(e)}")
+            # Clean up partial output on failure
+            if output_dir.exists():
+                shutil.rmtree(output_dir)
+            raise
 
 
 def open_resize_window(parent, viewer, mcf_file_path):

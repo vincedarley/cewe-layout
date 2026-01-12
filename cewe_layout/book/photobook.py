@@ -41,7 +41,7 @@ class PhotobookPage(ABC):
         """Get list of image dictionaries for this page.
         
         Each image dict should have at minimum:
-        - 'left', 'top', 'width', 'height': position/size in native units
+        - 'area_left', 'area_top', 'area_width', 'area_height': position/size in native units
         - 'data': image bytes
         - 'format': file extension ('jpg', 'png', etc.)
         - 'index': unique image index
@@ -55,7 +55,7 @@ class PhotobookPage(ABC):
         """Get list of text block dictionaries for this page.
         
         Each text block dict should have at minimum:
-        - 'left', 'top', 'width', 'height': position/size in native units
+        - 'area_left', 'area_top', 'area_width', 'area_height': position/size in native units
         - 'text': text content
         - 'font': font name
         - 'size': font size in points
@@ -93,6 +93,8 @@ class PhotobookPage(ABC):
             - 'origin_left': x-offset for spread layout (0.0 for left page)
             - 'background_id': optional background color code
             - 'is_cover': True if this is a cover page
+        
+        Note: Image dicts in 'photos' use MCF keys: 'area_left', 'area_top', 'area_width', 'area_height'
         """
         pass
 

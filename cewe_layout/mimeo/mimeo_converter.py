@@ -377,8 +377,8 @@ def _build_mimeo_photobook(mimeo_data: Dict[str, Any],
         page_data = {
             'width': mcf_page_width,  # Single page width
             'height': mcf_page_height,
-            'images': [],
-            'text_blocks': []
+            'photos': [],
+            'texts': []
         }
         
         # Add background color if available
@@ -448,8 +448,8 @@ def _build_mimeo_photobook(mimeo_data: Dict[str, Any],
             page_data = {
                 'width': mcf_page_width,  # Single page width
                 'height': mcf_page_height,
-                'images': [],
-                'text_blocks': []
+                'photos': [],
+                'texts': []
             }
             
             # Add background color if available
@@ -514,17 +514,17 @@ def _build_mimeo_photobook(mimeo_data: Dict[str, Any],
                     # Add text block to page data
                     text_block = {
                         'text': text_content,
-                        'left': mcf_x_spread,
-                        'top': mcf_y,
-                        'width': mcf_w,
-                        'height': mcf_h,
+                        'area_left': mcf_x_spread,
+                        'area_top': mcf_y,
+                        'area_width': mcf_w,
+                        'area_height': mcf_h,
                         'font': style_name,
                         'size': 12.0,  # Default size, Mimeo doesn't seem to store this
                         'color': color_int,
                         'flags': 0,  # No special flags for now
                     }
                     
-                    page_data['text_blocks'].append(text_block)
+                    page_data['texts'].append(text_block)
                     
                     if verbose and page_nr <= 5:
                         logger.info(f"    Added text block at ({mcf_x_spread}, {mcf_y}) size {mcf_w}x{mcf_h}")
@@ -603,10 +603,10 @@ def _build_mimeo_photobook(mimeo_data: Dict[str, Any],
                 # Store image data in MCF spread coordinates - mcf_writer will generate filename with proper ui_page
                 # We provide the data bytes for it to write
                 image_data = {
-                    'left': mcf_x_spread,
-                    'top': mcf_y,
-                    'width': mcf_w,
-                    'height': mcf_h,
+                    'area_left': mcf_x_spread,
+                    'area_top': mcf_y,
+                    'area_width': mcf_w,
+                    'area_height': mcf_h,
                     'data': photo_path.read_bytes(),
                     'format': photo_path.suffix.lstrip('.').lower(),
                     'index': global_photo_idx,  # Sequential index for image naming
@@ -620,7 +620,7 @@ def _build_mimeo_photobook(mimeo_data: Dict[str, Any],
                     'orientation': photo_info.get('orientation', 1)  # EXIF orientation from Photos database
                 }
                 
-                page_data['images'].append(image_data)
+                page_data['photos'].append(image_data)
                 photos_copied += 1
                 global_photo_idx += 1  # Increment for next photo
             
@@ -650,8 +650,8 @@ def _build_mimeo_photobook(mimeo_data: Dict[str, Any],
         empty_inside_back = {
             'width': content_mcf_width,  # Single page width (from content page)
             'height': content_mcf_height,
-            'images': [],
-            'text_blocks': []
+            'photos': [],
+            'texts': []
         }
         pages.insert(-1, empty_inside_back)  # Insert before last page
         
