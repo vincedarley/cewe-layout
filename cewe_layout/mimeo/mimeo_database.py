@@ -204,7 +204,7 @@ class MimeoProject:
         # Get all text-related attributes for frames
         rows = self._execute_query(
             "SELECT frameId, key, value FROM KHProjectFrameAttribute "
-            "WHERE key IN ('rawText', 'textStyleName', 'textColor', 'textType') "
+            "WHERE key IN ('rawText', 'richText', 'textStyleName', 'textColor', 'textType', 'horizontalAlignment', 'verticalAlignment') "
             "ORDER BY frameId"
         )
         
@@ -220,12 +220,18 @@ class MimeoProject:
             
             if key == 'rawText':
                 frame_text[frame_id]['text'] = value
+            elif key == 'richText':
+                frame_text[frame_id]['rich_text'] = value
             elif key == 'textStyleName':
                 frame_text[frame_id]['style_name'] = value
             elif key == 'textColor':
                 frame_text[frame_id]['color'] = value
             elif key == 'textType':
                 frame_text[frame_id]['text_type'] = int(value) if value else 0
+            elif key == 'horizontalAlignment':
+                frame_text[frame_id]['horizontal_alignment'] = int(value) if value else 0
+            elif key == 'verticalAlignment':
+                frame_text[frame_id]['vertical_alignment'] = int(value) if value else 0
         
         # Only return frames that have text
         return {fid: data for fid, data in frame_text.items() if 'text' in data}

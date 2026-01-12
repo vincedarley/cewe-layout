@@ -370,8 +370,8 @@ class ResizeTransformer:
         
         # Apply transformation relative to content area (accounting for bleed)
         # Content starts at bleed_mcf from the page edge
-        content_relative_left = page_relative_left - self.bleed_mcf
-        content_relative_top = top_mcf - self.bleed_mcf
+        content_relative_left = page_relative_left
+        content_relative_top = top_mcf
         
         # Apply scaling and offset
         new_content_left = content_relative_left * self.scale_x + self.offset_x
@@ -380,8 +380,8 @@ class ResizeTransformer:
         new_height = height_mcf * self.scale_y
         
         # Convert back to page coordinates (add bleed back)
-        new_page_left = new_content_left + self.bleed_mcf
-        new_page_top = new_content_top + self.bleed_mcf
+        new_page_left = new_content_left
+        new_page_top = new_content_top
         
         # Convert back to NEW spread coordinates
         # For right pages: add NEW origin_left (new_width), not old origin_left

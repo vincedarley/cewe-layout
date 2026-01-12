@@ -5,8 +5,11 @@ from xml.dom import minidom
 from pathlib import Path
 from typing import Dict, Any, Optional
 import hashlib
+import logging
+
 from cewe_layout.book.utils import BOOK_SIZES, find_closest_book_size, ResizeTransformer
 from cewe_layout.book.photobook import Photobook
+logger = logging.getLogger(__name__)
 
 
 def calculate_image_relative_sizes(photobook: Photobook):
@@ -95,7 +98,7 @@ def _create_page_mapping(input_page_count: int, insidecovers: bool) -> Dict[str,
     mapping = {}
     
     if insidecovers:
-        # WITH --insidecovers: PDF has [0=front, 1=inside_front, 2..N-2=content, N-1=inside_back, N=back]
+        # WITH --insidecovers: PDF/Mimeo has [0=front, 1=inside_front, 2..N-2=content, N-1=inside_back, N=back]
         mapping["F"] = 0  # Front cover
         mapping[0] = 1    # Inside front cover
         
@@ -169,32 +172,20 @@ def create_mcf_xml(photobook: Photobook, output_dir: Path, verbose: bool = False
     
     # Get interior page dimensions (use first interior content page)
     # Find first non-cover page for interior dimensions
-    interior_page_idx = None
-    for ui_page in range(0, len(page_mapping)):
-        input_idx = page_mapping.get(ui_page)
-        if input_idx is not None:
-            interior_page_idx = input_idx
-            break
-    
-    if interior_page_idx is not None:
-        interior_page = photobook.get_page(interior_page_idx)
-        input_interior_width_mcf = round(interior_page.get_width())
-        input_interior_height_mcf = round(interior_page.get_height())
-    else:
-        # Fallback: assume same as cover
-        input_interior_width_mcf = input_cover_width_mcf
-        input_interior_height_mcf = input_cover_height_mcf
+    interior_page_idx = page_mapping.get(1)
+    interior_page = photobook.get_page(interior_page_idx)
+    input_interior_width_mcf = round(interior_page.get_width())
+    input_interior_height_mcf = round(interior_page.get_height())
     
     # Find the closest matching CEWE book size based on interior dimensions
-    # (CEWE book sizes are primarily defined by their interior page dimensions)
-    book_size_id = find_closest_book_size(input_interior_width_mcf, input_interior_height_mcf)
+    # If resizing, use the TARGET dimensions from the transformer, not the original
+    if content_transformer:
+        target_width, target_height = content_transformer.transform_page_dimensions()
+        book_size_id = find_closest_book_size(target_width, target_height)
+    else:
+        # No resizing - use original dimensions
+        book_size_id = find_closest_book_size(input_interior_width_mcf, input_interior_height_mcf)
     cewe_dimensions = BOOK_SIZES[book_size_id]
-    
-    # Extract CEWE dimensions for covers and interior pages
-    # cewe_cover_width_mcf = cewe_dimensions['coverWidth'] / 2  # Single page width
-    # cewe_cover_height_mcf = cewe_dimensions['coverHeight']
-    # cewe_interior_width_mcf = cewe_dimensions['pageWidth'] / 2  # Single page width
-    # cewe_interior_height_mcf = cewe_dimensions['pageHeight']
     
     if verbose:
         print(f"Book cover dimensions: {input_cover_width_mcf} x {input_cover_height_mcf} MCF units")
@@ -267,12 +258,15 @@ def create_mcf_xml(photobook: Photobook, output_dir: Path, verbose: bool = False
         )
         fotobook.append(cover_page)
     
-    # Add spine page (required structure) - uses cover dimensions
-    spine_page = create_spine_page(input_cover_width_mcf, input_cover_height_mcf, cover_transformer)
+    # Add spine page (required structure) - uses cover dimensions and background from front cover
+    front_page = photobook.get_page(front_input_idx) if front_input_idx is not None else None
+    spine_page = create_spine_page(input_cover_width_mcf, input_cover_height_mcf, cover_transformer,
+                                   front_page.get_page_info() if front_page else None)
     fotobook.append(spine_page)
     
-    # Add empty front cover fullcover page (required structure) - uses cover dimensions
-    front_cover_empty = create_empty_cover_page(input_cover_width_mcf, input_cover_height_mcf, cover_transformer)
+    # Add empty front cover fullcover page (required structure) - uses cover dimensions and background
+    front_cover_empty = create_empty_cover_page(input_cover_width_mcf, input_cover_height_mcf, cover_transformer,
+                                                front_page.get_page_info() if front_page else None)
     fotobook.append(front_cover_empty)
     
     # Add inside front cover (4th pagenr=0 emptypage) and page 1
@@ -301,25 +295,26 @@ def create_mcf_xml(photobook: Photobook, output_dir: Path, verbose: bool = False
     
     # Add page 1's areas to page 0's element (page 1 is right side of the spread)
     page1_input_idx = page_mapping.get(1)
-    if page1_input_idx is not None:
-        page1_page_obj = photobook.get_page(page1_input_idx)
-        page1_data = page1_page_obj.get_page_info()
-        # Get dimensions from the page info
-        input_page1_width = round(page1_data['page_width'])
-        input_page1_height = round(page1_data['page_height'])
-        for img in page1_data.get('photos', []):
-            img['ui_page'] = 1  # Page 1 for filename
-            area = create_image_area(img, output_dir, z_position, verbose,
-                                    input_page1_width, input_page1_height,
-                                    content_transformer, origin_left=input_page1_width)
-            inside_front_page.append(area)
-            z_position += 1
-        for text_block in page1_data.get('texts', []):
-            area = create_text_area(text_block, z_position, verbose,
-                                   input_page1_width, input_page1_height,
-                                   content_transformer, origin_left=input_page1_width)
-            inside_front_page.append(area)
-            z_position += 1
+    page1_page_obj = photobook.get_page(page1_input_idx)
+    page1_data = page1_page_obj.get_page_info()
+    logger.info(f"Adding areas from UI page 1 (page1_input_idx={page1_input_idx}) to cewe_pagenr=0 (inside front cover)")
+    # Get dimensions from the page info
+    input_page1_width = round(page1_data['page_width'])
+    input_page1_height = round(page1_data['page_height'])
+    for img in page1_data.get('photos', []):
+        img['ui_page'] = 1  # Page 1 for filename
+        area = create_image_area(img, output_dir, z_position, verbose,
+                                input_page1_width, input_page1_height,
+                                content_transformer, origin_left=input_page1_width,
+                                cewe_pagenr=0)
+        inside_front_page.append(area)
+        z_position += 1
+    for text_block in page1_data.get('texts', []):
+        area = create_text_area(text_block, z_position, verbose,
+                                input_page1_width, input_page1_height,
+                                content_transformer, origin_left=input_page1_width)
+        inside_front_page.append(area)
+        z_position += 1
     
     # Create empty page 1 element (placeholder for right side)
     empty_page_1 = create_empty_content_page(input_interior_width_mcf, input_interior_height_mcf, 1, content_transformer)
@@ -346,60 +341,61 @@ def create_mcf_xml(photobook: Photobook, output_dir: Path, verbose: bool = False
                 continue
                 
             input_idx = page_mapping.get(ui_page)
-            if input_idx is None:
-                continue
-                
+            # input_idx must exist for a valid photobook. If not we can error.                
             page_obj = photobook.get_page(input_idx)
             page_data = page_obj.get_page_info()
-            cewe_pagenr = ui_page  # UI page number = CEWE page number
-            
+            cewe_pagenr = ui_page  # UI page number = CEWE page number, which we know is even here.
             # Even pages (left side of spread) contain areas for both this and next page
-            if cewe_pagenr % 2 == 0:
+            # Get dimensions from the page info
+            input_even_width = round(page_data['page_width'])
+            input_even_height = round(page_data['page_height'])
+            
+            # Even page (left page of spread) - create page element with areas
+            page_elem = create_page_element(page_data, output_dir, cewe_pagenr, 'normalpage', False, verbose, ui_page=ui_page,
+                                            input_page_width=input_even_width, input_page_height=input_even_height,
+                                            transformer=content_transformer, origin_left=0)
+            fotobook.append(page_elem)
+            
+            # If there's a next odd page in our mapping, add its areas too
+            # This includes both content pages AND the inside back cover (max_content_ui_page + 1)
+            next_ui_page = ui_page + 1
+            next_input_idx = page_mapping.get(next_ui_page)
+            # Add next page if it exists in mapping (content page or inside back cover)
+            if next_input_idx is not None and next_ui_page <= max_content_ui_page + 1:
+                logger.info("Adding areas from UI page %d (input_idx=%s) to cewe_pagenr=%d (ui_page %d)", 
+                           next_ui_page, next_input_idx, cewe_pagenr, ui_page)
+                next_page_obj = photobook.get_page(next_input_idx)
+                next_page_data = next_page_obj.get_page_info()
                 # Get dimensions from the page info
-                input_even_width = round(page_data['page_width'])
-                input_even_height = round(page_data['page_height'])
+                input_odd_width = round(next_page_data['page_width'])
+                input_odd_height = round(next_page_data['page_height'])
                 
-                # Even page (left page of spread) - create page element with areas
-                page_elem = create_page_element(page_data, output_dir, cewe_pagenr, 'normalpage', False, verbose, ui_page=ui_page,
-                                               input_page_width=input_even_width, input_page_height=input_even_height,
-                                               transformer=content_transformer, origin_left=0)
-                fotobook.append(page_elem)
+                # Add the next page's areas to this page element
+                z_position = 1000 + len(page_data.get('photos', [])) + len(page_data.get('texts', []))
+                for img in next_page_data.get('photos', []):
+                    # Use next_ui_page for the odd (right) page images
+                    img['ui_page'] = next_ui_page
+                    area = create_image_area(img, output_dir, z_position, verbose,
+                                            input_odd_width, input_odd_height,
+                                            content_transformer, origin_left=input_odd_width,
+                                            cewe_pagenr=cewe_pagenr)
+                    page_elem.append(area)
+                    z_position += 1
+                for text_block in next_page_data.get('texts', []):
+                    area = create_text_area(text_block, z_position, verbose,
+                                            input_odd_width, input_odd_height,
+                                            content_transformer, origin_left=input_odd_width)
+                    page_elem.append(area)
+                    z_position += 1
                 
-                # If there's a next odd page in our mapping, add its areas too
-                # This includes both content pages AND the inside back cover (max_content_ui_page + 1)
-                next_ui_page = ui_page + 1
-                next_input_idx = page_mapping.get(next_ui_page)
-                # Add next page if it exists in mapping (content page or inside back cover)
-                if next_input_idx is not None and next_ui_page <= max_content_ui_page + 1:
-                    next_page_obj = photobook.get_page(next_input_idx)
-                    next_page_data = next_page_obj.get_page_info()
-                    # Get dimensions from the page info
-                    input_odd_width = round(next_page_data['page_width'])
-                    input_odd_height = round(next_page_data['page_height'])
-                    
-                    # Add the next page's areas to this page element
-                    z_position = 1000 + len(page_data.get('photos', [])) + len(page_data.get('texts', []))
-                    for img in next_page_data.get('photos', []):
-                        # Use next_ui_page for the odd (right) page images
-                        img['ui_page'] = next_ui_page
-                        area = create_image_area(img, output_dir, z_position, verbose,
-                                                input_odd_width, input_odd_height,
-                                                content_transformer, origin_left=input_odd_width)
-                        page_elem.append(area)
-                        z_position += 1
-                    for text_block in next_page_data.get('texts', []):
-                        area = create_text_area(text_block, z_position, verbose,
-                                               input_odd_width, input_odd_height,
-                                               content_transformer, origin_left=input_odd_width)
-                        page_elem.append(area)
-                        z_position += 1
-                    
-                    # Create an empty page element for the odd (right) page
-                    # UNLESS it's the inside back cover (which is created separately)
-                    if next_ui_page != max_content_ui_page + 1:
-                        odd_page_elem = create_empty_content_page(input_odd_width, input_odd_height, cewe_pagenr + 1, content_transformer)
-                        fotobook.append(odd_page_elem)
-    
+                # Create an empty page element for the odd (right) page
+                # UNLESS it's the inside back cover (which is created separately)
+                if next_ui_page != max_content_ui_page + 1:
+                    odd_page_elem = create_empty_content_page(input_odd_width, input_odd_height, cewe_pagenr + 1, content_transformer)
+                    fotobook.append(odd_page_elem)
+            else:
+                logger.warning(f"Warning: No mapping found for next UI page {next_ui_page} after processing UI page {ui_page}.")
+
     # Add inside back cover (last pagenr=0 emptypage)
     # The inside back cover UI page is determined by looking for the highest integer key
     # in the mapping. This should be max_content_ui_page + 1.
@@ -447,13 +443,16 @@ def scale_area_to_cewe(area_left: float, area_top: float, area_width: float, are
     return transformer.transform_rect(area_left, area_top, area_width, area_height, origin_left)
 
 
-def create_spine_page(page_width_mcf: float, page_height_mcf: float, transformer: Optional[ResizeTransformer] = None) -> ET.Element:
+def create_spine_page(page_width_mcf: float, page_height_mcf: float, 
+                     transformer: Optional[ResizeTransformer] = None,
+                     page_data: Optional[Dict[str, Any]] = None) -> ET.Element:
     """Create a spine page element (required structure between back and front cover).
     
     Args:
         page_width_mcf: Single page width in MCF units
         page_height_mcf: Page height in MCF units
         transformer: Optional ResizeTransformer for covers
+        page_data: Optional page data dict (for background_id from front cover)
         
     Returns:
         Spine page XML element
@@ -474,10 +473,22 @@ def create_spine_page(page_width_mcf: float, page_height_mcf: float, transformer
     bundlesize.set('width', f"{spread_width_mcf:.0f}")
     bundlesize.set('height', f"{page_height_mcf:.0f}")
     
+    # Add background if available from page_data (front cover)
+    if page_data:
+        background_id = page_data.get('background_id')
+        if background_id:
+            background = ET.SubElement(page, 'background')
+            background.set('alignment', '4')
+            background.set('designElementId', str(background_id))
+            background.set('rotation', '0')
+            background.set('type', '1')
+    
     return page
 
 
-def create_empty_cover_page(page_width_mcf: float, page_height_mcf: float, transformer: Optional[ResizeTransformer] = None) -> ET.Element:
+def create_empty_cover_page(page_width_mcf: float, page_height_mcf: float, 
+                           transformer: Optional[ResizeTransformer] = None,
+                           page_data: Optional[Dict[str, Any]] = None) -> ET.Element:
     """Create an empty front cover page element (required structure).
     
     This is the third pagenr=0 page, typically empty but required by CEWE structure.
@@ -486,6 +497,7 @@ def create_empty_cover_page(page_width_mcf: float, page_height_mcf: float, trans
         page_width_mcf: Single page width in MCF units
         page_height_mcf: Page height in MCF units
         transformer: Optional ResizeTransformer for covers
+        page_data: Optional page data dict (for background_id from front cover)
         
     Returns:
         Empty cover page XML element
@@ -505,6 +517,16 @@ def create_empty_cover_page(page_width_mcf: float, page_height_mcf: float, trans
     bundlesize = ET.SubElement(page, 'bundlesize')
     bundlesize.set('width', f"{spread_width_mcf:.0f}")
     bundlesize.set('height', f"{page_height_mcf:.0f}")
+    
+    # Add background if available from page_data (front cover)
+    if page_data:
+        background_id = page_data.get('background_id')
+        if background_id:
+            background = ET.SubElement(page, 'background')
+            background.set('alignment', '4')
+            background.set('designElementId', str(background_id))
+            background.set('rotation', '0')
+            background.set('type', '1')
     
     return page
 
@@ -552,6 +574,19 @@ def create_cover_spread_element(front_page_data: Dict[str, Any], back_page_data:
     bundlesize.set('width', f"{spread_width_mcf:.0f}")
     bundlesize.set('height', f"{transformed_height:.0f}")
     
+    # Add background if available from front or back cover page_data
+    # Prioritize front cover background (more visible), fall back to back cover
+    background_id = front_page_data.get('background_id')
+    if background_id is None and back_page_data:
+        background_id = back_page_data.get('background_id')
+    
+    if background_id:
+        background = ET.SubElement(page, 'background')
+        background.set('alignment', '4')
+        background.set('designElementId', str(background_id))
+        background.set('rotation', '0')
+        background.set('type', '1')
+    
     z_position = 1000
     
     # Add back cover images (left half of spread)
@@ -560,7 +595,8 @@ def create_cover_spread_element(front_page_data: Dict[str, Any], back_page_data:
         for img in back_page_data.get('photos', []):
             img['ui_page'] = 'B'  # Back cover identifier
             area = create_image_area(img, output_dir, z_position, verbose,
-                                    input_page_width, input_page_height, transformer, origin_left=0)
+                                    input_page_width, input_page_height, transformer, origin_left=0,
+                                    cewe_pagenr=None)  # No validation for cover pages
             page.append(area)
             z_position += 1
         
@@ -575,7 +611,8 @@ def create_cover_spread_element(front_page_data: Dict[str, Any], back_page_data:
     for img in front_page_data.get('photos', []):
         img['ui_page'] = 'F'  # Front cover identifier
         area = create_image_area(img, output_dir, z_position, verbose,
-                                input_page_width, input_page_height, transformer, origin_left=page_width_mcf)
+                                input_page_width, input_page_height, transformer, origin_left=page_width_mcf,
+                                cewe_pagenr=None)  # No validation for cover pages
         page.append(area)
         z_position += 1
     
@@ -705,6 +742,15 @@ def create_page_element(page_data: Dict[str, Any], output_dir: Path,
     bundlesize.set('width', f"{spread_width_mcf:.0f}")
     bundlesize.set('height', f"{page_height_mcf:.0f}")
     
+    # Add background if available from page_data
+    background_id = page_data.get('background_id')
+    if background_id:
+        background = ET.SubElement(page, 'background')
+        background.set('alignment', '4')
+        background.set('designElementId', str(background_id))
+        background.set('rotation', '0')
+        background.set('type', '1')
+    
     # Coordinates are already in MCF spread units from PDF extractor
     # No x_offset calculation needed - positioning already handled
     
@@ -715,7 +761,8 @@ def create_page_element(page_data: Dict[str, Any], output_dir: Path,
         # Use UI page number if provided, otherwise fall back to PDF page_num
         img['ui_page'] = ui_page if ui_page is not None else page_data.get('page_num', cewe_pagenr)
         area = create_image_area(img, output_dir, z_position, verbose,
-                                input_page_width, input_page_height, transformer, origin_left)
+                                input_page_width, input_page_height, transformer, origin_left,
+                                cewe_pagenr=cewe_pagenr)
         page.append(area)
         z_position += 1
     
@@ -731,7 +778,8 @@ def create_page_element(page_data: Dict[str, Any], output_dir: Path,
 
 def create_image_area(img: Dict[str, Any], output_dir: Path, z_position: int, verbose: bool = False,
                      input_page_width: float = None, input_page_height: float = None,
-                     transformer: Optional[ResizeTransformer] = None, origin_left: float = 0) -> ET.Element:
+                     transformer: Optional[ResizeTransformer] = None, origin_left: float = 0,
+                     cewe_pagenr: int = None) -> ET.Element:
     """Create an image area element.
     
     Args:
@@ -743,6 +791,7 @@ def create_image_area(img: Dict[str, Any], output_dir: Path, z_position: int, ve
         input_page_height: Original PDF page height (for scaling)
         transformer: Optional ResizeTransformer
         origin_left: Original origin offset for this page (0 for left, page_width for right)
+        cewe_pagenr: CEWE page number where this image will be saved (for validation)
         
     Returns:
         Area XML element
@@ -752,24 +801,47 @@ def create_image_area(img: Dict[str, Any], output_dir: Path, z_position: int, ve
     # Get UI page identifier ("F", "B", 0, 1, 2, ...) for filename generation
     ui_page = img.get('ui_page', 0)
     relative_size = img.get('relative_size', 1.0)
-    index = img['index']
     
-    # Generate base filename and use encode_metadata_in_filename for consistency
-    # Format page identifier for filename: F/B as-is, numbers zero-padded
-    if isinstance(ui_page, str):
-        page_str = ui_page
-    else:
-        page_str = f"{ui_page:03d}"
-    
-    # If image already has a filename (e.g., from Mimeo converter), use it
+    # If image already has a filename (e.g., from CEWE MCF, Mimeo converter), use it
     # Otherwise generate a new filename
     if 'filename' in img and img['filename']:
         image_filename = img['filename']
+        # Strip CEWE's "safecontainer:/" prefix if present
+        if image_filename.startswith('safecontainer:/'):
+            image_filename = image_filename[len('safecontainer:/'):]
     else:
+        # Generate new filename - requires 'index' field
+        index = img.get('index', 0)  # Default to 0 if not provided
+        
+        # Format page identifier for filename: F/B as-is, numbers zero-padded
+        if isinstance(ui_page, str):
+            page_str = ui_page
+        else:
+            page_str = f"{ui_page:03d}"
+        
         base_filename = f"image_p{page_str}_{index:04d}.{img['format']}"
         image_filename = encode_metadata_in_filename(base_filename, relative_size, ui_page)
     
     image_path = output_dir / image_filename
+    
+    # VALIDATION: Check that photos with "-pgN" suffix are being saved in the correct <page> element
+    # This catches bugs where photos from odd (right) pages are placed in wrong page elements
+    if cewe_pagenr is not None:
+        # Extract page number from filename if it has "-pgN" suffix
+        import re
+        match = re.search(r'-pg(\d+)', image_filename)
+        if match:
+            filename_page = int(match.group(1))
+            # The filename page should be either cewe_pagenr or cewe_pagenr+1
+            # (because a spread can contain photos from both the left and right pages)
+            if filename_page not in [cewe_pagenr, cewe_pagenr + 1]:
+                raise ValueError(
+                    f"ERROR: Photo filename mismatch detected!\n"
+                    f"  Filename: {image_filename} (indicates page {filename_page})\n"
+                    f"  Being saved in: <page pagenr=\"{cewe_pagenr}\">\n"
+                    f"  Expected: Photo from page {filename_page} should be in pagenr={filename_page} or pagenr={filename_page-1}\n"
+                    f"  This indicates a bug in page number assignment (ui_page) during MCF generation."
+                )
     
     # Only write image data if it's provided (PDF extracts bytes, Mimeo already copied files)
     if img.get('data') is not None:
@@ -868,42 +940,93 @@ def create_text_area(text_block: Dict[str, Any], z_position: int, verbose: bool 
     text = ET.SubElement(area, 'text')
     text.set('applySpotColor', '0')
     
-    # Convert color integer to hex
-    color_int = text_block.get('color', 0)
-    color_hex = f"#{color_int:06x}"
-    
-    # Determine font weight from flags
-    flags = text_block.get('flags', 0)
-    is_bold = bool(flags & 2**4)  # Bit 4 is bold
-    is_italic = bool(flags & 2**6)  # Bit 6 is italic
-    
-    font_weight = '700' if is_bold else '400'
-    font_style = 'italic' if is_italic else 'normal'
-    
-    # Create minimal HTML content - just font, size, and text
-    html_content = f'<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.0//EN" "http://www.w3.org/TR/REC-html40/strict.dtd"><html><head><meta name="qrichtext" content="1" /></head><body style="font-family:\'{text_block["font"]}\'; font-size:{int(text_block["size"])}pt;"><p><span style="color:{color_hex};">{escape_html(text_block["text"])}</span></p></body></html>'
-    
-    # Set areaTextType attribute
-    text.set('areaTextType', 'content')
-    # Store HTML directly - we'll wrap in CDATA during XML serialization
-    text.text = html_content
-    
-    # Add outline element
-    outline = ET.SubElement(text, 'outline')
-    outline.set('width', '0')
-    
-    # TextFormat element with full CEWE attributes
-    textFormat = ET.SubElement(text, 'textFormat')
-    textFormat.set('Alignment', 'ALIGNLEFT')
-    textFormat.set('IndentMargin', '4')
-    textFormat.set('VerticalIndentMargin', '50')
-    textFormat.set('backgroundColor', '#00000000')
-    textFormat.set('font', f"{text_block['font']},{int(text_block['size'])},-1,5,{font_weight},0,0,0,0,0,0,1,0,0,0,1")
-    textFormat.set('foregroundColor', f"#ff{color_int:06x}")
-    textFormat.set('hasOutline', '0')
-    textFormat.set('hyphenation', '0')
-    textFormat.set('letterSpacing', '0')
-    textFormat.set('lineHeight', '100')
+    # Check format: CEWE (has 'raw_html') vs Mimeo/PDF (has 'text', 'font', 'size')
+    if 'raw_html' in text_block:
+        # CEWE format: use raw HTML directly
+        html_content = text_block['raw_html']
+        font_size = text_block.get('font_size', 12)
+        
+        # Set areaTextType attribute
+        text.set('areaTextType', 'content')
+        text.text = html_content
+        
+        # Add outline element
+        outline = ET.SubElement(text, 'outline')
+        outline.set('width', '0')
+        
+        # TextFormat element - minimal attributes for CEWE format
+        textFormat = ET.SubElement(text, 'textFormat')
+        
+        # Build alignment string from h_align and v_align
+        h_align = text_block.get('h_align', 'left')
+        v_align = text_block.get('v_align', 'top')
+        
+        align_parts = []
+        if v_align == 'center':
+            align_parts.append('ALIGNVCENTER')
+        elif v_align == 'bottom':
+            align_parts.append('ALIGNBOTTOM')
+        else:  # top or default
+            align_parts.append('ALIGNTOP')
+        
+        if h_align == 'center':
+            align_parts.append('ALIGNHCENTER')
+        elif h_align == 'right':
+            align_parts.append('ALIGNRIGHT')
+        else:  # left or default
+            align_parts.append('ALIGNLEFT')
+        
+        textFormat.set('Alignment', ','.join(align_parts))
+        textFormat.set('IndentMargin', '4')
+        textFormat.set('VerticalIndentMargin', '50')
+        textFormat.set('backgroundColor', '#00000000')
+        # Note: We don't have full font info from CEWE format, so use minimal font string
+        textFormat.set('font', f"Arial,{font_size},-1,5,400,0,0,0,0,0,0,1,0,0,0,1")
+        textFormat.set('foregroundColor', '#ff000000')
+        textFormat.set('hasOutline', '0')
+        textFormat.set('hyphenation', '0')
+        textFormat.set('letterSpacing', '0')
+        textFormat.set('lineHeight', '100')
+    else:
+        # Mimeo/PDF format: generate HTML from text, font, size, color, flags
+        color_int = text_block.get('color', 0)
+        color_hex = f"#{color_int:06x}"
+        
+        # Determine font weight from flags
+        flags = text_block.get('flags', 0)
+        is_bold = bool(flags & 2**4)  # Bit 4 is bold
+        is_italic = bool(flags & 2**6)  # Bit 6 is italic
+        
+        font_weight = '700' if is_bold else '400'
+        font_style = 'italic' if is_italic else 'normal'
+        
+        font_name = text_block['font']
+        font_size = int(text_block['size'])
+        text_content = text_block['text']
+        
+        # Create minimal HTML content - just font, size, and text
+        html_content = f'<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.0//EN" "http://www.w3.org/TR/REC-html40/strict.dtd"><html><head><meta name="qrichtext" content="1" /></head><body style="font-family:\'{font_name}\'; font-size:{font_size}pt;"><p><span style="color:{color_hex};">{escape_html(text_content)}</span></p></body></html>'
+        
+        # Set areaTextType attribute
+        text.set('areaTextType', 'content')
+        text.text = html_content
+        
+        # Add outline element
+        outline = ET.SubElement(text, 'outline')
+        outline.set('width', '0')
+        
+        # TextFormat element with full CEWE attributes
+        textFormat = ET.SubElement(text, 'textFormat')
+        textFormat.set('Alignment', 'ALIGNLEFT')
+        textFormat.set('IndentMargin', '4')
+        textFormat.set('VerticalIndentMargin', '50')
+        textFormat.set('backgroundColor', '#00000000')
+        textFormat.set('font', f"{font_name},{font_size},-1,5,{font_weight},0,0,0,0,0,0,1,0,0,0,1")
+        textFormat.set('foregroundColor', f"#ff{color_int:06x}")
+        textFormat.set('hasOutline', '0')
+        textFormat.set('hyphenation', '0')
+        textFormat.set('letterSpacing', '0')
+        textFormat.set('lineHeight', '100')
     
     return area
 

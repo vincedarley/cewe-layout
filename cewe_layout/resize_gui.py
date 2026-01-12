@@ -488,7 +488,8 @@ class ResizeWindow:
                 self.book,
                 str(output_dir),
                 verbose=True,
-                insidecovers=False,  # Assuming standard photobook structure
+                insidecovers=True,  # We have inside covers, even if they are empty.
+                # TODO: clarify treatment of inside covers. Bit of a mess right now.
                 cover_transformer=cover_transformer,
                 content_transformer=content_transformer
             )

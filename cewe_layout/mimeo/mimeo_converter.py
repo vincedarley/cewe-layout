@@ -17,8 +17,60 @@ from ..book.utils import BOOK_SIZES
 from ..photos import get_image_dimensions
 from ..writer import _calculate_cutout
 from ..colour_utils import find_closest_color_code
+import re
 
 logger = logging.getLogger(__name__)
+
+
+def parse_mimeo_text_style(style_name: str) -> Tuple[str, float]:
+    """Parse Mimeo textStyleName into font family and size.
+    
+    Mimeo encodes font information as: FontFamily[Weight]SizeCode
+    where SizeCode = size_in_points * 100
+    
+    Examples:
+        'HelveticaNeue1822' → ('Helvetica Neue', 18.22)
+        'HelveticaNeueBold3846' → ('Helvetica Neue-Bold', 38.46)
+        'HelveticaNeue911' → ('Helvetica Neue', 9.11)
+    
+    Args:
+        style_name: Mimeo textStyleName (e.g., 'HelveticaNeueBold3846')
+        
+    Returns:
+        Tuple of (font_name, size_in_points)
+    """
+    if not style_name:
+        return ('Helvetica Neue', 12.0)  # Default
+    
+    # Parse pattern: FontFamily[Weight]Numbers
+    match = re.match(r'^([A-Za-z]+?)([A-Z][a-z]+)?(\d+)$', style_name)
+    
+    if not match:
+        logger.warning(f"Could not parse text style name: {style_name}")
+        return ('Helvetica Neue', 12.0)
+    
+    font_family = match.group(1)
+    font_weight = match.group(2) or ''
+    size_code = match.group(3)
+    
+    # Convert font family (e.g., 'Helvetica' → 'Helvetica', 'HelveticaNeue' → 'Helvetica Neue')
+    # Insert spaces before capital letters (but not at start)
+    font_family_spaced = re.sub(r'(?<!^)(?=[A-Z])', ' ', font_family)
+    
+    # Build full font name
+    if font_weight and font_weight not in ['Neue']:  # 'Neue' is part of family name
+        font_name = f"{font_family_spaced}-{font_weight}"
+    else:
+        font_name = font_family_spaced
+    
+    # Parse size (encoded as size * 100)
+    try:
+        size_pt = int(size_code) / 100.0
+    except ValueError:
+        logger.warning(f"Could not parse size from: {size_code}")
+        size_pt = 12.0
+    
+    return (font_name, size_pt)
 
 
 class MimeoCoordinateTransformer:
@@ -511,6 +563,12 @@ def _build_mimeo_photobook(mimeo_data: Dict[str, Any],
                     except:
                         color_int = 0  # Black default
                     
+                    # Parse font family and size from Mimeo textStyleName
+                    font_name, font_size = parse_mimeo_text_style(style_name)
+                    
+                    if verbose and page_nr <= 5:
+                        logger.info(f"    Font: '{font_name}' {font_size}pt (from style '{style_name}')")
+                    
                     # Add text block to page data
                     text_block = {
                         'text': text_content,
@@ -518,8 +576,8 @@ def _build_mimeo_photobook(mimeo_data: Dict[str, Any],
                         'area_top': mcf_y,
                         'area_width': mcf_w,
                         'area_height': mcf_h,
-                        'font': style_name,
-                        'size': 12.0,  # Default size, Mimeo doesn't seem to store this
+                        'font': font_name,
+                        'size': font_size,
                         'color': color_int,
                         'flags': 0,  # No special flags for now
                     }
