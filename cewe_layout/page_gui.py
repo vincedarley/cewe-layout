@@ -350,10 +350,10 @@ class PageRenderer:
             
             # Calculate position on canvas
             # Composite image coordinates are in MCF spread units from PDF extraction
-            comp_left_mcf = page_data.composite_image.get('left', 0)
-            comp_top_mcf = page_data.composite_image.get('top', 0)
-            comp_width_mcf = page_data.composite_image.get('width', 0)
-            comp_height_mcf = page_data.composite_image.get('height', 0)
+            comp_left_mcf = page_data.composite_image.get('area_left', 0)
+            comp_top_mcf = page_data.composite_image.get('area_top', 0)
+            comp_width_mcf = page_data.composite_image.get('area_width', 0)
+            comp_height_mcf = page_data.composite_image.get('area_height', 0)
             
             # Composite coordinates are in PDF MCF spread units - convert to page-relative
             # For left pages: comp_left_mcf starts from 0
