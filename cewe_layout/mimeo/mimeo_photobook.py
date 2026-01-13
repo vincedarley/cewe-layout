@@ -87,37 +87,44 @@ class MimeoPhotobook(Photobook):
     We synthesize front/back covers as empty pages for compatibility.
     """
     
-    def __init__(self, pages: List[Dict[str, Any]], metadata: Dict[str, str]):
+    def __init__(self, pages: List[Dict[str, Any]], metadata: Dict[str, str], insidecovers: bool = True):
         """Initialize Mimeo photobook.
         
         Args:
             pages: List of page data dicts with 'width', 'height', 'images' in Mimeo units
             metadata: Book metadata (title, author, etc.)
+            insidecovers: Whether book has inside cover pages (default True)
         """
         super().__init__()
         self._pages = pages
         self._metadata = metadata or {}
         self._page_count = len(pages)
+        self._has_inside_covers = insidecovers
         self._pages_cache: Dict[int, MimeoPhotobookPage] = {}
     
     def get_page_count(self) -> int:
         """Get total number of pages (all content pages for Mimeo)."""
         return self._page_count
     
-    def get_page(self, index: int) -> MimeoPhotobookPage:
+    def get_page(self, index: int) -> Optional[MimeoPhotobookPage]:
         """Get page at given index.
         
         Args:
             index: Page index (0-based)
             
         Returns:
-            MimeoPhotobookPage instance
+            MimeoPhotobookPage instance, or None if inside covers don't exist
             
         Raises:
             IndexError: If index is out of range
         """
         if index < 0 or index >= self._page_count:
             raise IndexError(f"Page index {index} out of range (0-{self._page_count-1})")
+        
+        # Return None for inside cover pages if book doesn't have them
+        if not self._has_inside_covers:
+            if index == 1 or index == self._page_count - 2:
+                return None
         
         # Check cache first
         if index in self._pages_cache:
@@ -161,8 +168,8 @@ class MimeoPhotobook(Photobook):
         return True
     
     def has_inside_covers(self) -> bool:
-        """Mimeo books have inside covers."""
-        return True
+        """Whether this Mimeo book has inside covers."""
+        return self._has_inside_covers
     
     def get_content_page_count(self) -> int:
         """Get number of content pages (excluding 4 cover pages)."""
@@ -171,11 +178,3 @@ class MimeoPhotobook(Photobook):
     def get_native_unit_name(self) -> str:
         """Get name of native coordinate unit."""
         return "Mimeo units"
-    
-    def get_front_cover_page(self) -> PhotobookPage:
-        """Get the front cover page (first page)."""
-        return self.get_page(0)
-    
-    def get_back_cover_page(self) -> PhotobookPage:
-        """Get the back cover page (last page)."""
-        return self.get_page(self._page_count - 1)

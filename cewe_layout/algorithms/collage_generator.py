@@ -281,7 +281,7 @@ class CollageGeneratorAlgorithm(LayoutAlgorithm):
         """
         if collage_node.rect is not None:
             # Leaf node - find the index of this rectangle
-            item_idx = rectangles.index(collage_node.rect)
+            item_idx = rectangles.pageIndex(collage_node.rect)
             return TreeNode(label=item_idx, is_leaf=True, item_idx=item_idx)
         
         # Internal node

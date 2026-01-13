@@ -78,49 +78,25 @@ if __name__ == '__main__':
             
             pdf_path = Path(args.originalPdf)
             output_path = Path(args.cewe)
-            
+
+            # Get PDF page count to create mapping
+            import fitz
+            doc = fitz.open(pdf_path)
+            pdf_page_count = len(doc)
+            doc.close()
+
             # Only write if output doesn't already exist
             if output_path.exists():
                 print(f"✅ Output already exists: {args.cewe}")
                 print(f"   Creating on-demand PDF reader for GUI")
-                
-                # Get PDF page count to create mapping
-                import fitz
-                doc = fitz.open(pdf_path)
-                pdf_page_count = len(doc)
-                doc.close()
-                
-                # Create page mapping for coordinate positioning
-                from cewe_layout.book.mcf_writer import _create_page_mapping
-                ui_to_pdf = _create_page_mapping(pdf_page_count, args.insidecovers)
-                pdf_to_ui = {v: k for k, v in ui_to_pdf.items() if v is not None}
-                
+
                 # Create lightweight reader for on-demand page access WITH mapping
-                pdf_photobook = create_pdf_reader(pdf_path, verbose=True, page_to_ui=pdf_to_ui, insidecovers=args.insidecovers)
+                pdf_photobook = create_pdf_reader(pdf_path, pdf_page_count, verbose=True, insidecovers=args.insidecovers)
             else:
                 # Extract all PDF content for initial conversion
                 print(f"Extracting content from {pdf_path}...")
-                
-                # Create inverse mapping: PDF index → UI page (for coordinate positioning)
-                # First get PDF page count by opening it
-                import fitz
-                doc = fitz.open(pdf_path)
-                pdf_page_count = len(doc)
-                doc.close()
-                
-                # Create UI-to-PDF mapping, then invert it
-                from cewe_layout.book.mcf_writer import _create_page_mapping
-                ui_to_pdf = _create_page_mapping(pdf_page_count, args.insidecovers)
-                pdf_to_ui = {v: k for k, v in ui_to_pdf.items() if v is not None}
-                
-                print(f"DEBUG: PDF-to-UI mapping (first 5 and last 5):")
-                sorted_keys = sorted([k for k in pdf_to_ui.keys() if isinstance(k, int)])
-                for pdf_idx in sorted_keys[:5]:
-                    print(f"  PDF page {pdf_idx} → UI page {pdf_to_ui[pdf_idx]}")
-                for pdf_idx in sorted_keys[-5:]:
-                    print(f"  PDF page {pdf_idx} → UI page {pdf_to_ui[pdf_idx]}")
-                
-                pdf_photobook = extract_pdf_content(pdf_path, page_range=None, verbose=True, debug=args.debug, page_to_ui=pdf_to_ui, insidecovers=args.insidecovers)
+
+                pdf_photobook = extract_pdf_content(pdf_path, pdf_page_count, page_range=None, verbose=True, debug=args.debug, insidecovers=args.insidecovers)
                 
                 print(f"Writing MCF project to {args.cewe}...")
                 write_mcf_project(pdf_photobook, args.cewe, verbose=True, insidecovers=args.insidecovers)
@@ -142,7 +118,7 @@ if __name__ == '__main__':
             profiler.enable()
             
             try:
-                launch_gui(real, pdf_photobook, insidecovers=args.insidecovers)
+                launch_gui(real, pdf_photobook)
             finally:
                 profiler.disable()
                 
@@ -161,4 +137,4 @@ if __name__ == '__main__':
                 stats.sort_stats(SortKey.CUMULATIVE)
                 stats.print_stats(20)
         else:
-            launch_gui(real, pdf_photobook, insidecovers=args.insidecovers)
+            launch_gui(real, pdf_photobook)

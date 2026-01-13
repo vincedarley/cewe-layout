@@ -8,7 +8,8 @@ import hashlib
 import logging
 
 from cewe_layout.book.utils import BOOK_SIZES, find_closest_book_size, ResizeTransformer
-from cewe_layout.book.photobook import Photobook
+from cewe_layout.book.photobook import Photobook, _create_page_mapping
+
 logger = logging.getLogger(__name__)
 
 
@@ -70,71 +71,59 @@ def write_mcf_project(photobook: Photobook, output_path: str, verbose: bool = Fa
         print(f"Creating MCF file: {mcf_path}")
     
     # Build MCF XML structure
-    root = create_mcf_xml(photobook, output_dir, verbose, insidecovers, cover_transformer, content_transformer)
+    root = create_mcf_xml_from_photobook(photobook, output_dir, verbose, insidecovers, cover_transformer, content_transformer)
     
     # Write prettified XML
     xml_str = prettify_xml(root)
     mcf_path.write_text(xml_str, encoding='utf-8')
     
-    # Create folderid.xml (required by CEWE)
+    # Create folderid.xml (required by CEWE). The contents of this file seem mostly optional - CEWE
+    # will generate it.
     create_folderid_xml(output_dir)
     
     if verbose:
         print(f"MCF project created at {output_dir}")
 
 
-def _create_page_mapping(input_page_count: int, insidecovers: bool) -> Dict[str, Optional[int]]:
-    """Create mapping from logical page identifiers to PDF page indices.
-    
-    Args:
-        input_page_count: Total number of pages in PDF
-        insidecovers: Whether PDF includes inside cover pages
-        
-    Returns:
-        Dictionary mapping page identifiers to PDF indices (0-based)
-        Page identifiers: "F" (front cover), "B" (back cover), 0 (inside front), 
-                         1..N (content pages), N+1 (inside back)
-    """
-    mapping = {}
-    
-    if insidecovers:
-        # WITH --insidecovers: PDF/Mimeo has [0=front, 1=inside_front, 2..N-2=content, N-1=inside_back, N=back]
-        mapping["F"] = 0  # Front cover
-        mapping[0] = 1    # Inside front cover
-        
-        # Content pages: UI pages 1..N-4 map to PDF pages 2..N-2
-        content_pages = input_page_count - 4  # Exclude front, inside_front, inside_back, back
-        for ui_page in range(1, content_pages + 1):
-            mapping[ui_page] = ui_page + 1  # UI page 1 → PDF page 2, etc.
-        
-        mapping[content_pages + 1] = input_page_count - 2  # Inside back cover
-        mapping["B"] = input_page_count - 1  # Back cover
-    else:
-        # WITHOUT --insidecovers: PDF has [0=front, 1..N-2=content, N-1=back]
-        mapping["F"] = 0  # Front cover
-        mapping[0] = None  # Inside front cover (empty)
-        
-        # Content pages: UI pages 1..N-2 map to PDF pages 1..N-2
-        content_pages = input_page_count - 2  # Exclude front and back
-        for ui_page in range(1, content_pages + 1):
-            mapping[ui_page] = ui_page  # Direct mapping
-        
-        mapping[content_pages + 1] = None  # Inside back cover (empty)
-        mapping["B"] = input_page_count - 1  # Back cover
-    
-    return mapping
-
-
-def create_mcf_xml(photobook: Photobook, output_dir: Path, verbose: bool = False, insidecovers: bool = False,
-                  cover_transformer: Optional[ResizeTransformer] = None,
-                  content_transformer: Optional[ResizeTransformer] = None) -> ET.Element:
+def create_mcf_xml_from_photobook(photobook: Photobook, output_dir: Path, verbose: bool = False, insidecovers: bool = False,
+                                  cover_transformer: Optional[ResizeTransformer] = None,
+                                  content_transformer: Optional[ResizeTransformer] = None) -> ET.Element:
     """Create the main MCF XML structure.
     
+    An important detail is our treatment of "insidecovers". In CEWE Creator's MCF structure, these are
+    the left hand page inside the front cover, before the 1st content page (which is always a right hand page),
+    and the right hand page inside the back cover, after the last content page (which is always a left hand page).
+    The inside front cover is "page 0", and the inside back cover is "page N+1", where N is the number
+    of normal content pages (in CEWE's approach). Inside covers are ALWAYS EMPTY in CEWE books.  The
+    MCF file format is actually perfectly capable of placing content onto these two special pages, but
+    even if there is content, CEWE Creator ignores it, and their printing process certainly ignores it
+    (at least for hardback books, where the inside cover does not use nice photographic paper).
+    
+    Given this, there are a few possible scenarios:
+    - The input photobook has no pages representing inside-covers (e.g. it is derived from a PDF file which
+      has a front cover page which is followed directly by the first content page (page 1 in MCF). In this
+      case we can safely create empty insidecovers in mcf and we don't lose anything.
+    - The input photobook has pages representing inside-covers, but they are empty. In this
+      case we can safely create empty insidecovers in mcf and we don't lose anything.
+    - The input photobook has pages representing inside-covers, but they are NOT empty. In this case we need
+      to make a choice: (a) we can place the content of those pages on the MCF pages 0 and N+1, where they will
+      be visible and editable in QLayout, but ignored by CEWE Creator, (b) we can ignore and discard that content,
+      or (c) we can create some extra pages at the end of the book for that content, so it is not discarded, and
+      the user will presumably need to manually edit the photobook to keep whatever aspects of the content they wish.
+
+    In aggregate these options usefully reduce to --insidecovers "notProvided", "ignoreProvided", 
+    "retainWithIncompatibility" or "retainAtEnd", which we will use as command-line options where appropriate.
+
+    Anecdotally, some PDF files have insidecovers, some do not.  Mimeo imports have inside covers which can have content.
+
     Args:
         photobook: Photobook instance (PDFPhotobook, MimeoPhotobook, etc.)
         output_dir: Output directory for saving images
         verbose: Print detailed info
-        insidecovers: Whether photobook includes inside cover pages (affects page mapping)
+        insidecovers: Whether the photobook provided includes inside cover pages (i.e. it has a page designating 
+        
+        Some imported photobooks may not have these pages, others will (even if they are empty). We need to
+        understand this to allocate pages correctly between the provided input and the output CEWE MCF structure.
         cover_transformer: Optional ResizeTransformer for cover pages
         content_transformer: Optional ResizeTransformer for content pages
         
@@ -143,37 +132,31 @@ def create_mcf_xml(photobook: Photobook, output_dir: Path, verbose: bool = False
     """
     # Calculate relative sizes for all images across all pages
     calculate_image_relative_sizes(photobook)
-    
-    # Create page mapping
-    page_mapping = _create_page_mapping(photobook.get_page_count(), insidecovers)
-    
+
     # Create fotobook element as root (no mcf wrapper)
     fotobook = ET.Element('fotobook')
     
     # Get dimensions from cover and interior pages separately
     # Covers (F and B) may have different dimensions than interior pages
-    front_cover_idx = page_mapping.get("F")
-    back_cover_idx = page_mapping.get("B")
-    
+    front_cover_page = photobook.find_page_by_ui_num("F")
+    back_page = photobook.find_page_by_ui_num("B")
+
     # Get cover dimensions (use front cover if available, else back cover)
-    if front_cover_idx is not None:
-        cover_page = photobook.get_page(front_cover_idx)
-        input_cover_width_mcf = round(cover_page.get_width())
-        input_cover_height_mcf = round(cover_page.get_height())
-    elif back_cover_idx is not None:
-        cover_page = photobook.get_page(back_cover_idx)
-        input_cover_width_mcf = round(cover_page.get_width())
-        input_cover_height_mcf = round(cover_page.get_height())
+    if front_cover_page is not None:
+        input_cover_width_mcf = round(front_cover_page.get_width())
+        input_cover_height_mcf = round(front_cover_page.get_height())
+    elif back_page is not None:
+        input_cover_width_mcf = round(back_page.get_width())
+        input_cover_height_mcf = round(back_page.get_height())
     else:
         # Fallback: use first page dimensions
-        first_page = photobook.get_page(0)
+        first_page = photobook.find_page_by_ui_num(1)
         input_cover_width_mcf = round(first_page.get_width())
         input_cover_height_mcf = round(first_page.get_height())
     
     # Get interior page dimensions (use first interior content page)
     # Find first non-cover page for interior dimensions
-    interior_page_idx = page_mapping.get(1)
-    interior_page = photobook.get_page(interior_page_idx)
+    interior_page = photobook.find_page_by_ui_num(1)
     input_interior_width_mcf = round(interior_page.get_width())
     input_interior_height_mcf = round(interior_page.get_height())
     
@@ -185,6 +168,7 @@ def create_mcf_xml(photobook: Photobook, output_dir: Path, verbose: bool = False
     else:
         # No resizing - use original dimensions
         book_size_id = find_closest_book_size(input_interior_width_mcf, input_interior_height_mcf)
+    
     cewe_dimensions = BOOK_SIZES[book_size_id]
     
     if verbose:
@@ -193,13 +177,10 @@ def create_mcf_xml(photobook: Photobook, output_dir: Path, verbose: bool = False
         print(f"Matched CEWE book size: {book_size_id}")
     
     # CEWE pagecount = number of content pages (not including covers/inside covers)
-    # WITHOUT --insidecovers: PDF has [front, content..., back] → content pages = N-2
-    # WITH --insidecovers: PDF has [front, inside_front, content..., inside_back, back] → content pages = N-4
-    if insidecovers:
-        normal_page_count = photobook.get_page_count() - 4  # Exclude front, inside_front, inside_back, back
-    else:
-        normal_page_count = photobook.get_page_count() - 2  # Exclude front, back
-    
+    # WITHOUT --insidecovers: Book has [front, content..., back] → content pages = N-2
+    # WITH --insidecovers: Book has [front, inside_front, content..., inside_back, back] → content pages = N-4
+    num_content_pages = photobook.get_page_count() - 4  # Exclude front, inside_front, inside_back, back
+
     # Set all required fotobook attributes
     fotobook.set('art_id', str(cewe_dimensions['art_id']))
     fotobook.set('article_name', 'Custom Photobook')
@@ -218,29 +199,25 @@ def create_mcf_xml(photobook: Photobook, output_dir: Path, verbose: bool = False
         fotobook.set('title', metadata['title'])
     
     # Add CEWE boilerplate elements
-    # normalpages = highest numbered page in the book (the last content page with pagenr="N")
-    # Inside back cover is pagenr="0", so it doesn't count toward normalpages
+    # num_content_pages = highest numbered page in the book (the last content page with pagenr="N")
+    # Inside back cover is pagenr="0", so it doesn't count toward num_content_pages
     # Calculate this before calling add_cewe_boilerplate_elements
-    if insidecovers:
-        num_content_pages = photobook.get_page_count() - 4
-    else:
-        num_content_pages = photobook.get_page_count() - 2
-    normalpages = num_content_pages  # Highest numbered page (1..N)
-    add_cewe_boilerplate_elements(fotobook, normalpages)
+
+    # TODO: CEWE books, by their structure, must have 4xN+2 content pages
+    # If our number of pages doesn't match, we should add empty pages.
+    add_cewe_boilerplate_elements(fotobook, num_content_pages)
     
     # Add cover pages (THREE pagenr=0 pages required before content):
     # 1. Back+Front cover spread (type=fullcover, contains images from both halves)
     # 2. Spine (type=spine, typically empty)
     # 3. Front cover duplicate (type=fullcover, typically empty structure)
-    
-    front_input_idx = page_mapping["F"]
-    back_input_idx = page_mapping["B"]
-    
-    if front_input_idx is not None and back_input_idx is not None:
+
+    front_page = photobook.find_page_by_ui_num("F")
+    back_page = photobook.find_page_by_ui_num("B")
+
+    if front_page is not None and back_page is not None:
         # Create combined back+front cover spread
         # Get page data dicts for backward compatibility with create_cover_spread_element
-        front_page = photobook.get_page(front_input_idx)
-        back_page = photobook.get_page(back_input_idx)
         cover_page = create_cover_spread_element(
             front_page.get_page_info(),   # Front cover (right half)
             back_page.get_page_info(),    # Back cover (left half)
@@ -248,9 +225,8 @@ def create_mcf_xml(photobook: Photobook, output_dir: Path, verbose: bool = False
             input_cover_width_mcf, input_cover_height_mcf, cover_transformer
         )
         fotobook.append(cover_page)
-    elif front_input_idx is not None:
+    elif front_page is not None:
         # Only front cover available
-        front_page = photobook.get_page(front_input_idx)
         cover_page = create_cover_spread_element(
             front_page.get_page_info(), None,
             output_dir, input_cover_width_mcf, input_cover_height_mcf, verbose,
@@ -259,7 +235,6 @@ def create_mcf_xml(photobook: Photobook, output_dir: Path, verbose: bool = False
         fotobook.append(cover_page)
     
     # Add spine page (required structure) - uses cover dimensions and background from front cover
-    front_page = photobook.get_page(front_input_idx) if front_input_idx is not None else None
     spine_page = create_spine_page(input_cover_width_mcf, input_cover_height_mcf, cover_transformer,
                                    front_page.get_page_info() if front_page else None)
     fotobook.append(spine_page)
@@ -273,12 +248,11 @@ def create_mcf_xml(photobook: Photobook, output_dir: Path, verbose: bool = False
     # Inside front cover is LEFT page of spread (page 0, even = left side)
     # Page 1 is RIGHT page of spread (page 1, odd = right side)
     # Page 1's content is ALWAYS added to page 0's element
-    inside_front_input_idx = page_mapping[0]
-    
-    # Create page 0 element - either with content (insidecovers) or empty (no insidecovers)
+    inside_front_page_obj = photobook.find_page_by_ui_num(0)
+
+    # Create page 0 element - either with content or empty
     # Inside covers use interior page dimensions
-    if inside_front_input_idx is not None:
-        inside_front_page_obj = photobook.get_page(inside_front_input_idx)
+    if inside_front_page_obj is not None:
         inside_front_data = inside_front_page_obj.get_page_info()
         # Get dimensions from the page info
         input_page0_width = round(inside_front_data['page_width'])
@@ -294,10 +268,9 @@ def create_mcf_xml(photobook: Photobook, output_dir: Path, verbose: bool = False
     fotobook.append(inside_front_page)
     
     # Add page 1's areas to page 0's element (page 1 is right side of the spread)
-    page1_input_idx = page_mapping.get(1)
-    page1_page_obj = photobook.get_page(page1_input_idx)
+    page1_page_obj = photobook.find_page_by_ui_num(1)
     page1_data = page1_page_obj.get_page_info()
-    logger.info(f"Adding areas from UI page 1 (page1_input_idx={page1_input_idx}) to cewe_pagenr=0 (inside front cover)")
+    logger.info("Adding areas from UI page 1 to cewe_pagenr=0 (inside front cover)")
     # Get dimensions from the page info
     input_page1_width = round(page1_data['page_width'])
     input_page1_height = round(page1_data['page_height'])
@@ -321,15 +294,8 @@ def create_mcf_xml(photobook: Photobook, output_dir: Path, verbose: bool = False
     fotobook.append(empty_page_1)
     
     # Add content pages
-    # Calculate how many content pages we have from the mapping
-    # Content pages are sequential from 1 to N (not including inside covers at 0 and N+1)
-    if insidecovers:
-        num_content_pages = photobook.get_page_count() - 4  # Exclude front, inside_front, inside_back, back
-    else:
-        num_content_pages = photobook.get_page_count() - 2  # Exclude front, back
-    
-    max_content_ui_page = num_content_pages
-    
+    max_content_ui_page = photobook.get_page_count() - 4  # Exclude front, back. Include inside front, inside back even if empty
+
     # Process content pages starting from page 2
     # Page 0 and 1 are already handled above
     # We only process EVEN pages in the loop, because each even page creates
@@ -340,9 +306,10 @@ def create_mcf_xml(photobook: Photobook, output_dir: Path, verbose: bool = False
             if ui_page % 2 == 1:
                 continue
                 
-            input_idx = page_mapping.get(ui_page)
-            # input_idx must exist for a valid photobook. If not we can error.                
-            page_obj = photobook.get_page(input_idx)
+            page_obj = photobook.find_page_by_ui_num(ui_page)
+            if page_obj is None:
+                logger.error(f"Unexpected empty UI page for {ui_page} out of {max_content_ui_page}, with insidecovers={insidecovers}")
+                
             page_data = page_obj.get_page_info()
             cewe_pagenr = ui_page  # UI page number = CEWE page number, which we know is even here.
             # Even pages (left side of spread) contain areas for both this and next page
@@ -359,12 +326,11 @@ def create_mcf_xml(photobook: Photobook, output_dir: Path, verbose: bool = False
             # If there's a next odd page in our mapping, add its areas too
             # This includes both content pages AND the inside back cover (max_content_ui_page + 1)
             next_ui_page = ui_page + 1
-            next_input_idx = page_mapping.get(next_ui_page)
+            next_page_obj = photobook.find_page_by_ui_num(next_ui_page)
             # Add next page if it exists in mapping (content page or inside back cover)
-            if next_input_idx is not None and next_ui_page <= max_content_ui_page + 1:
-                logger.info("Adding areas from UI page %d (input_idx=%s) to cewe_pagenr=%d (ui_page %d)", 
-                           next_ui_page, next_input_idx, cewe_pagenr, ui_page)
-                next_page_obj = photobook.get_page(next_input_idx)
+            if next_page_obj is not None:
+                logger.info("Adding areas from UI page %d to cewe_pagenr=%d (ui_page %d)",
+                           next_ui_page, cewe_pagenr, ui_page)
                 next_page_data = next_page_obj.get_page_info()
                 # Get dimensions from the page info
                 input_odd_width = round(next_page_data['page_width'])
@@ -408,7 +374,6 @@ def create_mcf_xml(photobook: Photobook, output_dir: Path, verbose: bool = False
                           f"It must be odd (right side). max_content_ui_page={max_content_ui_page}, "
                           f"content_pages={photobook.get_page_count() - 4 if insidecovers else photobook.get_page_count() - 2}")
     
-    inside_back_input_idx = page_mapping.get(inside_back_ui_page)
     # NOTE: Inside back cover page element is always EMPTY because we already added
     # all its areas to page 60's element in the loop above (when next_ui_page == max_content_ui_page + 1)
     # This empty page element is just the required CEWE structure placeholder
@@ -1064,7 +1029,7 @@ def create_folderid_xml(output_dir: Path):
     folderid_path.write_text(xml_str, encoding='utf-8')
 
 
-def add_cewe_boilerplate_elements(fotobook: ET.Element, normalpages: int) -> None:
+def add_cewe_boilerplate_elements(fotobook: ET.Element, num_normal_pages: int) -> None:
     """Add required CEWE boilerplate XML elements to fotobook.
     
     These elements (project, savingVersion, creationHistory, articleConfig) are required
@@ -1073,7 +1038,7 @@ def add_cewe_boilerplate_elements(fotobook: ET.Element, normalpages: int) -> Non
     
     Args:
         fotobook: The fotobook element to add boilerplate to
-        normalpages: Highest page number in the book (for articleConfig)
+        num_normal_pages: Highest page number in the book (for articleConfig)
     """
     import uuid
     import time
@@ -1107,10 +1072,10 @@ def add_cewe_boilerplate_elements(fotobook: ET.Element, normalpages: int) -> Non
     
     # <articleConfig> element
     article_config = ET.SubElement(fotobook, 'articleConfig')
-    article_config.set('normalpages', str(normalpages))
+    article_config.set('normalpages', str(num_normal_pages))
     article_config.set('pagenaming', '1')
     article_config.set('spotColor', 'digital_embossing')
-    article_config.set('totalpages', str(normalpages + 5))
+    article_config.set('totalpages', str(num_normal_pages + 5))
 
 
 def prettify_xml(elem: ET.Element) -> str:

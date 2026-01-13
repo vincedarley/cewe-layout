@@ -70,8 +70,8 @@ class PDFPhotobookPage(PhotobookPage):
         # For PDF, we use standard CEWE layout: left pages have origin_left=0
         is_left_page = False
         if isinstance(self._page_number, int):
-            # Even page numbers are on the right in CEWE
-            is_left_page = (self._page_number % 2 == 1)
+            # Even page numbers are on the left in CEWE
+            is_left_page = (self._page_number % 2 == 0)
         elif self._page_number == "F":
             # Front cover is considered right page
             is_left_page = False
@@ -100,21 +100,27 @@ class PDFPhotobook(Photobook):
     Supports both batch (pre-loaded) and on-demand page extraction modes.
     """
     
-    def __init__(self, pages: Optional[List[Dict[str, Any]]] = None, 
+    def __init__(self, pages: Optional[List[Optional[Dict[str, Any]]]] = None, 
                  metadata: Optional[Dict[str, str]] = None, 
-                 insidecovers: bool = False,
                  pdf_path: Optional[Path] = None,
                  page_to_ui: Optional[Dict[int, Any]] = None,
-                 verbose: bool = False):
+                 verbose: bool = False,
+                 insidecovers: bool = True):
         """Initialize PDF photobook.
         
         Args:
-            pages: List of page data dicts (for batch mode) or None (for on-demand mode)
-            metadata: PDF metadata dict (required)
-            insidecovers: Whether PDF includes inside cover pages
+            pages: List of page data dicts for batch mode, None for on-demand mode.
+                   MUST contain N+4 items (where N = content page count) with None
+                   at indices 1 and N+2 when insidecovers=False.
+            metadata: PDF metadata dict (will be lazy-loaded in on-demand mode)
             pdf_path: Path to PDF file (required for on-demand mode)
-            page_to_ui: Mapping from PDF index to UI page (required for on-demand mode)
+            page_to_ui: Mapping from actual PDF page index to UI page identifier (required for on-demand mode).
+                        When insidecovers=True: PDF has N+4 pages, maps all indices 0..N+3
+                        When insidecovers=False: PDF has N+2 pages, maps indices 0..N+1 (no inside covers in PDF)
+                        The Photobook will always expose N+4 logical indices, returning None for 1 and N+2 when insidecovers=False.
             verbose: Print detailed extraction info (for on-demand mode)
+            insidecovers: Whether book has inside cover pages in the PDF (default True).
+                         When False, get_page() returns None for logical indices 1 and N+2.
         """
         super().__init__()
         # Batch mode: pages provided upfront
@@ -125,12 +131,25 @@ class PDFPhotobook(Photobook):
             self._pdf_path = None
             self._page_to_ui = None
             self._doc = None
+            # Note: Caller is responsible for ensuring pages[1] and pages[N+2] are None
+            # when insidecovers=False. This is enforced by extract_pdf_content().
         # On-demand mode: extract pages as needed
         else:
             if pdf_path is None or page_to_ui is None:
                 raise ValueError("pdf_path and page_to_ui are required for on-demand mode")
-            self._pages = [None] * len(page_to_ui)  # Placeholder list
-            self._page_count = len(page_to_ui)
+            
+            # Determine page count: Always N+4 (includes logical inside cover slots)
+            # When insidecovers=True: PDF has N+4 pages, page_to_ui has N+4 entries
+            # When insidecovers=False: PDF has N+2 pages, page_to_ui has N+2 entries,
+            #                         but we still need N+4 logical indices
+            if insidecovers:
+                # PDF has all pages including inside covers
+                self._page_count = len(page_to_ui)
+            else:
+                # PDF missing inside covers - add 2 to page count for logical slots
+                self._page_count = len(page_to_ui) + 2
+            
+            self._pages = [None] * self._page_count  # Placeholder list
             self._on_demand = True
             self._pdf_path = pdf_path
             self._page_to_ui = page_to_ui
@@ -140,6 +159,19 @@ class PDFPhotobook(Photobook):
         self._has_inside_covers = insidecovers
         self._pages_cache: Dict[int, PDFPhotobookPage] = {}
         self._verbose = verbose
+        
+        # Validation: In batch mode with insidecovers=False, verify inside cover slots are None
+        if pages is not None and not insidecovers and self._page_count >= 4:
+            if self._pages[1] is not None:
+                logger.warning(
+                    f"In batch mode with insidecovers=False, expected pages[1] to be None "
+                    f"but got {type(self._pages[1])}. This may cause inconsistent behavior."
+                )
+            if self._pages[self._page_count - 2] is not None:
+                logger.warning(
+                    f"In batch mode with insidecovers=False, expected pages[{self._page_count - 2}] to be None "
+                    f"but got {type(self._pages[self._page_count - 2])}. This may cause inconsistent behavior."
+                )
     
     def _ensure_doc_open(self):
         """Ensure PDF document is opened (for on-demand mode)."""
@@ -157,11 +189,17 @@ class PDFPhotobook(Photobook):
     def _extract_page_on_demand(self, index: int) -> Dict[str, Any]:
         """Extract a single page on-demand.
         
+        Note: This method will not be called for inside cover indices (1, N+2)
+        when insidecovers=False, as get_page() returns None early for those.
+        
         Args:
             index: PDF page index (0-based)
             
         Returns:
             Page data dict
+            
+        Raises:
+            ValueError: If index not in page_to_ui mapping or page doesn't exist
         """
         from .pdf_extractor import extract_page_content
         
@@ -192,20 +230,25 @@ class PDFPhotobook(Photobook):
         """Get total number of pages."""
         return self._page_count
     
-    def get_page(self, index: int) -> PDFPhotobookPage:
+    def get_page(self, index: int) -> Optional[PDFPhotobookPage]:
         """Get page at given PDF index.
         
         Args:
             index: PDF page index (0-based)
             
         Returns:
-            PDFPhotobookPage instance
+            PDFPhotobookPage instance, or None if inside covers don't exist
             
         Raises:
             IndexError: If index is out of range
         """
         if index < 0 or index >= self._page_count:
             raise IndexError(f"Page index {index} out of range (0-{self._page_count-1})")
+        
+        # Return None for inside cover pages if book doesn't have them
+        if not self._has_inside_covers:
+            if index == 1 or index == self._page_count - 2:
+                return None
         
         # Check cache first
         if index in self._pages_cache:
@@ -238,27 +281,18 @@ class PDFPhotobook(Photobook):
         Returns:
             PageType enum value
         """
-        if self._has_inside_covers:
-            # WITH inside covers: [0=front, 1=inside_front, 2..N-3=content, N-2=inside_back, N-1=back]
-            if index == 0:
-                return PageType.FRONT_COVER
-            elif index == 1:
-                return PageType.INSIDE_FRONT
-            elif index == self._page_count - 2:
-                return PageType.INSIDE_BACK
-            elif index == self._page_count - 1:
-                return PageType.BACK_COVER
-            else:
-                return PageType.CONTENT
+        # WITH inside covers: [0=front, 1=inside_front, 2..N-3=content, N-2=inside_back, N-1=back]
+        if index == 0:
+            return PageType.FRONT_COVER
+        elif index == 1:
+            return PageType.INSIDE_FRONT
+        elif index == self._page_count - 2:
+            return PageType.INSIDE_BACK
+        elif index == self._page_count - 1:
+            return PageType.BACK_COVER
         else:
-            # WITHOUT inside covers: [0=front, 1..N-2=content, N-1=back]
-            if index == 0:
-                return PageType.FRONT_COVER
-            elif index == self._page_count - 1:
-                return PageType.BACK_COVER
-            else:
-                return PageType.CONTENT
-    
+            return PageType.CONTENT
+
     def _get_page_number(self, index: int):
         """Determine page number from index.
         
@@ -268,27 +302,18 @@ class PDFPhotobook(Photobook):
         Returns:
             Page number (str for covers, int for content/inside covers)
         """
-        if self._has_inside_covers:
-            # WITH inside covers: [0="F", 1=0, 2..N-3=1..(N-4), N-2=(N-3), N-1="B"]
-            if index == 0:
-                return "F"
-            elif index == 1:
-                return 0  # Inside front cover
-            elif index == self._page_count - 1:
-                return "B"
-            elif index == self._page_count - 2:
-                return self._page_count - 3  # Inside back cover
-            else:
-                return index - 1  # Content pages start at 1
+        # WITH inside covers: [0="F", 1=0, 2..N-3=1..(N-4), N-2=(N-3), N-1="B"]
+        if index == 0:
+            return "F"
+        elif index == 1:
+            return 0  # Inside front cover
+        elif index == self._page_count - 1:
+            return "B"
+        elif index == self._page_count - 2:
+            return self._page_count - 3  # Inside back cover
         else:
-            # WITHOUT inside covers: [0="F", 1..N-2=1..(N-2), N-1="B"]
-            if index == 0:
-                return "F"
-            elif index == self._page_count - 1:
-                return "B"
-            else:
-                return index  # Content pages start at 1
-    
+            return index - 1  # Content pages start at 1
+
     def get_metadata(self) -> Dict[str, str]:
         """Get PDF metadata."""
         return self._metadata
@@ -298,16 +323,13 @@ class PDFPhotobook(Photobook):
         return True
     
     def has_inside_covers(self) -> bool:
-        """Whether book has dedicated inside cover pages."""
+        """Whether this PDF book has dedicated inside cover pages."""
         return self._has_inside_covers
     
     def get_content_page_count(self) -> int:
         """Get number of content pages (excluding covers/inside covers)."""
-        if self._has_inside_covers:
-            return self._page_count - 4  # Exclude front, inside_front, inside_back, back
-        else:
-            return self._page_count - 2  # Exclude front, back
-    
+        return self._page_count - 4  # Exclude front, inside_front, inside_back, back
+
     def get_native_unit_name(self) -> str:
         """Get name of native coordinate unit."""
         return "PDF points"

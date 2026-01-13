@@ -61,7 +61,7 @@ logger = logging.getLogger(__name__)
 
 
 
-def create_pdf_reader(pdf_path: Path, verbose: bool = False, page_to_ui: Optional[Dict[int, Any]] = None, insidecovers: bool = False) -> PDFPhotobook:
+def create_pdf_reader(pdf_path: Path, pdf_page_count: int, verbose: bool = False, insidecovers: bool = False) -> PDFPhotobook:
     """Create a PDFPhotobook with on-demand page loading.
     
     This is used when the MCF project already exists and we just need
@@ -70,12 +70,19 @@ def create_pdf_reader(pdf_path: Path, verbose: bool = False, page_to_ui: Optiona
     Args:
         pdf_path: Path to PDF file
         verbose: Print detailed extraction info
-        page_to_ui: Mapping from PDF page index to UI page identifier (REQUIRED for coordinate positioning)
+        pdf_page_count: int
         insidecovers: Whether PDF includes inside cover pages
         
     Returns:
         PDFPhotobook instance configured for on-demand page extraction
     """
+
+    # Create page mapping for coordinate positioning
+    from cewe_layout.book.photobook import _create_page_mapping
+
+    ui_to_pdf = _create_page_mapping(pdf_page_count)
+    page_to_ui = {v: k for k, v in ui_to_pdf.items() if v is not None}
+
     if not page_to_ui:
         raise ValueError(
             "page_to_ui mapping is required for create_pdf_reader(). "
@@ -86,14 +93,14 @@ def create_pdf_reader(pdf_path: Path, verbose: bool = False, page_to_ui: Optiona
     return PDFPhotobook(
         pages=None,
         metadata=None,  # Will be lazy-loaded from PDF
-        insidecovers=insidecovers,
         pdf_path=pdf_path,
         page_to_ui=page_to_ui,
-        verbose=verbose
+        verbose=verbose,
+        insidecovers=insidecovers
     )
 
 
-def get_page_content(pdf_content, pageno: int) -> Optional[Dict[str, Any]]:
+def get_page_content(pdf_originalBook, pageno: int) -> Optional[Dict[str, Any]]:
     """Get page content, abstracting on-demand vs pre-loaded modes.
     
     This is the primary API for accessing page data. It works with both:
@@ -113,59 +120,24 @@ def get_page_content(pdf_content, pageno: int) -> Optional[Dict[str, Any]]:
         >>> page = photobook.get_page(0)
         >>> images = page.get_images()
     """
-    if not pdf_content:
+    if not pdf_originalBook:
         return None
-    
-    # Handle PDFPhotobook objects (both batch and on-demand modes)
-    if hasattr(pdf_content, 'get_page'):
-        try:
-            page_count = pdf_content.get_page_count()
-            if pageno < 0 or pageno >= page_count:
-                logger.warning(f"Page {pageno} out of range (page_count={page_count})")
-                return None
-            page = pdf_content.get_page(pageno)
-            # Return the underlying page data dict for backward compatibility
-            return page._page_data
-        except (IndexError, ValueError) as e:
-            logger.error(f"Failed to get page {pageno}: {e}")
+
+    try:
+        page_count = pdf_originalBook.get_page_count()
+        if pageno < 0 or pageno >= page_count:
+            logger.warning(f"Page {pageno} out of range (page_count={page_count})")
             return None
-    
-    # Legacy dict mode
-    page_count = pdf_content.get('page_count', 0)
-    if pageno < 0 or pageno >= page_count:
-        logger.warning(f"Page {pageno} out of range (page_count={page_count})")
+        page = pdf_originalBook.get_page(pageno)
+        # Return the underlying page data dict for backward compatibility
+        return page._page_data
+    except (IndexError, ValueError) as e:
+        logger.error(f"Failed to get page {pageno}: {e}")
         return None
-    
-    pages_list = pdf_content.get('pages', [])
-    
-    # Check if page already loaded (pre-loaded or cached from previous call)
-    if pageno < len(pages_list) and pages_list[pageno] is not None:
-        return pages_list[pageno]
-    
-    # On-demand mode: extract page now
-    reader = pdf_content.get('reader')
-    if reader:
-        try:
-            logger.debug(f"Extracting page {pageno} on-demand")
-            page_data = reader.extract_page(pageno)
-            
-            # Cache in pages list for future access
-            # Extend list if needed to accommodate this page number
-            while len(pages_list) <= pageno:
-                pages_list.append(None)
-            pages_list[pageno] = page_data
-            
-            return page_data
-        except Exception as e:
-            logger.error(f"Failed to extract page {pageno} on-demand: {e}")
-            return None
-    
-    # Neither pre-loaded nor on-demand reader available
-    logger.error(f"Cannot access page {pageno}: no pre-loaded data or reader")
-    return None
 
 
-def extract_pdf_content(pdf_path: Path, page_range: Optional[List[int]] = None, verbose: bool = False, debug: bool = False, page_to_ui: Optional[Dict[int, Any]] = None, insidecovers: bool = False) -> PDFPhotobook:
+
+def extract_pdf_content(pdf_path: Path, pdf_page_count: int, page_range: Optional[List[int]] = None, verbose: bool = False, debug: bool = False, insidecovers: bool = False) -> PDFPhotobook:
     """Extract all images and text from a PDF file.
     
     Args:
@@ -187,7 +159,19 @@ def extract_pdf_content(pdf_path: Path, page_range: Optional[List[int]] = None, 
         'subject': doc.metadata.get('subject', ''),
         'producer': doc.metadata.get('producer', ''),
     }
-    
+
+    # Create UI-to-PDF mapping, then invert it
+    from cewe_layout.book.mcf_writer import _create_page_mapping
+    ui_to_pdf = _create_page_mapping(pdf_page_count)
+    page_to_ui = {v: k for k, v in ui_to_pdf.items() if v is not None}
+
+    print(f"DEBUG: PDF-to-UI mapping (first 5 and last 5):")
+    sorted_keys = sorted([k for k in page_to_ui.keys() if isinstance(k, int)])
+    for pdf_idx in sorted_keys[:5]:
+        print(f"  PDF page {pdf_idx} → UI page {page_to_ui[pdf_idx]}")
+    for pdf_idx in sorted_keys[-5:]:
+        print(f"  PDF page {pdf_idx} → UI page {page_to_ui[pdf_idx]}")
+
     # Determine which pages to process
     if page_range is None:
         page_range = list(range(len(doc)))
@@ -198,13 +182,21 @@ def extract_pdf_content(pdf_path: Path, page_range: Optional[List[int]] = None, 
             if verbose:
                 print(f"Warning: Page {page_num + 1} does not exist, skipping")
             continue
-            
+
+        if page_num == len(doc) -1 and not insidecovers:
+            # Add empty inside back cover
+            print("Adding empty inside back cover")
+            pages.append(None)
         page = doc[page_num]
         # Get UI page number for this PDF page (for correct coordinate positioning)
         ui_page = page_to_ui.get(page_num)
         page_data = extract_page_content(page, page_num, len(doc), verbose, debug, ui_page)
         pages.append(page_data)
-    
+        if page_num == 0 and not insidecovers:
+            # Add empty inside front cover
+            print("Adding empty inside front cover")
+            pages.append(None)
+
     doc.close()
     
     return PDFPhotobook(pages, metadata, insidecovers=insidecovers)
@@ -705,17 +697,17 @@ def _makeScaledSegments(composite_image, ui_page, image_data, image_format,
     return scaled_segments
 
 
-def _getPdfPage(pdf_content, current_pageno) -> Any:
+def _getPdfPage(pdf_originalBook: PDFPhotobook, current_pageno) -> Any:
     """Get PDF page data using the unified API.
     
     Args:
-        pdf_content: PDF content dict (from extract_pdf_content or create_pdf_reader)
+        pdf_originalBook: PDF PhotoBook
         current_pageno: Page number (0-indexed)
         
     Returns:
         Page data dict or None if page doesn't exist
     """
-    page_count = pdf_content.get('page_count', 0)
+    page_count = pdf_originalBook.get('page_count', 0)
     print(f"  PDF has {page_count} pages")
     
     if current_pageno >= page_count:
@@ -723,7 +715,7 @@ def _getPdfPage(pdf_content, current_pageno) -> Any:
         return None
     
     # Use unified API - works for both on-demand and pre-loaded modes
-    pdf_page = get_page_content(pdf_content, current_pageno)
+    pdf_page = get_page_content(pdf_originalBook, current_pageno)
     if not pdf_page:
         print(f"Error: Failed to extract page {current_pageno}")
         return None
@@ -793,10 +785,10 @@ def _getImageToSegment(pages, index, status_var, current_pageno, pdf_page, speci
     return image_to_segment, photos_to_replace
 
 
-def _segmentPage(pdf_content, pages, index, status_var, current_pageno, segmenter: ImageSegmenter,
+def _segmentPage(pdf_originalBook, pages, index, status_var, current_pageno, segmenter: ImageSegmenter,
                               specific_photo_index: int | None,
                               target_count: int) -> tuple[list[dict[str, Any]] | None, Any, Any, Any, list[int]]:
-    pdf_page = _getPdfPage(pdf_content, current_pageno)
+    pdf_page = _getPdfPage(pdf_originalBook, current_pageno)
     print(f"  PDF page has {len(pdf_page.get('images', []))} images")
 
     # Determine which image to re-segment
@@ -826,11 +818,11 @@ def _segmentPage(pdf_content, pages, index, status_var, current_pageno, segmente
     return new_segments, image_data, image_format, image_to_segment, photos_to_replace
 
 
-def performSegmentationOnPage(pdf_content: PDFPhotobook, pages, index, status_var, current_pageno, segmenter: ImageSegmenter,
+def performSegmentationOnPage(pdf_originalBook: PDFPhotobook, pages, index, status_var, current_pageno, segmenter: ImageSegmenter,
             specific_photo_index: int | None, target_count: int) -> \
 tuple[list[int], list[Any], Any, list[dict[str, Any]] | None, Any]:
     result = _segmentPage(
-        pdf_content, pages, index, status_var,
+        pdf_originalBook, pages, index, status_var,
         current_pageno, segmenter, specific_photo_index, target_count)
     
     # _segmentPage returns None on failure

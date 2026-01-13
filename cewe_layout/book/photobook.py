@@ -77,7 +77,7 @@ class PhotobookPage(ABC):
         Returns:
             "F" for front cover, "B" for back cover,
             0 for inside front, N+1 for inside back,
-            1..N for content pages
+            1..N for normal content pages
         """
         pass
     
@@ -104,7 +104,19 @@ class Photobook(ABC):
     
     A photobook is a collection of pages with metadata. All photobooks
     must have front and back covers. They may optionally have inside covers.
-    Content pages are numbered sequentially.
+    Content pages are numbered sequentially.  ALL photobooks are integer-indexed as 
+    follows, assuming they have N+4 total pages: 0 = front cover, 1 = inside front, 
+    2...N+1 = content pages, N+2 = inside back, N+3 = back cover.
+    IF the photobook does not have inside covers, then it should return None for those pages.
+    From a UI perspective, we use:
+    F = front cover, 0 = inside front, 1..N = content pages, N+1 = inside back, B = back cover.
+
+    We refer to the N pages as "Content" pages, and the others as "Inside Covers" and "Covers"
+    respectively.  CEWE does not support content on inside covers, but other formats (Mimeo, PDF imports)
+    may allow it.  The file format (MCF) does support it, and QLayout can display/edit it.  
+    However, for CEWE purchases, any content on inside covers will be ignored.
+    (At least this is true of hardcover books).
+
     
     All dimensions and coordinates are in the native coordinate system of
     the source format.
@@ -120,23 +132,23 @@ class Photobook(ABC):
         pass
     
     @abstractmethod
-    def get_page(self, index: int) -> PhotobookPage:
+    def get_page(self, index: int) -> Optional[PhotobookPage]:
         """Get page at given index (0-based).
         
         Args:
             index: Page index (0 to page_count - 1)
             
         Returns:
-            PhotobookPage instance
+            PhotobookPage instance, or None for inside covers when they don't exist
             
         Raises:
             IndexError: If index is out of range
         """
         pass
     
-    def get_first_content_page(self) -> PhotobookPage:
-        """Get only content pages (integer page numbers > 0, exclude covers)."""
-        return self.get_page(1)   
+    def get_first_content_page(self) -> Optional[PhotobookPage]:
+        """Get first content page."""
+        return self.get_page(2) 
 
     @abstractmethod
     def get_metadata(self) -> Dict[str, str]:
@@ -178,13 +190,13 @@ class Photobook(ABC):
         """Get number of content pages (excluding covers/inside covers)."""
         pass
     
-    def get_front_cover_page(self) -> PhotobookPage:
+    def get_front_cover_page(self) -> Optional[PhotobookPage]:
         """Get front cover page, or None if not present."""
         if not self.has_covers():
             return None
         return self.get_page(0)
 
-    def get_back_cover_page(self) -> PhotobookPage:
+    def get_back_cover_page(self) -> Optional[PhotobookPage]:
         """Get back cover page, or None if not present."""
         if not self.has_covers():
             return None
@@ -211,7 +223,7 @@ class Photobook(ABC):
         pages = []
         for i in range(self.get_page_count()):
             page = self.get_page(i)
-            if page.get_page_type() == PageType.CONTENT:
+            if page is not None and page.get_page_type() == PageType.CONTENT:
                 pages.append((i, page))
         return pages
     
@@ -223,10 +235,15 @@ class Photobook(ABC):
     def __iter__(self) -> Iterator[PhotobookPage]:
         """Allow iteration over pages: for page in photobook:"""
         for i in range(self.get_page_count()):
-            yield self.get_page(i)
+            page = self.get_page(i)
+            if page is not None:
+                yield page
     
-    def enumerate_pages(self) -> Iterator[Tuple[int, PhotobookPage]]:
-        """Enumerate pages with indices: for idx, page in photobook.enumerate_pages():"""
+    def enumerate_pages(self) -> Iterator[Tuple[int, Optional[PhotobookPage]]]:
+        """Enumerate pages with indices: for idx, page in photobook.enumerate_pages():
+        
+        Note: page may be None for inside covers when they don't exist.
+        """
         for i in range(self.get_page_count()):
             yield (i, self.get_page(i))
     
@@ -238,17 +255,52 @@ class Photobook(ABC):
         """Get list of all page numbers for all pages."""
         return [page.get_page_number() for page in self]
     
-    def find_page_by_number(self, page_number: Union[str, int]) -> Optional[PhotobookPage]:
-        """Find page with specific number (e.g., 'F', 'B', 1, 2, etc.).
+    def find_page_by_ui_num(self, page_number: Union[str, int]) -> Optional[PhotobookPage]:
+        """Find page with specific UI number (e.g., 'F', 'B', 0, 1, 2, etc.).
+
+        By definition 0 should return the inside front cover (which might be None), 1 the first content page, etc
         
         Returns None if not found.
         """
         for page in self:
-            if page.get_page_number() == page_number:
+            if page is not None and page.get_page_number() == page_number:
                 return page
         return None
 
     def get_numeric_pages(self) -> List[PhotobookPage]:
         """Get only content pages (integer page numbers > 0, exclude covers)."""
-        return [page for page in self 
-                if isinstance(page.get_page_number(), int) and page.get_page_number() > 0]
+        result = []
+        for page in self:
+            if page is not None:
+                page_num = page.get_page_number()
+                if isinstance(page_num, int) and page_num > 0:
+                    result.append(page)
+        return result
+
+
+def _create_page_mapping(input_page_count: int) -> Dict[str, Optional[int]]:
+    """Create mapping from logical page identifiers to PDF/Mimeo/import page indices.
+
+    Args:
+        input_page_count: Total number of pages in PDF/Mimeo/import
+
+    Returns:
+        Dictionary mapping page identifiers to PDF indices (0-based)
+        Page identifiers: "F" (front cover), "B" (back cover), 0 (inside front),
+                         1..N (content pages), N+1 (inside back)
+    """
+    mapping = {}
+
+    # WITH --insidecovers: PDF/Mimeo has [0=front, 1=inside_front, 2..N-2=content, N-1=inside_back, N=back]
+    mapping["F"] = 0  # Front cover
+    mapping[0] = 1    # Inside front cover
+
+    # Content pages: UI pages 1..N-4 map to PDF pages 2..N-2
+    content_pages = input_page_count - 4  # Exclude front, inside_front, inside_back, back
+    for ui_page in range(1, content_pages + 1):
+        mapping[ui_page] = ui_page + 1  # UI page 1 → PDF page 2, etc.
+
+    mapping[content_pages + 1] = input_page_count - 2  # Inside back cover
+    mapping["B"] = input_page_count - 1  # Back cover
+
+    return mapping
