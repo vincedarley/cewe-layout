@@ -310,56 +310,28 @@ class PDFPhotobook(Photobook):
         if page_data is None:
             raise ValueError(f"Page {index} data not available")
         
-        # Determine page type and page number based on index and insidecovers flag
-        page_type = self._get_page_type(index)
-        page_number = self._get_page_number(index)
-        
+        # Determine page type and page number. Note that we've already returned None above
+        # if we've requested an insidecover that doesn't exist.
+        if index == 0:
+            ui_pagenum = "F"
+            page_type = PageType.FRONT_COVER
+        elif index == 1:
+            ui_pagenum = 0  # Inside front cover
+            page_type = PageType.INSIDE_FRONT
+        elif index == self._page_count - 1:
+            ui_pagenum = "B"
+            page_type = PageType.BACK_COVER
+        elif index == self._page_count - 2:
+            ui_pagenum = self._page_count - 3  # Inside back cover
+            page_type = PageType.INSIDE_BACK
+        else:
+            ui_pagenum = index - 1  # Content pages start at 1
+            page_type = PageType.CONTENT
+
         # Create and cache page
-        page = PDFPhotobookPage(page_data, page_type, page_number, index)
+        page = PDFPhotobookPage(page_data, page_type, ui_pagenum, index)
         self._pages_cache[index] = page
         return page
-    
-    def _get_page_type(self, index: int) -> PageType:
-        """Determine page type from index.
-        
-        Args:
-            index: PDF page index (0-based)
-            
-        Returns:
-            PageType enum value
-        """
-        # WITH inside covers: [0=front, 1=inside_front, 2..N-3=content, N-2=inside_back, N-1=back]
-        if index == 0:
-            return PageType.FRONT_COVER
-        elif index == 1:
-            return PageType.INSIDE_FRONT
-        elif index == self._page_count - 2:
-            return PageType.INSIDE_BACK
-        elif index == self._page_count - 1:
-            return PageType.BACK_COVER
-        else:
-            return PageType.CONTENT
-
-    def _get_page_number(self, index: int):
-        """Determine page number from index.
-        
-        Args:
-            index: PDF page index (0-based)
-            
-        Returns:
-            Page number (str for covers, int for content/inside covers)
-        """
-        # WITH inside covers: [0="F", 1=0, 2..N-3=1..(N-4), N-2=(N-3), N-1="B"]
-        if index == 0:
-            return "F"
-        elif index == 1:
-            return 0  # Inside front cover
-        elif index == self._page_count - 1:
-            return "B"
-        elif index == self._page_count - 2:
-            return self._page_count - 3  # Inside back cover
-        else:
-            return index - 1  # Content pages start at 1
 
     def get_metadata(self) -> Dict[str, str]:
         """Get PDF metadata."""

@@ -138,7 +138,7 @@ class Photobook(ABC):
 
     @abstractmethod
     def get_page(self, index: int) -> Optional[PhotobookPage]:
-        """Get page at given index (0-based).
+        """Get page at given index (0-based, index count always includes insidecovers).
         
         Args:
             index: Page index (0 to page_count - 1)
