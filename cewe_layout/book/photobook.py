@@ -278,29 +278,3 @@ class Photobook(ABC):
         return result
 
 
-def _create_page_mapping(input_page_count: int) -> Dict[str, Optional[int]]:
-    """Create mapping from logical page identifiers to PDF/Mimeo/import page indices.
-
-    Args:
-        input_page_count: Total number of pages in PDF/Mimeo/import
-
-    Returns:
-        Dictionary mapping page identifiers to PDF indices (0-based)
-        Page identifiers: "F" (front cover), "B" (back cover), 0 (inside front),
-                         1..N (content pages), N+1 (inside back)
-    """
-    mapping = {}
-
-    # WITH --insidecovers: PDF/Mimeo has [0=front, 1=inside_front, 2..N-2=content, N-1=inside_back, N=back]
-    mapping["F"] = 0  # Front cover
-    mapping[0] = 1    # Inside front cover
-
-    # Content pages: UI pages 1..N-4 map to PDF pages 2..N-2
-    content_pages = input_page_count - 4  # Exclude front, inside_front, inside_back, back
-    for ui_page in range(1, content_pages + 1):
-        mapping[ui_page] = ui_page + 1  # UI page 1 → PDF page 2, etc.
-
-    mapping[content_pages + 1] = input_page_count - 2  # Inside back cover
-    mapping["B"] = input_page_count - 1  # Back cover
-
-    return mapping

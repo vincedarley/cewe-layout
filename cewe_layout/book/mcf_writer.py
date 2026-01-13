@@ -8,7 +8,7 @@ import hashlib
 import logging
 
 from cewe_layout.book.utils import BOOK_SIZES, find_closest_book_size, ResizeTransformer
-from cewe_layout.book.photobook import Photobook, _create_page_mapping
+from cewe_layout.book.photobook import Photobook
 
 logger = logging.getLogger(__name__)
 
@@ -46,16 +46,17 @@ def calculate_image_relative_sizes(photobook: Photobook):
         img['relative_size'] = relative_size
 
 
-def write_mcf_project(photobook: Photobook, output_path: str, verbose: bool = False, insidecovers: bool = False,
+def write_mcf_project(photobook: Photobook, output_path: str, verbose: bool = False,
                      cover_transformer: Optional[ResizeTransformer] = None,
                      content_transformer: Optional[ResizeTransformer] = None):
     """Write photobook content as CEWE MCF project.
     
     Args:
         photobook: Photobook instance (PDFPhotobook, MimeoPhotobook, etc.)
+                  The Photobook abstraction handles inside covers internally - always exposing
+                  N+4 page indices and returning None for inside covers when they don't exist.
         output_path: Path to output .xmcf directory
         verbose: Print detailed info
-        insidecovers: Whether photobook includes inside cover pages (affects page mapping)
         cover_transformer: Optional ResizeTransformer for cover pages
         content_transformer: Optional ResizeTransformer for content pages
     """
@@ -71,7 +72,7 @@ def write_mcf_project(photobook: Photobook, output_path: str, verbose: bool = Fa
         print(f"Creating MCF file: {mcf_path}")
     
     # Build MCF XML structure
-    root = create_mcf_xml_from_photobook(photobook, output_dir, verbose, insidecovers, cover_transformer, content_transformer)
+    root = create_mcf_xml_from_photobook(photobook, output_dir, verbose, cover_transformer, content_transformer)
     
     # Write prettified XML
     xml_str = prettify_xml(root)
@@ -85,45 +86,24 @@ def write_mcf_project(photobook: Photobook, output_path: str, verbose: bool = Fa
         print(f"MCF project created at {output_dir}")
 
 
-def create_mcf_xml_from_photobook(photobook: Photobook, output_dir: Path, verbose: bool = False, insidecovers: bool = False,
+def create_mcf_xml_from_photobook(photobook: Photobook, output_dir: Path, verbose: bool = False,
                                   cover_transformer: Optional[ResizeTransformer] = None,
                                   content_transformer: Optional[ResizeTransformer] = None) -> ET.Element:
     """Create the main MCF XML structure.
     
-    An important detail is our treatment of "insidecovers". In CEWE Creator's MCF structure, these are
-    the left hand page inside the front cover, before the 1st content page (which is always a right hand page),
-    and the right hand page inside the back cover, after the last content page (which is always a left hand page).
-    The inside front cover is "page 0", and the inside back cover is "page N+1", where N is the number
-    of normal content pages (in CEWE's approach). Inside covers are ALWAYS EMPTY in CEWE books.  The
-    MCF file format is actually perfectly capable of placing content onto these two special pages, but
-    even if there is content, CEWE Creator ignores it, and their printing process certainly ignores it
-    (at least for hardback books, where the inside cover does not use nice photographic paper).
+    CEWE photobooks have inside covers (pages 0 and N+1) which are always empty in CEWE books.
+    The MCF file format can store content on these pages, which will be visible/editable in QLayout,
+    but CEWE Creator ignores it during printing (at least for hardback books).
     
-    Given this, there are a few possible scenarios:
-    - The input photobook has no pages representing inside-covers (e.g. it is derived from a PDF file which
-      has a front cover page which is followed directly by the first content page (page 1 in MCF). In this
-      case we can safely create empty insidecovers in mcf and we don't lose anything.
-    - The input photobook has pages representing inside-covers, but they are empty. In this
-      case we can safely create empty insidecovers in mcf and we don't lose anything.
-    - The input photobook has pages representing inside-covers, but they are NOT empty. In this case we need
-      to make a choice: (a) we can place the content of those pages on the MCF pages 0 and N+1, where they will
-      be visible and editable in QLayout, but ignored by CEWE Creator, (b) we can ignore and discard that content,
-      or (c) we can create some extra pages at the end of the book for that content, so it is not discarded, and
-      the user will presumably need to manually edit the photobook to keep whatever aspects of the content they wish.
-
-    In aggregate these options usefully reduce to --insidecovers "notProvided", "ignoreProvided", 
-    "retainWithIncompatibility" or "retainAtEnd", which we will use as command-line options where appropriate.
-
-    Anecdotally, some PDF files have insidecovers, some do not.  Mimeo imports have inside covers which can have content.
+    The Photobook abstraction handles inside covers transparently:
+    - Always exposes N+4 page indices (0=front, 1=inside_front, 2..N+1=content, N+2=inside_back, N+3=back)
+    - Returns None for inside cover pages (indices 1 and N+2) when they don't exist in source
+    - When inside covers exist and have content, that content is preserved in the MCF
 
     Args:
         photobook: Photobook instance (PDFPhotobook, MimeoPhotobook, etc.)
         output_dir: Output directory for saving images
         verbose: Print detailed info
-        insidecovers: Whether the photobook provided includes inside cover pages (i.e. it has a page designating 
-        
-        Some imported photobooks may not have these pages, others will (even if they are empty). We need to
-        understand this to allocate pages correctly between the provided input and the output CEWE MCF structure.
         cover_transformer: Optional ResizeTransformer for cover pages
         content_transformer: Optional ResizeTransformer for content pages
         
@@ -177,9 +157,8 @@ def create_mcf_xml_from_photobook(photobook: Photobook, output_dir: Path, verbos
         print(f"Matched CEWE book size: {book_size_id}")
     
     # CEWE pagecount = number of content pages (not including covers/inside covers)
-    # WITHOUT --insidecovers: Book has [front, content..., back] → content pages = N-2
-    # WITH --insidecovers: Book has [front, inside_front, content..., inside_back, back] → content pages = N-4
-    num_content_pages = photobook.get_page_count() - 4  # Exclude front, inside_front, inside_back, back
+    # Photobook always has N+4 pages: front, inside_front, N content pages, inside_back, back
+    num_content_pages = photobook.get_page_count() - 4
 
     # Set all required fotobook attributes
     fotobook.set('art_id', str(cewe_dimensions['art_id']))
@@ -308,7 +287,7 @@ def create_mcf_xml_from_photobook(photobook: Photobook, output_dir: Path, verbos
                 
             page_obj = photobook.find_page_by_ui_num(ui_page)
             if page_obj is None:
-                logger.error(f"Unexpected empty UI page for {ui_page} out of {max_content_ui_page}, with insidecovers={insidecovers}")
+                logger.error(f"Unexpected empty UI page for {ui_page} out of {max_content_ui_page}")
                 
             page_data = page_obj.get_page_info()
             cewe_pagenr = ui_page  # UI page number = CEWE page number, which we know is even here.
@@ -372,7 +351,7 @@ def create_mcf_xml_from_photobook(photobook: Photobook, output_dir: Path, verbos
     if inside_back_ui_page % 2 == 0:
         raise RuntimeError(f"ERROR: Inside back cover calculated as UI page {inside_back_ui_page} (even). "
                           f"It must be odd (right side). max_content_ui_page={max_content_ui_page}, "
-                          f"content_pages={photobook.get_page_count() - 4 if insidecovers else photobook.get_page_count() - 2}")
+                          f"content_pages={photobook.get_page_count() - 4}")
     
     # NOTE: Inside back cover page element is always EMPTY because we already added
     # all its areas to page 60's element in the loop above (when next_ui_page == max_content_ui_page + 1)

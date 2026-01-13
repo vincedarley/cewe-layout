@@ -99,7 +99,7 @@ if __name__ == '__main__':
                 pdf_photobook = extract_pdf_content(pdf_path, pdf_page_count, page_range=None, verbose=True, debug=args.debug, insidecovers=args.insidecovers)
                 
                 print(f"Writing MCF project to {args.cewe}...")
-                write_mcf_project(pdf_photobook, args.cewe, verbose=True, insidecovers=args.insidecovers)
+                write_mcf_project(pdf_photobook, args.cewe, verbose=True)
                 
                 print(f"✅ Successfully converted {pdf_path.name} to {args.cewe}")
                 print(f"   Pages: {pdf_photobook.get_page_count()}")
