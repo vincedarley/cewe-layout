@@ -5,9 +5,13 @@ import shutil
 import tkinter as tk
 from tkinter import ttk, messagebox
 from pathlib import Path
+import logging
 
 from .book.utils import BOOK_SIZES, find_closest_book_size, calculate_resize_impact, ResizeTransformer
 from .book.mcf_writer import write_mcf_project
+from .book.photobook_transform import create_photobook_with_inside_covers_at_end
+
+logger = logging.getLogger(__name__)
 
 
 class ResizeWindow:
@@ -337,6 +341,15 @@ class ResizeWindow:
         view_btn = ttk.Button(section_frame, text='View As Resized', command=self._view_resized)
         view_btn.pack(fill='x', pady=(0, 10))
         
+        # Checkbox for retaining inside covers at end
+        self.retain_inside_covers_var = tk.BooleanVar(value=False)
+        retain_checkbox = ttk.Checkbutton(
+            section_frame,
+            text='Retain inside covers at end (adds 4 pages)',
+            variable=self.retain_inside_covers_var
+        )
+        retain_checkbox.pack(fill='x', pady=(0, 10))
+        
         # Save button and name input on same line
         save_frame = ttk.Frame(section_frame)
         save_frame.pack(fill='x')
@@ -402,7 +415,39 @@ class ResizeWindow:
         # Don't destroy the window - user may want to adjust settings
     
     def _save_resized(self):
-        """Save the resized photobook."""
+        """Save the resized photobook.
+        
+        An important detail is our treatment of "insidecovers". In CEWE Creator's MCF structure, these are
+        the left hand page inside the front cover, before the 1st content page (which is always a right hand page),
+        and the right hand page inside the back cover, after the last content page (which is always a left hand page).
+        The inside front cover is "page 0", and the inside back cover is "page N+1", where N is the number
+        of normal content pages (in CEWE's approach). Inside covers are ALWAYS EMPTY in CEWE books.  The
+        MCF file format is actually perfectly capable of placing content onto these two special pages, but
+        even if there is content, CEWE Creator ignores it, and their printing process certainly ignores it
+        (at least for hardback books, where the inside cover does not use nice photographic paper).
+        
+        Given this, there are a few possible scenarios:
+        - The input photobook has no pages representing inside-covers (e.g. it is derived from a PDF file which
+          has a front cover page which is followed directly by the first content page (page 1 in MCF). In this
+          case we can safely create empty insidecovers in mcf and we don't lose anything.
+        - The input photobook has pages representing inside-covers, but they are empty. In this
+          case we can safely create empty insidecovers in mcf and we don't lose anything.
+        - The input photobook has pages representing inside-covers, but they are NOT empty. In this case we need
+          to make a choice: (a) we can place the content of those pages on the MCF pages 0 and N+1, where they will
+          be visible and editable in QLayout, but ignored by CEWE Creator, (b) we can ignore and discard that content,
+          or (c) we can create some extra pages at the end of the book for that content, so it is not discarded, and
+          the user will presumably need to manually edit the photobook to keep whatever aspects of the content they wish.
+        
+        In aggregate these options usefully reduce to insidecovers as "notProvided", "ignoreProvided", 
+        "retainWithIncompatibility" or "retainAtEnd". We don't provide control over all of these options,
+        however. Our approach is that if inside covers are provided they are retained with incompatibility
+        (i.e. CEWE Creator will ignore them).
+
+        We do want to allow the user to save the resized photobook in a way that makes this content
+        available to CEWE. So we will provide a UI option to "retain at end". This will create new pages.
+
+        Anecdotally, some PDF files have insidecovers, some do not.  Mimeo imports have inside covers which can have content.
+        """
         # Get output directory name from UI
         output_name = self.name_var.get().strip()
         if not output_name:
@@ -470,44 +515,122 @@ class ResizeWindow:
             # Create output directory
             output_dir.mkdir(parents=True, exist_ok=True)
             
-            # Copy all photo files from current photobook directory
-            # Get list of image files (look for common image extensions)
-            image_extensions = {'.jpg', '.jpeg', '.png', '.bmp', '.tif', '.tiff', '.heic', '.heif'}
-            photo_count = 0
+            # Check if we need to rearrange inside covers
+            book_to_save = self.book
+            inside_cover_info = ""
             
-            for file_path in current_dir.iterdir():
-                if file_path.is_file() and file_path.suffix.lower() in image_extensions:
-                    # Copy the file to output directory
-                    shutil.copy2(file_path, output_dir / file_path.name)
-                    photo_count += 1
+            if self.retain_inside_covers_var.get():
+                # Check if source book actually has inside covers with content
+                if self._has_inside_cover_content():
+                    logger.info("Transforming photobook to move inside covers to end")
+                    book_to_save = create_photobook_with_inside_covers_at_end(
+                        self.book,
+                        current_dir,
+                        output_dir
+                    )
+                    # Images with page numbers have already been copied by the transformation
+                    # Now copy any remaining image files that don't have page numbers
+                    self._copy_non_paged_images(current_dir, output_dir)
+                    
+                    N = self.book.get_content_page_count()
+                    inside_cover_info = (f"\n\nInside cover content moved to pages {N+2} and {N+3}\n"
+                                       f"Total pages: {N+4} (was {N})")
+                else:
+                    logger.info("No content on inside covers - saving without rearrangement")
+                    inside_cover_info = "\n\nNo content on inside covers - saved normally"
+                    # Copy all photo files normally
+                    self._copy_all_images(current_dir, output_dir)
+            else:
+                # Normal path - copy all photos
+                self._copy_all_images(current_dir, output_dir)
             
             # Write the transformed MCF file
-            # Note: write_mcf_project expects a Photobook instance
-            # We pass the transformers to apply the coordinate transformations
             write_mcf_project(
-                self.book,
+                book_to_save,
                 str(output_dir),
                 verbose=True,
-                insidecovers=True,  # We have inside covers, even if they are empty.
-                # TODO: clarify treatment of inside covers. Bit of a mess right now.
                 cover_transformer=cover_transformer,
                 content_transformer=content_transformer
             )
             
             # Success message
+            photo_count = len(list(output_dir.glob('*.[jJ][pP][gG]'))) + \
+                         len(list(output_dir.glob('*.[jJ][pP][eE][gG]'))) + \
+                         len(list(output_dir.glob('*.[pP][nN][gG]')))
+            
             messagebox.showinfo(
                 "Success",
                 f"Resized photobook saved to:\n{output_dir}\n\n"
                 f"Copied {photo_count} photos\n"
                 f"Scaling: {scaling_rule}"
+                f"{inside_cover_info}"
             )
             
         except Exception as e:
+            logger.exception("Failed to save resized photobook")
             messagebox.showerror("Error", f"Failed to save resized photobook:\n{str(e)}")
             # Clean up partial output on failure
             if output_dir.exists():
                 shutil.rmtree(output_dir)
             raise
+    
+    def _has_inside_cover_content(self) -> bool:
+        """Check if inside covers have any photos or text."""
+        if not self.book.has_inside_covers():
+            return False
+        
+        inside_front = self.book.get_inside_front_page()
+        inside_back = self.book.get_inside_back_page()
+        
+        has_content = False
+        if inside_front:
+            page_info = inside_front.get_page_info()
+            has_content = has_content or len(page_info.get('photos', [])) > 0
+            has_content = has_content or len(page_info.get('texts', [])) > 0
+        
+        if inside_back:
+            page_info = inside_back.get_page_info()
+            has_content = has_content or len(page_info.get('photos', [])) > 0
+            has_content = has_content or len(page_info.get('texts', [])) > 0
+        
+        return has_content
+    
+    def _copy_all_images(self, source_dir: Path, dest_dir: Path):
+        """Copy all image files from source to destination directory.
+        
+        Args:
+            source_dir: Source directory containing images
+            dest_dir: Destination directory
+        """
+        image_extensions = {'.jpg', '.jpeg', '.png', '.bmp', '.tif', '.tiff', '.heic', '.heif'}
+        
+        for file_path in source_dir.iterdir():
+            if file_path.is_file() and file_path.suffix.lower() in image_extensions:
+                dest_path = dest_dir / file_path.name
+                if not dest_path.exists():  # Don't overwrite files already copied
+                    shutil.copy2(file_path, dest_path)
+                    logger.debug(f"Copied image: {file_path.name}")
+    
+    def _copy_non_paged_images(self, source_dir: Path, dest_dir: Path):
+        """Copy image files that don't have -pgN suffixes.
+        
+        Files with -pgN suffixes have already been handled by the transformation.
+        
+        Args:
+            source_dir: Source directory containing images
+            dest_dir: Destination directory
+        """
+        image_extensions = {'.jpg', '.jpeg', '.png', '.bmp', '.tif', '.tiff', '.heic', '.heif'}
+        
+        for file_path in source_dir.iterdir():
+            if file_path.is_file() and file_path.suffix.lower() in image_extensions:
+                # Skip files that have -pg in the name (already handled)
+                if '-pg' not in file_path.stem:
+                    dest_path = dest_dir / file_path.name
+                    if not dest_path.exists():
+                        shutil.copy2(file_path, dest_path)
+                        logger.debug(f"Copied non-paged image: {file_path.name}")
+
 
 
 def open_resize_window(parent, viewer, mcf_file_path):

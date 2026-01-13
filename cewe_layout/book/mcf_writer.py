@@ -158,7 +158,7 @@ def create_mcf_xml_from_photobook(photobook: Photobook, output_dir: Path, verbos
     
     # CEWE pagecount = number of content pages (not including covers/inside covers)
     # Photobook always has N+4 pages: front, inside_front, N content pages, inside_back, back
-    num_content_pages = photobook.get_page_count() - 4
+    num_content_pages = photobook.get_content_page_count()
 
     # Set all required fotobook attributes
     fotobook.set('art_id', str(cewe_dimensions['art_id']))
@@ -273,7 +273,7 @@ def create_mcf_xml_from_photobook(photobook: Photobook, output_dir: Path, verbos
     fotobook.append(empty_page_1)
     
     # Add content pages
-    max_content_ui_page = photobook.get_page_count() - 4  # Exclude front, back. Include inside front, inside back even if empty
+    max_content_ui_page = photobook.get_content_page_count()
 
     # Process content pages starting from page 2
     # Page 0 and 1 are already handled above
@@ -351,7 +351,7 @@ def create_mcf_xml_from_photobook(photobook: Photobook, output_dir: Path, verbos
     if inside_back_ui_page % 2 == 0:
         raise RuntimeError(f"ERROR: Inside back cover calculated as UI page {inside_back_ui_page} (even). "
                           f"It must be odd (right side). max_content_ui_page={max_content_ui_page}, "
-                          f"content_pages={photobook.get_page_count() - 4}")
+                          f"content_pages={photobook.get_content_page_count()}")
     
     # NOTE: Inside back cover page element is always EMPTY because we already added
     # all its areas to page 60's element in the loop above (when next_ui_page == max_content_ui_page + 1)

@@ -168,14 +168,7 @@ class CEWEPhotobook(Photobook):
     
     def get_content_page_count(self) -> int:
         """Get number of content pages (excluding covers/inside covers)."""
-        count = 0
-        for page_number, _ in self._pages:
-            if isinstance(page_number, int) and page_number > 0:
-                # Numeric pages > 0 are content pages (may include inside back cover)
-                # We need to check if it's actually content
-                # For now, count all numeric > 0 as content
-                count += 1
-        return count
+        return self._page_count - 4
     
     def get_native_unit_name(self) -> str:
         """Get name of native coordinate unit."""

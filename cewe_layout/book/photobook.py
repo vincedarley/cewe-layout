@@ -227,6 +227,32 @@ class Photobook(ABC):
                 pages.append((i, page))
         return pages
     
+    def create_empty_page_template(self) -> Dict[str, Any]:
+        """Create template for an empty content page.
+        
+        Uses dimensions and basic properties from the first content page.
+        The template will have empty photos and texts lists.
+        
+        Returns:
+            Dict with page_info structure: 'page_width', 'page_height', 'origin_left',
+            'photos' (empty list), 'texts' (empty list), and other format-specific fields.
+            
+        Raises:
+            ValueError: If no content pages exist in the photobook
+        """
+        first_content = self.get_first_content_page()
+        if not first_content:
+            raise ValueError("Cannot create empty page template - no content pages exist")
+        
+        # Get page info and create a copy
+        template = first_content.get_page_info().copy()
+        
+        # Clear content
+        template['photos'] = []
+        template['texts'] = []
+        
+        return template
+    
     @abstractmethod
     def get_native_unit_name(self) -> str:
         """Get name of native coordinate unit (e.g., 'PDF points', 'Mimeo units', 'MCF units')."""
