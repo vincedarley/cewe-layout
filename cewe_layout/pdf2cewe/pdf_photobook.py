@@ -377,10 +377,6 @@ class PDFPhotobook(Photobook):
         """Get number of content pages (excluding covers/inside covers)."""
         return self._page_count - 4  # Exclude front, inside_front, inside_back, back
 
-    def get_native_unit_name(self) -> str:
-        """Get name of native coordinate unit."""
-        return "PDF points"
-    
     def close(self):
         """Close the PDF document (for on-demand mode)."""
         if self._doc is not None:

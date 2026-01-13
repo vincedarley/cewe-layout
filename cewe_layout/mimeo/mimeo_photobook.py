@@ -175,6 +175,3 @@ class MimeoPhotobook(Photobook):
         """Get number of content pages (excluding 4 cover pages)."""
         return self._page_count - 4
     
-    def get_native_unit_name(self) -> str:
-        """Get name of native coordinate unit."""
-        return "Mimeo units"

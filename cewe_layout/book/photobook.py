@@ -124,13 +124,18 @@ class Photobook(ABC):
     
     def __init__(self):
         """Initialize photobook with optional resize transformer."""
-        self.resize_transformer = None  # Optional ResizeTransformer for viewing resized
-    
+        super().__init__()
+            
     @abstractmethod
     def get_page_count(self) -> int:
         """Get total number of pages (including covers)."""
         pass
-    
+
+    @abstractmethod
+    def get_content_page_count(self) -> int:
+        """Get number of content pages (excluding covers/inside covers)."""
+        pass
+
     @abstractmethod
     def get_page(self, index: int) -> Optional[PhotobookPage]:
         """Get page at given index (0-based).
@@ -145,7 +150,19 @@ class Photobook(ABC):
             IndexError: If index is out of range
         """
         pass
-    
+
+    def find_page_by_ui_num(self, page_number: Union[str, int]) -> Optional[PhotobookPage]:
+        """Find page with specific UI number (e.g., 'F', 'B', 0, 1, 2, etc.).
+
+        By definition 0 should return the inside front cover (which might be None), 1 the first content page, etc
+
+        Returns None if not found.
+        """
+        for page in self:
+            if page is not None and page.get_page_number() == page_number:
+                return page
+        return None
+
     def get_first_content_page(self) -> Optional[PhotobookPage]:
         """Get first content page."""
         return self.get_page(2) 
@@ -168,9 +185,6 @@ class Photobook(ABC):
     def page_label(self) -> str:
         return "Page"
 
-    def has_multiple_pages(self) -> bool:
-        return self.get_page_count() > 1
-
     @abstractmethod
     def has_covers(self) -> bool:
         """Whether book has front and back covers.
@@ -184,12 +198,7 @@ class Photobook(ABC):
     def has_inside_covers(self) -> bool:
         """Whether book has inside cover pages which can contain content."""
         pass
-    
-    @abstractmethod
-    def get_content_page_count(self) -> int:
-        """Get number of content pages (excluding covers/inside covers)."""
-        pass
-    
+
     def get_front_cover_page(self) -> Optional[PhotobookPage]:
         """Get front cover page, or None if not present."""
         if not self.has_covers():
@@ -214,19 +223,6 @@ class Photobook(ABC):
             return None
         return self.get_page(self.get_page_count()-2)
 
-    def get_content_pages(self) -> List[Tuple[int, PhotobookPage]]:
-        """Get all content pages as (index, page) tuples.
-        
-        Returns:
-            List of (index, page) tuples for content pages only
-        """
-        pages = []
-        for i in range(self.get_page_count()):
-            page = self.get_page(i)
-            if page is not None and page.get_page_type() == PageType.CONTENT:
-                pages.append((i, page))
-        return pages
-    
     def create_empty_page_template(self) -> Dict[str, Any]:
         """Create template for an empty content page.
         
@@ -253,11 +249,6 @@ class Photobook(ABC):
         
         return template
     
-    @abstractmethod
-    def get_native_unit_name(self) -> str:
-        """Get name of native coordinate unit (e.g., 'PDF points', 'Mimeo units', 'MCF units')."""
-        pass
-    
     def __iter__(self) -> Iterator[PhotobookPage]:
         """Allow iteration over pages: for page in photobook:"""
         for i in range(self.get_page_count()):
@@ -272,35 +263,6 @@ class Photobook(ABC):
         """
         for i in range(self.get_page_count()):
             yield (i, self.get_page(i))
-    
-    def is_valid_index(self, index: int) -> bool:
-        """Check if index is within valid range [0, page_count)."""
-        return 0 <= index < self.get_page_count()
-    
-    def get_page_numbers(self) -> List[Union[str, int]]:
-        """Get list of all page numbers for all pages."""
-        return [page.get_page_number() for page in self]
-    
-    def find_page_by_ui_num(self, page_number: Union[str, int]) -> Optional[PhotobookPage]:
-        """Find page with specific UI number (e.g., 'F', 'B', 0, 1, 2, etc.).
 
-        By definition 0 should return the inside front cover (which might be None), 1 the first content page, etc
-        
-        Returns None if not found.
-        """
-        for page in self:
-            if page is not None and page.get_page_number() == page_number:
-                return page
-        return None
-
-    def get_numeric_pages(self) -> List[PhotobookPage]:
-        """Get only content pages (integer page numbers > 0, exclude covers)."""
-        result = []
-        for page in self:
-            if page is not None:
-                page_num = page.get_page_number()
-                if isinstance(page_num, int) and page_num > 0:
-                    result.append(page)
-        return result
 
 

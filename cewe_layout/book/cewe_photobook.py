@@ -170,10 +170,6 @@ class CEWEPhotobook(Photobook):
         """Get number of content pages (excluding covers/inside covers)."""
         return self._page_count - 4
     
-    def get_native_unit_name(self) -> str:
-        """Get name of native coordinate unit."""
-        return "MCF units"
-
     def is_calendar(self) -> bool:
         """Whether this is a calendar product (monthly pages)."""
         return self._is_calendar

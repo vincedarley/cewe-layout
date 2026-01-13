@@ -287,7 +287,7 @@ class LayoutViewer:
         # For Canvas mode, hide all page navigation controls
         # For Calendar mode, show navigation but with 'Month:' label
         nav_frame = ttk.Frame(self.ctrlWin)
-        if self.book.has_multiple_pages():
+        if self.book.get_page_count() > 1:
             nav_frame.grid(row=0, column=0, sticky='w', padx=4, pady=4)
         page_label = self.book.page_label() + ':'
         self.page_num_var = tk.StringVar(value=page_label)
@@ -299,7 +299,7 @@ class LayoutViewer:
         next_btn.pack(side='left')
         
         goto_frame = ttk.Frame(self.ctrlWin)
-        if self.book.has_multiple_pages():
+        if self.book.get_page_count() > 1:
             goto_frame.grid(row=0, column=1, sticky='w', padx=4, pady=4)
         ttk.Label(goto_frame, text='Go to:').pack(side='left', pady=2)
         self.goto_var = tk.StringVar()
@@ -737,16 +737,9 @@ class LayoutViewer:
         # Start at front cover if all pages are complete
         # Look for "F" (front cover) first, then first normal page (1)
         for idx, page in self.book.enumerate_pages():
-            if page.get_page_number() == "F":
-                return idx
+            return idx
         
-        # If no front cover, start at first normal page (page 1)
-        for idx, page in self.book.enumerate_pages():
-            if page.get_page_number() == 1:
-                return idx
-        
-        # This shouldn't happen - every photobook should have at least page 1
-        raise RuntimeError(f"Unable to find valid starting page. Pages: {self.book.get_page_numbers()}")
+        raise RuntimeError("Unable to find valid starting page.")
 
     def _setup_keyboard_shortcuts(self):
         """Setup keyboard shortcuts for common actions."""
