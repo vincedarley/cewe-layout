@@ -1060,46 +1060,45 @@ class LayoutViewer:
         return [(page.get_page_number(), page.get_page_info()) for page in self.book]
     
     def _ui_page_to_pdf_page(self, ui_pageno):
-        """Map UI page number to PDF page index.
+        """Map UI page number to photobook internal index.
+        
+        IMPORTANT: This returns the photobook internal index (0 to page_count-1),
+        which is used to call PDFPhotobook.get_page(index). The photobook will
+        internally map this index to the original PDF page number if needed.
         
         Args:
             ui_pageno: UI page number (can be "F", "B", 0, 1..N, N+1)
         
         Returns:
-            PDF page index (0-indexed) or None if no PDF page exists
+            Photobook internal index (0-indexed), or None if page has no PDF content
         """
         if not self.pdf_originalBook:
             return None
         
-        # Get total PDF page count
-        from .pdf2cewe.pdf_extractor import get_page_content
-        pdf_page_count = self.pdf_originalBook.get_page_count()
+        # Get total photobook page count (always N+4)
+        photobook_page_count = self.pdf_originalBook.get_page_count()
         
-        # Map UI page to PDF index
+        # Map UI page to photobook index
+        # Photobook structure: [0=F, 1=inside_front, 2..N+1=content, N+2=inside_back, N+3=B]
         if ui_pageno == "F":
-            # Front cover is PDF page 0
+            # Front cover is always photobook index 0
             return 0
         elif ui_pageno == "B":
-            # Back cover is last PDF page if it exists
-            if pdf_page_count > 0:
-                return pdf_page_count - 1
-            return None
+            # Back cover is always the last photobook index
+            return photobook_page_count - 1
         elif ui_pageno == self.inside_front_cover_page:
-            # Inside front cover: PDF page 1 if it has inside covers, else None
-            if self.pdf_originalBook.has_inside_covers():
-                return 1
-            return None
+            # Inside front cover is always at photobook index 1 (may be None if no inside covers)
+            return 1
         elif isinstance(ui_pageno, int):
             # Check if this is the inside back cover
             if ui_pageno == self.inside_back_cover_page:
-                # Inside back cover: PDF page N-2 (second-to-last) if it has inside covers, else None
-                if self.pdf_originalBook.has_inside_covers() and pdf_page_count >= 2:
-                    return pdf_page_count - 2
-                return None
+                # Inside back cover is at photobook index page_count - 2
+                return photobook_page_count - 2
             
             # Regular content pages
-            # With inside covers: UI page N maps to PDF page N+1 (shifted by inside front cover)
-            return ui_pageno + (1 if self.pdf_originalBook.has_inside_covers() else 0)
+            # UI page 1 maps to photobook index 2, UI page 2 to index 3, etc.
+            # So: photobook_index = ui_page + 1
+            return ui_pageno + 1
         
         return None
     

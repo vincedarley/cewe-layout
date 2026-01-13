@@ -79,7 +79,7 @@ def create_pdf_reader(pdf_path: Path, pdf_page_count: int, verbose: bool = False
 
     # Create page mapping for coordinate positioning
 
-    ui_to_pdf = _create_page_mapping(pdf_page_count)
+    ui_to_pdf = _create_page_mapping(pdf_page_count, insidecovers)
     page_to_ui = {v: k for k, v in ui_to_pdf.items() if v is not None}
 
     if not page_to_ui:
@@ -122,12 +122,17 @@ def get_page_content(pdf_originalBook, pageno: int) -> Optional[Dict[str, Any]]:
     if not pdf_originalBook:
         return None
 
+    # TODO - clean up this mess below.
+
     try:
         page_count = pdf_originalBook.get_page_count()
         if pageno < 0 or pageno >= page_count:
             logger.warning(f"Page {pageno} out of range (page_count={page_count})")
             return None
         page = pdf_originalBook.get_page(pageno)
+        if (page is None):
+            logger.warning(f"Page {pageno} is None")
+            return None
         # Return the underlying page data dict for backward compatibility
         return page._page_data
     except (IndexError, ValueError) as e:
@@ -160,7 +165,7 @@ def extract_pdf_content(pdf_path: Path, pdf_page_count: int, page_range: Optiona
     }
 
     # Create UI-to-PDF mapping, then invert it
-    ui_to_pdf = _create_page_mapping(pdf_page_count)
+    ui_to_pdf = _create_page_mapping(pdf_page_count, insidecovers)
     page_to_ui = {v: k for k, v in ui_to_pdf.items() if v is not None}
 
     print(f"DEBUG: PDF-to-UI mapping (first 5 and last 5):")
@@ -705,7 +710,7 @@ def _getPdfPage(pdf_originalBook: PDFPhotobook, current_pageno) -> Any:
     Returns:
         Page data dict or None if page doesn't exist
     """
-    page_count = pdf_originalBook.get('page_count', 0)
+    page_count = pdf_originalBook.get_page_count()
     print(f"  PDF has {page_count} pages")
     
     if current_pageno >= page_count:
@@ -738,12 +743,12 @@ def _getImageToSegment(pages, index, status_var, current_pageno, pdf_page, speci
 
         # Find the PDF image that corresponds to this photo
         # For now, use the image at the same index (this may need refinement)
-        images_with_data = [img for img in pdf_page.get('images', []) if img.get('data')]
+        images_with_data = [img for img in pdf_page.get('photos', []) if img.get('data')]
         if specific_photo_index < len(images_with_data):
             image_to_segment = images_with_data[specific_photo_index]
             photos_to_replace = [specific_photo_index]
             print(
-                f"  Re-segmenting photo #{specific_photo_index + 1}: {image_to_segment.get('width'):.1f}x{image_to_segment.get('height'):.1f}")
+                f"  Re-segmenting photo #{specific_photo_index + 1}: {image_to_segment['area_width']:.1f}x{image_to_segment['area_height']:.1f}")
         else:
             print(f"Error: Cannot find PDF image for photo #{specific_photo_index + 1}")
             status_var.set(f'Error: Cannot find image for photo #{specific_photo_index + 1}')
@@ -758,7 +763,7 @@ def _getImageToSegment(pages, index, status_var, current_pageno, pdf_page, speci
 
         if not image_to_segment:
             print("Error: No composite image found in PDF page data")
-            print(f"  Available images: {len(pdf_page.get('images', []))}")
+            print(f"  Available photos: {len(pdf_page.get('photos', []))}")
             status_var.set('Error: No composite image in page data')
             return None
 
@@ -774,7 +779,7 @@ def _getImageToSegment(pages, index, status_var, current_pageno, pdf_page, speci
         photos = page_info.get('photos', [])
         photos_to_replace = list(range(len(photos)))
         print(
-            f"  Using embedded composite image: {pixel_width}x{pixel_height} pixels ({image_to_segment['width']:.1f}x{image_to_segment['height']:.1f} points)")
+            f"  Using embedded composite image: {pixel_width}x{pixel_height} pixels ({image_to_segment['area_width']:.1f}x{image_to_segment['area_height']:.1f} MCF units)")
 
         # DEBUG: Save composite image for comparison
         debug_path = f"/tmp/composite_page{ui_pageno}.{image_to_segment.get('format', 'jpeg')}"
@@ -891,11 +896,12 @@ def _rotate_image(image_bytes: bytes, rotation: int, image_format: str, verbose:
         return image_bytes
 
 
-def _create_page_mapping(input_page_count: int) -> Dict[str, Optional[int]]:
+def _create_page_mapping(input_page_count: int, insidecovers: bool = True) -> Dict[str, Optional[int]]:
     """Create mapping from logical page identifiers to PDF/Mimeo/import page indices.
 
     Args:
         input_page_count: Total number of pages in PDF/Mimeo/import
+        insidecovers: Whether PDF includes inside cover pages (default True)
 
     Returns:
         Dictionary mapping page identifiers to PDF indices (0-based)
@@ -904,16 +910,30 @@ def _create_page_mapping(input_page_count: int) -> Dict[str, Optional[int]]:
     """
     mapping = {}
 
-    # WITH --insidecovers: PDF/Mimeo has [0=front, 1=inside_front, 2..N-2=content, N-1=inside_back, N=back]
-    mapping["F"] = 0  # Front cover
-    mapping[0] = 1    # Inside front cover
+    if insidecovers:
+        # WITH --insidecovers: PDF has [0=front, 1=inside_front, 2..N-2=content, N-1=inside_back, N=back]
+        mapping["F"] = 0  # Front cover
+        mapping[0] = 1    # Inside front cover
 
-    # Content pages: UI pages 1..N-4 map to PDF pages 2..N-2
-    content_pages = input_page_count - 4  # Exclude front, inside_front, inside_back, back
-    for ui_page in range(1, content_pages + 1):
-        mapping[ui_page] = ui_page + 1  # UI page 1 → PDF page 2, etc.
+        # Content pages: UI pages 1..N-4 map to PDF pages 2..N-2
+        content_pages = input_page_count - 4  # Exclude front, inside_front, inside_back, back
+        for ui_page in range(1, content_pages + 1):
+            mapping[ui_page] = ui_page + 1  # UI page 1 → PDF page 2, etc.
 
-    mapping[content_pages + 1] = input_page_count - 2  # Inside back cover
-    mapping["B"] = input_page_count - 1  # Back cover
+        mapping[content_pages + 1] = input_page_count - 2  # Inside back cover
+        mapping["B"] = input_page_count - 1  # Back cover
+    else:
+        # WITHOUT --insidecovers: PDF has [0=front, 1..N-2=content, N-1=back]
+        # Inside covers will be empty (None) pages added by extract code
+        mapping["F"] = 0  # Front cover
+        mapping[0] = None  # Inside front - will be added as empty page
+
+        # Content pages: UI pages 1..N-2 map to PDF pages 1..N-2
+        content_pages = input_page_count - 2  # Exclude front, back
+        for ui_page in range(1, content_pages + 1):
+            mapping[ui_page] = ui_page  # UI page 1 → PDF page 1, etc.
+
+        mapping[content_pages + 1] = None  # Inside back - will be added as empty page
+        mapping["B"] = input_page_count - 1  # Back cover
 
     return mapping

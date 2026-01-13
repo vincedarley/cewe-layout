@@ -26,6 +26,9 @@ def calculate_image_relative_sizes(photobook: Photobook):
     all_areas = []
     for i in range(photobook.get_page_count()):
         page = photobook.get_page(i)
+        if page is None:
+            # Ok to skip silently - we're just calculating a size heuristic.
+            continue  # Skip empty inside cover pages
         for img in page.get_images():
             # All photobook implementations must provide 'area_width' and 'area_height' in get_images()
             if 'area_width' not in img or 'area_height' not in img:
@@ -349,9 +352,19 @@ def create_mcf_xml_from_photobook(photobook: Photobook, output_dir: Path, verbos
     
     # Validate: inside back cover must be odd
     if inside_back_ui_page % 2 == 0:
-        raise RuntimeError(f"ERROR: Inside back cover calculated as UI page {inside_back_ui_page} (even). "
+        logger.warning(f"Possible ERROR: inside back cover calculated as UI page {inside_back_ui_page} (even). "
                           f"It must be odd (right side). max_content_ui_page={max_content_ui_page}, "
                           f"content_pages={photobook.get_content_page_count()}")
+        logger.warning("Adding a blank content page to fix alignment.")
+        
+        # Add an extra blank content page at the current (even) position
+        blank_page = create_empty_content_page(input_interior_width_mcf, input_interior_height_mcf, 
+                                               inside_back_ui_page, content_transformer)
+        fotobook.append(blank_page)
+        
+        # Now the inside back cover moves to the next (odd) page
+        inside_back_ui_page += 1
+        logger.info(f"Inside back cover moved to UI page {inside_back_ui_page} (odd)")
     
     # NOTE: Inside back cover page element is always EMPTY because we already added
     # all its areas to page 60's element in the loop above (when next_ui_page == max_content_ui_page + 1)

@@ -186,6 +186,50 @@ class PDFPhotobook(Photobook):
                     'producer': self._doc.metadata.get('producer', ''),
                 }
     
+    def _photobook_index_to_pdf_page(self, photobook_index: int) -> int:
+        """Map photobook internal index to original PDF page number.
+        
+        Photobook structure (WITH or WITHOUT insidecovers):
+        - Index 0: Front cover
+        - Index 1: Inside front (may be None)
+        - Index 2..N+1: Content pages
+        - Index N+2: Inside back (may be None)
+        - Index N+3: Back cover
+        
+        Original PDF structure:
+        - WITH insidecovers: Same as photobook (all N+4 pages present)
+        - WITHOUT insidecovers: Only N+2 pages (F, content, B) - no inside covers
+        
+        Args:
+            photobook_index: Photobook internal index (0 to page_count-1)
+            
+        Returns:
+            Original PDF page number (0-indexed)
+        """
+        if self._has_inside_covers:
+            # WITH insidecovers: photobook index = PDF page number
+            return photobook_index
+        else:
+            # WITHOUT insidecovers: skip the inside cover gaps
+            # Photobook index 0 → PDF page 0 (front cover)
+            # Photobook index 1 → None (inside front, no PDF page)
+            # Photobook index 2 → PDF page 1 (first content)
+            # Photobook index 3 → PDF page 2 (second content)
+            # ...
+            # Photobook index N+2 → None (inside back, no PDF page)
+            # Photobook index N+3 → PDF page N+1 (back cover)
+            if photobook_index == 0:
+                return 0  # Front cover
+            elif photobook_index < self._page_count - 2:
+                # Content pages and inside front (index 1..N+1)
+                # Map to PDF pages 0..N
+                # But index 1 is inside front (None), so we subtract 1 for indices >= 2
+                return photobook_index - 1
+            else:
+                # Back cover (index N+3) and inside back (index N+2)
+                # Map to PDF page N+1
+                return photobook_index - 2
+    
     def _extract_page_on_demand(self, index: int) -> Dict[str, Any]:
         """Extract a single page on-demand.
         
@@ -193,7 +237,7 @@ class PDFPhotobook(Photobook):
         when insidecovers=False, as get_page() returns None early for those.
         
         Args:
-            index: PDF page index (0-based)
+            index: Photobook internal index (0-based, 0 to page_count-1)
             
         Returns:
             Page data dict
@@ -205,20 +249,23 @@ class PDFPhotobook(Photobook):
         
         self._ensure_doc_open()
         
-        if index >= len(self._doc):
-            raise ValueError(f"Page {index + 1} does not exist")
+        # Map photobook index to original PDF page number
+        pdf_page_num = self._photobook_index_to_pdf_page(index)
+        
+        if pdf_page_num >= len(self._doc):
+            raise ValueError(f"PDF page {pdf_page_num} does not exist (photobook index {index})")
         
         # Get UI page identifier for coordinate positioning
-        if index not in self._page_to_ui:
+        if pdf_page_num not in self._page_to_ui:
             raise ValueError(
-                f"No UI page mapping found for PDF page {index}. "
+                f"No UI page mapping found for PDF page {pdf_page_num} (photobook index {index}). "
                 f"On-demand mode requires page_to_ui mapping. "
                 f"Available mappings: {list(self._page_to_ui.keys())}"
             )
         
-        ui_page = self._page_to_ui[index]
-        page = self._doc[index]
-        page_data = extract_page_content(page, index, len(self._doc), 
+        ui_page = self._page_to_ui[pdf_page_num]
+        page = self._doc[pdf_page_num]
+        page_data = extract_page_content(page, pdf_page_num, len(self._doc), 
                                         self._verbose, debug=False, ui_page=ui_page)
         
         # Cache the extracted page
