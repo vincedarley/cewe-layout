@@ -3126,17 +3126,21 @@ class LayoutViewer:
             self.status_var.set(f'❌ Unknown algorithm: {algorithm}')
             return
 
-        scaled_segments, image_data, image_format, image_to_segment, photos_to_replace = performSegmentationOnPage(self.pdf_originalBook,
-                                                                                                                   self.pages, self.pageIndex,
-                                                                                                                   self.status_var,
-                                                                                                                   pdf_page_index,
-                                                                                                                   segmenter,
-                                                                                                                   specific_photo_index,
-                                                                                                                   target_count)
+        result = performSegmentationOnPage(self.pdf_originalBook,
+                                          self.pages, self.pageIndex,
+                                          self.status_var,
+                                          pdf_page_index,
+                                          segmenter,
+                                          specific_photo_index,
+                                          target_count)
 
-        if scaled_segments != None:
+        if result is not None:
+            scaled_segments, image_data, image_format, image_to_segment, photos_to_replace = result
             # Show overlay with the new segmentation rectangles
             self._show_segmentation_overlay(scaled_segments, current_ui_pageno, image_to_segment, image_data, image_format, photos_to_replace)
+        else:
+            # Segmentation failed - status message already set by performSegmentationOnPage
+            pass
 
     def _show_segmentation_overlay(self, segments, pageno, composite_image, image_data, image_format, photos_to_replace):
         """Show overlay with segmentation rectangles and accept/reject buttons.

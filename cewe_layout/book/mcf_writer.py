@@ -344,6 +344,17 @@ def create_mcf_xml_from_photobook(photobook: Photobook, output_dir: Path, verbos
             else:
                 logger.warning(f"Warning: No mapping found for next UI page {next_ui_page} after processing UI page {ui_page}.")
 
+    if (max_content_ui_page % 4) != 2:
+        logger.warning("Adjusting number of content pages to be multiple of 4 plus 2 for CEWE format.")
+        pagesToAdd = (4 - (max_content_ui_page % 4) + 2) % 4
+        logger.warning(f"Adding {pagesToAdd} blank content pages to reach required count.")
+        for _ in range(pagesToAdd):
+            blank_page = create_empty_content_page(input_interior_width_mcf, input_interior_height_mcf,
+                                                   max_content_ui_page + 1, content_transformer)
+            fotobook.append(blank_page)
+            max_content_ui_page += 1
+
+
     # Add inside back cover (last pagenr=0 emptypage)
     # The inside back cover UI page is determined by looking for the highest integer key
     # in the mapping. This should be max_content_ui_page + 1.

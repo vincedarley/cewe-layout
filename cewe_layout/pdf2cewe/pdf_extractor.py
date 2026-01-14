@@ -404,7 +404,7 @@ def extract_page_content(page: fitz.Page, page_num: int, total_pages: int, verbo
                     text_block_index += 1
                     
                     if verbose:
-                        print(f"  Text: '{text[:50]}...' font={span['font']} size={span['size']:.1f}")
+                        print(f"  Text: '{text[:50]}...' font={span['font']} size={span['size']:.1f} top={bbox[1]:.1f} bottom={bbox[3]:.1f}")
     
     # Merge adjacent text blocks (touching or very close vertically)
     page_data['texts'] = merge_adjacent_text_blocks(page_data['texts'], verbose)
@@ -435,26 +435,44 @@ def merge_adjacent_text_blocks(text_blocks: List[Dict[str, Any]], verbose: bool 
     """
     if not text_blocks:
         return text_blocks
-    
+
+    # Sort by horizontal position (left), then vertical position (top)
+    sorted_blocks1 = sorted(text_blocks, key=lambda b: (b['area_left'], b['area_top']))
+    # Merge threshold: within 12 points vertically and horizontally equal
+    merged = _merge_adjacent_text_blocks(sorted_blocks1, True, 12)
+
     # Sort by vertical position (top), then horizontal position (left)
-    sorted_blocks = sorted(text_blocks, key=lambda b: (b['area_top'], b['area_left']))
+    sorted_blocks2 = sorted(merged, key=lambda b: (b['area_top'], b['area_left']))
+    # Merge threshold: within 8 points vertically and horizontally overlapping
+    merged = _merge_adjacent_text_blocks(sorted_blocks2, False, 8)
+
+    if verbose and len(merged) < len(text_blocks):
+        print(f"  Merged {len(text_blocks)} text blocks into {len(merged)}")
     
+    return merged
+
+
+def _merge_adjacent_text_blocks(sorted_blocks: list[dict[str, Any]], horiz_must_be_equal: bool, max_gap: int) -> list[Any]:
     merged = []
     current_group = [sorted_blocks[0]]
-    
+
     for block in sorted_blocks[1:]:
         # Check if this block is adjacent to the last block in current group
         last_block = current_group[-1]
-        
+
         # Calculate vertical gap (positive = gap, negative = overlap)
         gap = block['area_top'] - (last_block['area_top'] + last_block['area_height'])
-        
+
         # Check horizontal overlap (are they in roughly the same column?)
         horizontal_overlap = not (block['area_left'] > last_block['area_left'] + last_block['area_width'] or
-                                 last_block['area_left'] > block['area_left'] + block['area_width'])
-        
-        # Merge threshold: within 5 pixels vertically and horizontally overlapping
-        if abs(gap) <= 5 and horizontal_overlap:
+                                  last_block['area_left'] > block['area_left'] + block['area_width'])
+        horizontal_equal = block['area_left'] == last_block['area_left']
+
+        # Merge if equal or if overlapping, depending on preference given.
+        horizontal_mergeable = horizontal_equal if horiz_must_be_equal else horizontal_overlap
+
+        # Merge threshold:
+        if abs(gap) <= max_gap and horizontal_mergeable:
             # Add to current group
             current_group.append(block)
         else:
@@ -464,16 +482,12 @@ def merge_adjacent_text_blocks(text_blocks: List[Dict[str, Any]], verbose: bool 
             else:
                 merged.append(current_group[0])
             current_group = [block]
-    
+
     # Don't forget the last group
     if len(current_group) > 1:
         merged.append(merge_text_group(current_group))
     else:
         merged.append(current_group[0])
-    
-    if verbose and len(merged) < len(text_blocks):
-        print(f"  Merged {len(text_blocks)} text blocks into {len(merged)}")
-    
     return merged
 
 
@@ -823,7 +837,7 @@ def _segmentPage(pdf_originalBook, pages, index, status_var, current_pageno, seg
 
 def performSegmentationOnPage(pdf_originalBook: PDFPhotobook, pages, index, status_var, current_pageno, segmenter: ImageSegmenter,
             specific_photo_index: int | None, target_count: int) -> \
-tuple[list[int], list[Any], Any, list[dict[str, Any]] | None, Any]:
+tuple[list[int], list[Any], Any, list[dict[str, Any]] | None, Any] | None:
     result = _segmentPage(
         pdf_originalBook, pages, index, status_var,
         current_pageno, segmenter, specific_photo_index, target_count)
