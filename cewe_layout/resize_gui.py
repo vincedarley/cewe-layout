@@ -1,4 +1,4 @@
-"""GUI for resizing photobooks to different dimensions."""
+"""GUI for resizing photobooks to different dimensions, and merging books."""
 
 import os
 import shutil

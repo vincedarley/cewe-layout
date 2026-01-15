@@ -96,7 +96,7 @@ When photos are added:
 3. Initial layout rectangles are created (overlapping at the top of the page for easy visibility)
 4. You can then use any layout algorithm (Collage-Gen, Fan-GA, etc.) to arrange them nicely
 
-** Secondary workflow for importing old photo books**
+**Secondary workflow for importing old photo books**
 
 If you have old PDF files, or legacy Mimeo photobooks stored in .ppb files inside your Apple Photos library, this tool can import those
 fairly easily to create a new editable .mcf photobook.  Use:
@@ -127,7 +127,7 @@ database.  Note that there is no support for more recent Mimeo photo-book format
 - Validate we have bleed/margins correct for front and back cover ("special pages").
 - More/better layout clean-up/fine-tuning algorithms? (Gap Perfecter, Gridify, and Tree Builder all have their good and bad aspects in improving layouts).
 
-**Other capabilities (partially or completely implemented) **
+**Other capabilities (partially or completely implemented)**
 
 Drag-n-drop to swap 2 photos in the layout. Fairly intuitive approach for this simple manual layout adjustment.
 
