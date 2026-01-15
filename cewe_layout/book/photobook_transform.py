@@ -47,7 +47,7 @@ def _copy_image_file(old_filename: str, new_filename: str, source_dir: Path, out
         logger.warning(f"Source image not found: {source_path}")
 
 
-def copy_page_data_with_new_number(
+def copy_page_data(
     page_data: Dict[str, Any],
     old_page_number: Union[str, int],
     new_page_number: Union[str, int],
@@ -117,6 +117,44 @@ def build_cewe_photobook(
     return CEWEPhotobook(pages, metadata)
 
 
+def create_photobook_copy(
+    source_photobook: Photobook,
+    source_dir: Path,
+    output_dir: Path
+) -> CEWEPhotobook:
+    """Create a copy of a photobook with all images copied to output directory.
+    
+    This copies all pages without rearrangement, copying image files and updating
+    filenames in the page data to point to the output directory.
+    
+    Args:
+        source_photobook: Source photobook to copy
+        source_dir: Directory containing source images
+        output_dir: Directory to copy images to (should already exist)
+        
+    Returns:
+        New CEWEPhotobook with copied pages and images
+    """
+    logger.info(f"Creating photobook copy: {source_photobook.get_page_count()} pages")
+    
+    pages = []
+    
+    # Copy all pages in order, using copy_page_data to handle images
+    for page in source_photobook.get_pages():
+        page_info = page.get_page_info()
+        page_num = page_info.get('page_number')
+        
+        # Use copy_page_data with same page number (no renumbering, just copying)
+        new_data = copy_page_data(
+            page_info, page_num, page_num, source_dir, output_dir
+        )
+        pages.append((page_num, new_data))
+    
+    logger.info(f"Photobook copy complete: {len(pages)} pages")
+    
+    return build_cewe_photobook(pages, source_photobook.get_metadata())
+
+
 def create_photobook_with_inside_covers_at_end(
     source_photobook: Photobook,
     source_dir: Path,
@@ -160,7 +198,7 @@ def create_photobook_with_inside_covers_at_end(
     front = source_photobook.get_front_cover_page()
     if front is None:
         raise ValueError("Source photobook must have a front cover")
-    front_data = copy_page_data_with_new_number(
+    front_data = copy_page_data(
         front.get_page_info(), "F", "F", source_dir, output_dir
     )
     pages.append(("F", front_data))
@@ -175,7 +213,7 @@ def create_photobook_with_inside_covers_at_end(
         page = source_photobook.find_page_by_ui_num(i)
         if page is None:
             raise ValueError(f"Missing content page {i}")
-        page_data = copy_page_data_with_new_number(
+        page_data = copy_page_data(
             page.get_page_info(), i, i, source_dir, output_dir
         )
         pages.append((i, page_data))
@@ -191,7 +229,7 @@ def create_photobook_with_inside_covers_at_end(
     # Page N+2: old inside front content (if it exists)
     old_inside_front = source_photobook.get_inside_front_page()
     if old_inside_front and _has_content(old_inside_front):
-        new_data = copy_page_data_with_new_number(
+        new_data = copy_page_data(
             old_inside_front.get_page_info(), 0, N+2, source_dir, output_dir
         )
         pages.append((N+2, new_data))
@@ -203,7 +241,7 @@ def create_photobook_with_inside_covers_at_end(
     # Page N+3: old inside back content (if it exists)
     old_inside_back = source_photobook.get_inside_back_page()
     if old_inside_back and _has_content(old_inside_back):
-        new_data = copy_page_data_with_new_number(
+        new_data = copy_page_data(
             old_inside_back.get_page_info(), N+1, N+3, source_dir, output_dir
         )
         pages.append((N+3, new_data))
@@ -224,7 +262,7 @@ def create_photobook_with_inside_covers_at_end(
     back = source_photobook.get_back_cover_page()
     if back is None:
         raise ValueError("Source photobook must have a back cover")
-    back_data = copy_page_data_with_new_number(
+    back_data = copy_page_data(
         back.get_page_info(), "B", "B", source_dir, output_dir
     )
     pages.append(("B", back_data))
@@ -272,32 +310,44 @@ def merge_photobooks(
     
     pages = []
     
-    # Copy book1's front cover
+    # Copy book1's front cover and its images
     front1 = book1.get_front_cover_page()
     if front1 is None:
         raise ValueError("Book1 must have a front cover")
-    pages.append(("F", front1.get_page_info()))
+    front1_data = copy_page_data(
+        front1.get_page_info(), "F", "F", source_dir1, output_dir
+    )
+    pages.append(("F", front1_data))
     
     # Copy book1's inside front (or create empty if not present)
     if book1.has_inside_covers():
         inside = book1.get_inside_front_page()
-        pages.append((0, inside.get_page_info() if inside else book1.create_empty_page_template()))
+        if inside:
+            inside_data = copy_page_data(
+                inside.get_page_info(), 0, 0, source_dir1, output_dir
+            )
+            pages.append((0, inside_data))
+        else:
+            pages.append((0, book1.create_empty_page_template()))
     else:
         pages.append((0, book1.create_empty_page_template()))
     
-    # Copy book1's content pages
+    # Copy book1's content pages and their images
     for i in range(1, N1+1):
         page = book1.find_page_by_ui_num(i)
         if page is None:
             raise ValueError(f"Missing content page {i} in book1")
-        pages.append((i, page.get_page_info()))
-    logger.debug(f"Copied book1 pages 1..{N1}")
+        page_data = copy_page_data(
+            page.get_page_info(), i, i, source_dir1, output_dir
+        )
+        pages.append((i, page_data))
+    logger.debug(f"Copied book1 pages 1..{N1} with images")
     
     # Convert book2's front cover to content page N1+1
     book2_front = book2.get_front_cover_page()
     if book2_front is None:
         raise ValueError("Book2 must have a front cover")
-    new_data = copy_page_data_with_new_number(
+    new_data = copy_page_data(
         book2_front.get_page_info(), "F", N1+1, source_dir2, output_dir
     )
     pages.append((N1+1, new_data))
@@ -308,7 +358,7 @@ def merge_photobooks(
         page = book2.find_page_by_ui_num(i)
         if page is None:
             raise ValueError(f"Missing content page {i} in book2")
-        new_data = copy_page_data_with_new_number(
+        new_data = copy_page_data(
             page.get_page_info(), i, N1+1+i, source_dir2, output_dir
         )
         pages.append((N1+1+i, new_data))
@@ -318,23 +368,33 @@ def merge_photobooks(
     book2_back = book2.get_back_cover_page()
     if book2_back is None:
         raise ValueError("Book2 must have a back cover")
-    new_data = copy_page_data_with_new_number(
+    new_data = copy_page_data(
         book2_back.get_page_info(), "B", N1+N2+2, source_dir2, output_dir
     )
     pages.append((N1+N2+2, new_data))
     logger.info(f"Converted book2 back cover to page {N1+N2+2}")
     
-    # Add book1's inside back and back cover
+    # Copy book1's inside back and its images
     if book1.has_inside_covers():
         inside = book1.get_inside_back_page()
-        pages.append((N1+N2+3, inside.get_page_info() if inside else book1.create_empty_page_template()))
+        if inside:
+            inside_data = copy_page_data(
+                inside.get_page_info(), N1+1, N1+N2+3, source_dir1, output_dir
+            )
+            pages.append((N1+N2+3, inside_data))
+        else:
+            pages.append((N1+N2+3, book1.create_empty_page_template()))
     else:
         pages.append((N1+N2+3, book1.create_empty_page_template()))
     
+    # Copy book1's back cover and its images
     back1 = book1.get_back_cover_page()
     if back1 is None:
         raise ValueError("Book1 must have a back cover")
-    pages.append(("B", back1.get_page_info()))
+    back1_data = copy_page_data(
+        back1.get_page_info(), "B", "B", source_dir1, output_dir
+    )
+    pages.append(("B", back1_data))
     
     logger.info(f"Merge complete: {len(pages)} pages total")
     

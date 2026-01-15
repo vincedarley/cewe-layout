@@ -1,10 +1,18 @@
 **cewe-layout or 'QLayout' for short**
 
-Utility to parse CEWE `.mcf` / `.xmcf` photobook files, inspect page photo and text slots and interactively generate new layouts.  It is intended to help you make great CEWE photobooks. It is not a replacement for the Cewe Creator software (and never will be). You will absolutely want to use that as well as this tool.  The problem this tool aims to solve is that it is painful, slow and cumbersome to make nice photo layouts with 5 to 15 photos in Cewe Creator. The clever auto-layout tools provided by Cewe are (for my use cases) completely unhelpful. Hence this tool.
+Primary purpose:
+
+This is a tool to semi-automatically generate new layouts for pages of your CEWE `.mcf` / `.xmcf` photobook files.  It is intended to help you make great CEWE photobooks. It is not a replacement for the Cewe Creator software (and never will be). You will absolutely want to use that as well as this tool.  The problem this tool aims to solve is that it is painful, slow and cumbersome to make nice photo layouts with 5 to 15 photos in Cewe Creator. The clever auto-layout tools provided by Cewe are (for my use cases) completely unhelpful. Hence this tool.
 
 The primary workflow step I aim to dramatically improve is this one: you have 11 photos you want to place on a single page. 3 of them are more important and should be approximately 4x the size of the others, two other photos would also preferably be a bit larger than the rest, say 2x the size. You want to produce a nice-looking layout which achieves these aims, and where the photos collectively occupy most of the page (with edge gaps and internal gaps easily configurable and precisely aligned).  Perhaps you want to include 1-2 text boxes in the layout.  And you want to get that beautiful layout in seconds, not 10s of minutes... And you want to be able to press a button a see different layouts which achieve these aims, so you can pick the one you like the most.
 
 Using this tool, I've now built more than one 100+ page photobook that looks great, in very little time, and with very little hassle.  After some quick fine-tuning in CEWE's software I can then get them purchased, printed & delivered.
+
+Secondary purpose:
+
+Recover, modernise old photobooks. I have PDF files of photo-books from old software, some of them quite low quality. I have legacy Mimeo photo-books stored in ".ppb" database files from iPhoto and early Apple Photos days. I have a scanned physical album in PDF form. This tool can facilitate the process of turning those old non-editable documents into new editable CEWE photobook files, resizing them if desired, and helping you replace low-resolution photos with higher resolution originals from your library.
+
+As part of this secondary purpose, you can also merge two .mcf photobook files into a single photo-book. 
 
 **Quickstart**
 
@@ -33,7 +41,7 @@ python run_qlayout.py --cewe /path/to/My-album/data.mcf
 
 Note that on MacOS, CEWE registers the ".xmcf" directory extension with MacOS so that this directory (which contains the data.mcf file and all the photos it references), appears as a single bundle -- which you can double-click on to launch CEWE Creator and open the photobook.  If you want to peer inside the directory in the Finder, right click on it and select "Show Package Contents".
 
-**Workflow**
+**Primary Workflow**
 
 You have to work _indepedently_ in QLayout vs in Cewe Creator.  In general you should only have one of the two applications open (with the same photobook) at any one time.  So close one, work in the other, repeat until your book is done... In case you forget this "work independently" instruction, you should generally not worry about file corruption - but you should worry that important layout work you've done in one tool is going to be overwritten by the other.  So you will be wasting time and effort.
 
@@ -88,7 +96,33 @@ When photos are added:
 3. Initial layout rectangles are created (overlapping at the top of the page for easy visibility)
 4. You can then use any layout algorithm (Collage-Gen, Fan-GA, etc.) to arrange them nicely
 
-**TO DO and possible ideas**
+** Secondary workflow for importing old photo books**
+
+If you have old PDF files, or legacy Mimeo photobooks stored in .ppb files inside your Apple Photos library, this tool can import those
+fairly easily to create a new editable .mcf photobook.  Use:
+
+```bash
+python run_qlayout.py --cewe ../2012-test-converted.xmcf --originalPdf ../2012-album.pdf
+```
+
+In this first case I have an old PDF photobook from 2012, which I want to import into editable form.  And then, if necessary, apply various algorithms to identify/extract photos from each page (if the fully automatic import hasn't quite identified photos correctly).  I've used this to turn old PDFs from Mimeo-photos exports into editable photobooks again.
+
+Photo improver (experimental): building on top of the PDF import, search in a directory of photos for higher quality instances of the photos extracted from the PDF, so that you can enhance the digital photo album and potentially re-print at higher quality.  This automatic search is not that great, however, and I find it quicker just to replace all the photos manually after opening the newly editable album in CEWE Creator.
+
+and:
+
+```bash
+python -m cewe_layout.mimeo.convert_mimeo_cli \                                                        
+  --ppb "../2014-2015-library.photoslibrary/resources/projects/legacy/96877E29-2401-41E3-B0DF-090065A2EBDB.ppb" \
+  --library "../2014-2015-library.photoslibrary" \
+  --output "../2015-test-converted.xmcf" \
+  --verbose
+```
+
+In this second case I have an old Apple Photos library, containing just the photos from 2 years, which I have saved on disk as "2014-2015-library", and which contains two legacy Mimeo photo-books one of which is stored in the "96877E29-2401-41E3-B0DF-090065A2EBDB.ppb" 
+database.  Note that there is no support for more recent Mimeo photo-book formats. If you don't have a .ppb database file hidden in your Apple Photos album, then this tool can't help you.
+
+**Future, TO DO and possible ideas**
 
 - Validate we have bleed/margins correct for front and back cover ("special pages").
 - More/better layout clean-up/fine-tuning algorithms? (Gap Perfecter, Gridify, and Tree Builder all have their good and bad aspects in improving layouts).
@@ -103,10 +137,6 @@ Calendar (experimental): again limited support for editing the 12 monthly pages 
 
 PDF Export: for testing purposes, you can export a PDF file render of a single page, containing just the photos. 
 This export does not contain any of the cleverness of the cewe2pdf project, and supports no other visual features than the photos themselves. It is meant just for generating a single page collage-style multi-photo PDF.
-
-PDF import: some work towards importing an old PDF file and creating a .xmcf CEWE-compatible album from it, automatically.  Use '--originalPdf Album.pdf' on the command line.  And then, if necessary, apply various algorithms to identify/extract photos from each page (if the fully automatic import hasn't quite identified photos correctly).  I've used this to turn old PDFs from Mimeo-photos exports into editable photobooks again.
-
-Photo improver (experimental): building on top of the PDF import, search in a directory of photos for higher quality instances of the photos extracted from the PDF, so that you can enhance the digital photo album and potentially re-print at higher quality.  Some of my old Mimeo photo album pdfs are from physically small photo albums and so the resolution saved in the PDFs is sometimes very low. If I want to edit and reprint in a larger size, then help in finding the original photos is useful.
 
 **Safety features**
 

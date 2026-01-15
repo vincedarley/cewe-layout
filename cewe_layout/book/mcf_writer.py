@@ -53,7 +53,12 @@ def write_mcf_project(photobook: Photobook, output_path: str, verbose: bool = Fa
                      cover_transformer: Optional[ResizeTransformer] = None,
                      content_transformer: Optional[ResizeTransformer] = None):
     """Write photobook content as CEWE MCF project.
-    
+
+    Note the for the critical photo content, EITHER all of the photo files must
+    have already been copied to the output directory (and named appropriately),
+    OR the photobook implementation must provide image data in get_images(), and then
+    this code path will take care of writing the image files.
+
     Args:
         photobook: Photobook instance (PDFPhotobook, MimeoPhotobook, etc.)
                   The Photobook abstraction handles inside covers internally - always exposing

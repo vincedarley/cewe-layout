@@ -44,7 +44,7 @@ from .file_utils import (
     extract_metadata_from_filename,
     encode_metadata_in_filename
 )
-from .resize_gui import open_resize_window
+from .resize_gui import open_transform_window
 
 
 # Constants for MCF unit conversion and defaults
@@ -460,8 +460,8 @@ class LayoutViewer:
         orig_btn.pack(side='left', padx=(0,4))
         save_btn = ttk.Button(actions_frame, text=f'Save Modified ({mod_sym}S)', command=self.save_layout)
         save_btn.pack(side='left', padx=(0,4))
-        resize_btn = ttk.Button(actions_frame, text='Resize Book', command=self.resize_book)
-        resize_btn.pack(side='left', padx=(0,4))
+        transform_btn = ttk.Button(actions_frame, text='Transform Book', command=self.transform_book)
+        transform_btn.pack(side='left', padx=(0, 4))
         pdf_btn = ttk.Button(actions_frame, text=f'Export PDF ({mod_sym}P)', command=self.export_to_pdf)
         pdf_btn.pack(side='left', padx=(0,4))
 
@@ -4081,9 +4081,9 @@ class LayoutViewer:
         else:
             self.show_status('No more layouts to go back to.')
 
-    def resize_book(self):
+    def transform_book(self):
         """Open the resize book window."""
-        open_resize_window(self.root, self, self.mcf_file_path)
+        open_transform_window(self.root, self, self.mcf_file_path)
 
     def export_to_pdf(self):
         """Export current page to PDF with photos and white text boxes only."""
