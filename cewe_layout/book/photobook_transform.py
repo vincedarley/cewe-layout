@@ -140,9 +140,12 @@ def create_photobook_copy(
     pages = []
     
     # Copy all pages in order, using copy_page_data to handle images
-    for page in source_photobook.get_pages():
+    for index, page in source_photobook.enumerate_pages():
+        if page is None:
+            raise ValueError(f"Encountered None page at index {index}. CEWE photobooks should never have None pages.")
+            
         page_info = page.get_page_info()
-        page_num = page_info.get('page_number')
+        page_num = page.get_page_number()
         
         # Use copy_page_data with same page number (no renumbering, just copying)
         new_data = copy_page_data(
@@ -282,7 +285,11 @@ def merge_photobooks(
     """Merge two photobooks by inserting book2's content into book1.
     
     Book2's covers are converted to content pages. All of book2's pages are inserted
-    after book1's last content page. The result uses book1's covers and metadata.
+    after book1's last content page. A blank page may be inserted before book2's content
+    to ensure pages maintain their left/right orientation (book2's front cover must be
+    on a right-hand page, i.e., odd numbered).
+    
+    The result uses book1's covers and metadata.
     
     Args:
         book1: First photobook (provides covers and initial content)
@@ -306,7 +313,7 @@ def merge_photobooks(
     if N2 % 2 != 0:
         raise ValueError(f"Book2 content page count must be even (got N2={N2})")
     
-    logger.info(f"Merging photobooks: book1 (N={N1}) + book2 (N={N2}) = result (N={N1+N2+2})")
+    logger.info(f"Merging photobooks: book1 (N={N1}) + book2 (N={N2})")
     
     pages = []
     
@@ -343,49 +350,51 @@ def merge_photobooks(
         pages.append((i, page_data))
     logger.debug(f"Copied book1 pages 1..{N1} with images")
     
-    # Convert book2's front cover to content page N1+1
-    book2_front = book2.get_front_cover_page()
-    if book2_front is None:
-        raise ValueError("Book2 must have a front cover")
-    new_data = copy_page_data(
-        book2_front.get_page_info(), "F", N1+1, source_dir2, output_dir
-    )
-    pages.append((N1+1, new_data))
-    logger.info(f"Converted book2 front cover to page {N1+1}")
+    # Ensure book2's front cover goes on a RIGHT page (odd numbered)
+    # Book2's front cover was originally a RIGHT page, so we need to preserve that
+    next_page_num = N1 + 1
+    if next_page_num % 2 == 0:
+        # Next page is even (LEFT), so insert a blank page first
+        empty_template = book1.create_empty_page_template()
+        pages.append((next_page_num, empty_template))
+        logger.info(f"Inserted blank page {next_page_num} to maintain left/right orientation")
+        next_page_num += 1
     
-    # Copy book2's content pages, renumbering to N1+2 onwards
-    for i in range(1, N2+1):
-        page = book2.find_page_by_ui_num(i)
+    # Copy all pages from book2, converting them to content pages
+    for index, page in book2.enumerate_pages():
         if page is None:
-            raise ValueError(f"Missing content page {i} in book2")
+            raise ValueError(f"Encountered None page at index {index} in book2. CEWE photobooks should never have None pages.")
+        
+        old_page_num = page.get_page_number()
         new_data = copy_page_data(
-            page.get_page_info(), i, N1+1+i, source_dir2, output_dir
+            page.get_page_info(), old_page_num, next_page_num, source_dir2, output_dir
         )
-        pages.append((N1+1+i, new_data))
-    logger.debug(f"Copied book2 content pages 1..{N2} to {N1+2}..{N1+N2+1}")
+        pages.append((next_page_num, new_data))
+        next_page_num += 1
     
-    # Convert book2's back cover to content page N1+N2+2
-    book2_back = book2.get_back_cover_page()
-    if book2_back is None:
-        raise ValueError("Book2 must have a back cover")
-    new_data = copy_page_data(
-        book2_back.get_page_info(), "B", N1+N2+2, source_dir2, output_dir
-    )
-    pages.append((N1+N2+2, new_data))
-    logger.info(f"Converted book2 back cover to page {N1+N2+2}")
+    logger.info(f"Converted all {book2.get_page_count()} pages from book2 to content pages")
+    
+    # Ensure book1's inside back cover goes on a RIGHT page (odd numbered)
+    # Inside back covers are originally RIGHT pages
+    if next_page_num % 2 == 0:
+        # Next page is even (LEFT), so insert a blank page first
+        empty_template = book1.create_empty_page_template()
+        pages.append((next_page_num, empty_template))
+        logger.info(f"Inserted blank page {next_page_num} to maintain left/right orientation before inside back")
+        next_page_num += 1
     
     # Copy book1's inside back and its images
     if book1.has_inside_covers():
         inside = book1.get_inside_back_page()
         if inside:
             inside_data = copy_page_data(
-                inside.get_page_info(), N1+1, N1+N2+3, source_dir1, output_dir
+                inside.get_page_info(), N1+1, next_page_num, source_dir1, output_dir
             )
-            pages.append((N1+N2+3, inside_data))
+            pages.append((next_page_num, inside_data))
         else:
-            pages.append((N1+N2+3, book1.create_empty_page_template()))
+            pages.append((next_page_num, book1.create_empty_page_template()))
     else:
-        pages.append((N1+N2+3, book1.create_empty_page_template()))
+        pages.append((next_page_num, book1.create_empty_page_template()))
     
     # Copy book1's back cover and its images
     back1 = book1.get_back_cover_page()

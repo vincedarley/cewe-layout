@@ -30,6 +30,11 @@ class TransformWindow:
         self.book = viewer.book
         self.mcf_file_path = mcf_file_path
         
+        # Track loaded merge book
+        self.merge_book = None
+        self.merge_source_dir = None
+        self.merge_book_name = None
+        
         # Create toplevel window
         self.window = tk.Toplevel(parent)
         self.window.title('Transform Book')
@@ -135,8 +140,8 @@ class TransformWindow:
         section_frame.pack(fill='both', expand=True, pady=(0, 10))
                 
         # Create dropdown entries for each book size
-        self.size_options = []
-        self.size_keys = []
+        self.size_options = ["No change"]
+        self.size_keys = ["NO_CHANGE"]
         
         for book_key, dimensions in BOOK_SIZES.items():
             # Use content page dimensions for display (spread dimensions, so divide by 2 for single page)
@@ -198,14 +203,14 @@ class TransformWindow:
         # Left side: Cover pages
         cover_frame = ttk.LabelFrame(info_container, text='Cover Pages', padding=5)
         cover_frame.pack(side='left', fill='both', expand=True, padx=(0, 5))
-        self.info_cover_text = tk.Text(cover_frame, height=12, width=30, wrap='word', 
+        self.info_cover_text = tk.Text(cover_frame, height=8, width=30, wrap='word',
                                        font=('TkDefaultFont', 9), state='disabled')
         self.info_cover_text.pack(fill='both', expand=True)
         
         # Right side: Content pages
         content_frame = ttk.LabelFrame(info_container, text='Content Pages', padding=5)
         content_frame.pack(side='left', fill='both', expand=True)
-        self.info_content_text = tk.Text(content_frame, height=12, width=30, wrap='word', 
+        self.info_content_text = tk.Text(content_frame, height=8, width=30, wrap='word',
                                          font=('TkDefaultFont', 9), state='disabled')
         self.info_content_text.pack(fill='both', expand=True)
         
@@ -224,36 +229,27 @@ class TransformWindow:
             self._set_info_text(self.info_content_text, '')
             return
         
-        # Get selected target size
-        selected = self.size_var.get()
-        if not selected or selected not in self.size_options:
-            self._set_info_text(self.info_cover_text, '')
-            self._set_info_text(self.info_content_text, '')
+        # Get transformers (will be None if "No change" is selected)
+        cover_transformer, content_transformer = self._get_transformers()
+        
+        # Handle "No change" case
+        if cover_transformer is None or content_transformer is None:
+            self._set_info_text(self.info_cover_text, 'No transformation applied')
+            self._set_info_text(self.info_content_text, 'No transformation applied')
             return
         
-        # Find the corresponding book size key
-        selected_index = self.size_options.index(selected)
-        selected_key = self.size_keys[selected_index]
+        # Calculate resize impact using the actual transformers
+        cover_impact = calculate_resize_impact(
+            self.current_cover_width, 
+            self.current_cover_height,
+            cover_transformer
+        )
         
-        # Get target dimensions
-        dimensions = BOOK_SIZES[selected_key]
-        target_cover_width = dimensions['coverWidth'] / 2
-        target_cover_height = dimensions['coverHeight']
-        target_content_width = dimensions['pageWidth'] / 2
-        target_content_height = dimensions['pageHeight']
-        
-        # Get selected scaling rule
-        scaling_rule = self.scaling_var.get()
-        
-        # Calculate resize impact for covers (assume 3mm bleed as typical)
-        cover_impact = calculate_resize_impact(self.current_cover_width, self.current_cover_height,
-                                               target_cover_width, target_cover_height,
-                                               scaling_rule, bleed_mm=3)
-        
-        # Calculate resize impact for content pages
-        content_impact = calculate_resize_impact(self.current_content_width, self.current_content_height,
-                                                 target_content_width, target_content_height,
-                                                 scaling_rule, bleed_mm=3)
+        content_impact = calculate_resize_impact(
+            self.current_content_width, 
+            self.current_content_height,
+            content_transformer
+        )
         
         # Format and display both
         self._set_info_text(self.info_cover_text, self._format_impact(cover_impact))
@@ -315,7 +311,7 @@ class TransformWindow:
         if impact['photo_crop_pct'] > 0.1:
             lines.append(f'Est. photo crop: {impact["photo_crop_pct"]:.1f}%')
         
-        return '\n'.join(lines)
+        return ''.join(lines)
     
     def _set_info_text(self, text_widget, text):
         """Set a text widget content.
@@ -328,6 +324,56 @@ class TransformWindow:
         text_widget.delete('1.0', 'end')
         text_widget.insert('1.0', text)
         text_widget.config(state='disabled')
+    
+    def _get_transformers(self):
+        """Get resize transformers for current size and scaling selections.
+        
+        Returns:
+            Tuple of (cover_transformer, content_transformer) or (None, None) if invalid or no change
+        """
+        # Get selected target size
+        selected = self.size_var.get()
+        if not selected or selected not in self.size_options:
+            return None, None
+        
+        # Find the corresponding book size key
+        selected_index = self.size_options.index(selected)
+        selected_key = self.size_keys[selected_index]
+        
+        # Handle "No change" option
+        if selected_key == "NO_CHANGE":
+            return None, None
+        
+        # Get target dimensions
+        dimensions = BOOK_SIZES[selected_key]
+        target_cover_width = dimensions['coverWidth'] / 2
+        target_cover_height = dimensions['coverHeight']
+        target_content_width = dimensions['pageWidth'] / 2
+        target_content_height = dimensions['pageHeight']
+        
+        # Get selected scaling rule
+        scaling_rule = self.scaling_var.get()
+        
+        # Create ResizeTransformers
+        cover_transformer = ResizeTransformer(
+            self.current_cover_width,
+            self.current_cover_height,
+            int(target_cover_width),
+            int(target_cover_height),
+            scaling_rule,
+            bleed_mm=3
+        )
+        
+        content_transformer = ResizeTransformer(
+            self.current_content_width,
+            self.current_content_height,
+            int(target_content_width),
+            int(target_content_height),
+            scaling_rule,
+            bleed_mm=3
+        )
+        
+        return cover_transformer, content_transformer
     
     def _create_action_buttons_section(self, parent):
         """Create the section with action buttons and name input.
@@ -351,15 +397,15 @@ class TransformWindow:
         )
         retain_checkbox.pack(fill='x', pady=(0, 10))
         
-        # Save and Merge buttons on same line
-        buttons_frame = ttk.Frame(section_frame)
-        buttons_frame.pack(fill='x', pady=(0, 10))
+        # Merge book button and info label
+        merge_frame = ttk.Frame(section_frame)
+        merge_frame.pack(fill='x', pady=(0, 10))
         
-        save_btn = ttk.Button(buttons_frame, text='Save As Resized', command=self._save_resized)
-        save_btn.pack(side='left', padx=(0, 5))
+        merge_btn = ttk.Button(merge_frame, text='Merge Book...', command=self._load_merge_book)
+        merge_btn.pack(side='left', padx=(0, 5))
         
-        merge_btn = ttk.Button(buttons_frame, text='Merge Another Book', command=self._merge_another_book)
-        merge_btn.pack(side='left')
+        self.merge_info_label = ttk.Label(merge_frame, text='', foreground='gray')
+        self.merge_info_label.pack(side='left', fill='x', expand=True)
         
         # Label and name input field
         name_label = ttk.Label(section_frame, text='Name of new book:')
@@ -374,49 +420,17 @@ class TransformWindow:
         
         self.name_var = tk.StringVar(value=current_name)
         name_entry = ttk.Entry(section_frame, textvariable=self.name_var)
-        name_entry.pack(fill='x')
+        name_entry.pack(fill='x', pady=(0, 10))
+        
+        # Save Transformed Book button at bottom
+        save_btn = ttk.Button(section_frame, text='Save Transformed Book', command=self._save_resized)
+        save_btn.pack(fill='x')
     
     def _view_resized(self):
         """View the resized photobook."""
-        # Get selected target size
-        selected = self.size_var.get()
-        if not selected or selected not in self.size_options:
-            return
+        cover_transformer, content_transformer = self._get_transformers()
         
-        # Find the corresponding book size key
-        selected_index = self.size_options.index(selected)
-        selected_key = self.size_keys[selected_index]
-        
-        # Get target dimensions
-        dimensions = BOOK_SIZES[selected_key]
-        target_cover_width = dimensions['coverWidth'] / 2
-        target_cover_height = dimensions['coverHeight']
-        target_content_width = dimensions['pageWidth'] / 2
-        target_content_height = dimensions['pageHeight']
-        
-        # Get selected scaling rule
-        scaling_rule = self.scaling_var.get()
-        
-        # Create ResizeTransformer for covers
-        cover_transformer = ResizeTransformer(
-            self.current_cover_width,
-            self.current_cover_height,
-            int(target_cover_width),
-            int(target_cover_height),
-            scaling_rule,
-            bleed_mm=3
-        )
-        
-        # Create ResizeTransformer for content pages
-        content_transformer = ResizeTransformer(
-            self.current_content_width,
-            self.current_content_height,
-            int(target_content_width),
-            int(target_content_height),
-            scaling_rule,
-            bleed_mm=3
-        )
-        
+        # Note: transformers can be None for "No change" option
         # Set transformers on the viewer (triggers re-render)
         self.viewer.set_resize_transformers(cover_transformer, content_transformer)
         
@@ -462,42 +476,11 @@ class TransformWindow:
             messagebox.showerror("Error", "Please enter a name for the resized photobook")
             return
         
-        # Validate selections
-        selected = self.size_var.get()
-        if not selected or selected not in self.size_options:
-            messagebox.showerror("Error", "Please select a target book size")
-            return
+        # Get transformers (can be None for "No change" option)
+        cover_transformer, content_transformer = self._get_transformers()
         
-        # Get target dimensions and transformers (same as _view_resized)
-        selected_index = self.size_options.index(selected)
-        selected_key = self.size_keys[selected_index]
-        
-        dimensions = BOOK_SIZES[selected_key]
-        target_cover_width = dimensions['coverWidth'] / 2
-        target_cover_height = dimensions['coverHeight']
-        target_content_width = dimensions['pageWidth'] / 2
-        target_content_height = dimensions['pageHeight']
-        
-        scaling_rule = self.scaling_var.get()
-        
-        # Create ResizeTransformers
-        cover_transformer = ResizeTransformer(
-            self.current_cover_width,
-            self.current_cover_height,
-            int(target_cover_width),
-            int(target_cover_height),
-            scaling_rule,
-            bleed_mm=3
-        )
-        
-        content_transformer = ResizeTransformer(
-            self.current_content_width,
-            self.current_content_height,
-            int(target_content_width),
-            int(target_content_height),
-            scaling_rule,
-            bleed_mm=3
-        )
+        # Get scaling rule for success message
+        scaling_rule = self.scaling_var.get() if cover_transformer is not None else "No change"
         
         # Determine output directory path (sibling to current photobook)
         if not self.mcf_file_path:
@@ -526,7 +509,7 @@ class TransformWindow:
             # Check if we need to rearrange inside covers
             inside_cover_info = ""
             
-            if self.retain_inside_covers_var.get() and self._has_inside_cover_content():
+            if self.retain_inside_covers_var.get() and self.book.has_content_on_inside_covers():
                 # Move inside covers to end as new content pages
                 logger.info("Transforming photobook to move inside covers to end")
                 book_to_save = create_photobook_with_inside_covers_at_end(
@@ -547,6 +530,26 @@ class TransformWindow:
                     output_dir
                 )
             
+            # Merge another book if one was loaded
+            merge_info = ""
+            if self.merge_book is not None:
+                logger.info(f"Merging in loaded book: {self.merge_book_name}")
+                N1 = book_to_save.get_content_page_count()
+                N2 = self.merge_book.get_content_page_count()
+                
+                book_to_save = merge_photobooks(
+                    book_to_save,
+                    self.merge_book,
+                    current_dir,
+                    self.merge_source_dir,
+                    output_dir
+                )
+                
+                merge_info = (f"\n\nMerged with {self.merge_book_name}:\n"
+                            f"  Book 1: {N1} pages\n"
+                            f"  Book 2: {N2} pages (covers converted to content)\n"
+                            f"  Result: {N1+N2+2} pages")
+            
             # Write the transformed MCF file
             write_mcf_project(
                 book_to_save,
@@ -561,10 +564,11 @@ class TransformWindow:
             
             messagebox.showinfo(
                 "Success",
-                f"Resized photobook saved to:\n{output_dir}\n\n"
+                f"Photobook saved to:\n{output_dir}\n\n"
                 f"Copied {photo_count} photos\n"
                 f"Scaling: {scaling_rule}"
                 f"{inside_cover_info}"
+                f"{merge_info}"
             )
             
         except Exception as e:
@@ -574,28 +578,7 @@ class TransformWindow:
             if output_dir.exists():
                 shutil.rmtree(output_dir)
             raise
-    
-    def _has_inside_cover_content(self) -> bool:
-        """Check if inside covers have any photos or text."""
-        if not self.book.has_inside_covers():
-            return False
         
-        inside_front = self.book.get_inside_front_page()
-        inside_back = self.book.get_inside_back_page()
-        
-        has_content = False
-        if inside_front:
-            page_info = inside_front.get_page_info()
-            has_content = has_content or len(page_info.get('photos', [])) > 0
-            has_content = has_content or len(page_info.get('texts', [])) > 0
-        
-        if inside_back:
-            page_info = inside_back.get_page_info()
-            has_content = has_content or len(page_info.get('photos', [])) > 0
-            has_content = has_content or len(page_info.get('texts', [])) > 0
-        
-        return has_content
-    
     def _count_photos(self, directory: Path) -> int:
         """Count image files in a directory.
         
@@ -611,16 +594,13 @@ class TransformWindow:
                 len(list(directory.glob('*.[hH][eE][iI][fF]'))) +
                 len(list(directory.glob('*.[hH][eE][iI][cC]'))))
     
-    def _merge_another_book(self):
-        """Merge another photobook into the current one."""
-        # On macOS, .xmcf directories are treated as bundles/packages and can't be selected
-        # with askopenfilename. We need to use askdirectory instead.
-        # Offer both options: select a directory OR select a file
+    def _load_merge_book(self):
+        """Load another photobook to merge (doesn't write anything yet)."""
         file_path = filedialog.askopenfilename(
-            title="Select photobook file to merge (data.mcf or .mcf file)",
+            title="Select photobook file to merge (.xmcf or .mcf file)",
         )
         if not file_path:
-            return  # User cancelled both dialogs
+            return
         
         file_path = Path(file_path)
         
@@ -628,7 +608,7 @@ class TransformWindow:
         from .parser import resolve_mcf_path
         try:
             mcf_file = Path(resolve_mcf_path(str(file_path)))
-            source_dir2 = mcf_file.parent
+            source_dir = mcf_file.parent
         except FileNotFoundError as e:
             messagebox.showerror("Error", f"Could not find MCF file: {e}")
             return
@@ -636,77 +616,33 @@ class TransformWindow:
         try:
             # Load the second photobook
             logger.info(f"Loading second photobook from {mcf_file}")
-            mcf_root2 = parse_mcf_from_path(str(mcf_file))
-            book2 = extract_pages_info(mcf_root2)
+            mcf_root = parse_mcf_from_path(str(mcf_file))
+            book = extract_pages_info(mcf_root)
             
-            # Get output directory name from UI
-            output_name = self.name_var.get().strip()
-            if not output_name:
-                messagebox.showerror("Error", "Please enter a name for the merged photobook")
-                return
+            # Store for later use
+            self.merge_book = book
+            self.merge_source_dir = source_dir
+            self.merge_book_name = source_dir.name
             
-            # Determine output directory path
-            if not self.mcf_file_path:
-                messagebox.showerror("Error", "No photobook file path available")
-                return
+            # Count photos in source directory
+            photo_count = self._count_photos(source_dir)
+            page_count = book.get_content_page_count()
             
-            current_dir = Path(self.mcf_file_path).parent
-            parent_dir = current_dir.parent
-            output_dir = parent_dir / output_name
-            
-            # Check if output directory already exists
-            if output_dir.exists():
-                response = messagebox.askyesno(
-                    "Directory Exists",
-                    f"Directory '{output_name}' already exists. Overwrite?"
-                )
-                if not response:
-                    return
-                # Remove existing directory
-                shutil.rmtree(output_dir)
-            
-            # Create output directory
-            output_dir.mkdir(parents=True, exist_ok=True)
-            
-            # Merge the photobooks
-            logger.info(f"Merging photobooks: {current_dir.name} + {source_dir2.name}")
-            merged_book = merge_photobooks(
-                self.book,
-                book2,
-                current_dir,
-                source_dir2,
-                output_dir
+            # Update info label
+            self.merge_info_label.config(
+                text=f"{self.merge_book_name}: {page_count} pages, {photo_count} photos",
+                foreground='blue'
             )
             
-            # Write the merged book to disk
-            write_mcf_project(
-                merged_book,
-                str(output_dir),
-                verbose=True
-            )
-            
-            # Success message
-            N1 = self.book.get_content_page_count()
-            N2 = book2.get_content_page_count()
-            photo_count = self._count_photos(output_dir)
-            
-            messagebox.showinfo(
-                "Success",
-                f"Photobooks merged successfully!\n\n"
-                f"Output: {output_dir}\n\n"
-                f"Book 1: {N1} pages\n"
-                f"Book 2: {N2} pages (covers converted to content)\n"
-                f"Result: {N1+N2+2} pages\n\n"
-                f"Copied {photo_count} photos"
-            )
+            logger.info(f"Loaded merge book: {page_count} pages, {photo_count} photos")
             
         except Exception as e:
-            logger.exception("Failed to merge photobooks")
-            messagebox.showerror("Error", f"Failed to merge photobooks:\n{str(e)}")
-            # Clean up partial output on failure
-            if output_dir.exists():
-                shutil.rmtree(output_dir)
-            raise
+            logger.exception("Failed to load merge book")
+            messagebox.showerror("Error", f"Failed to load merge book:\n{str(e)}")
+            self.merge_book = None
+            self.merge_source_dir = None
+            self.merge_book_name = None
+            self.merge_info_label.config(text='', foreground='gray')
 
 
 def open_transform_window(parent, viewer, mcf_file_path):

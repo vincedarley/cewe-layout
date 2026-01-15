@@ -264,5 +264,25 @@ class Photobook(ABC):
         for i in range(self.get_page_count()):
             yield (i, self.get_page(i))
 
+    def has_content_on_inside_covers(self) -> bool:
+        """Check if inside covers have any photos or text."""
+        if not self.has_inside_covers():
+            return False
+        
+        inside_front = self.get_inside_front_page()
+        inside_back = self.get_inside_back_page()
+        
+        has_content = False
+        if inside_front:
+            page_info = inside_front.get_page_info()
+            has_content = has_content or len(page_info.get('photos', [])) > 0
+            has_content = has_content or len(page_info.get('texts', [])) > 0
+        
+        if inside_back:
+            page_info = inside_back.get_page_info()
+            has_content = has_content or len(page_info.get('photos', [])) > 0
+            has_content = has_content or len(page_info.get('texts', [])) > 0
+        
+        return has_content
 
 

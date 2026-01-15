@@ -55,17 +55,17 @@ def find_closest_book_size(width: int, height: int) -> str:
 
 
 def calculate_resize_impact(old_width: float, old_height: float, 
-                           new_width: float, new_height: float,
-                           scaling_rule: str, bleed_mm: float = 0) -> dict:
-    """Calculate the impact of resizing a page with a given scaling rule.
+                           transformer: 'ResizeTransformer') -> dict:
+    """Calculate the impact of resizing a page by analyzing transformer output.
+    
+    Instead of duplicating transformation logic, this function uses the actual
+    transformer to transform a test rectangle (the full page) and analyzes the
+    result to determine the impact.
     
     Args:
         old_width: Current page width in MCF units
         old_height: Current page height in MCF units
-        new_width: Target page width in MCF units
-        new_height: Target page height in MCF units
-        scaling_rule: One of the 5 scaling options
-        bleed_mm: Bleed amount in mm (typically 0 or 3)
+        transformer: ResizeTransformer to analyze
     
     Returns:
         Dictionary containing:
@@ -83,7 +83,9 @@ def calculate_resize_impact(old_width: float, old_height: float,
             - 'scale_y': Vertical scaling factor
     """
     MM_TO_MCF = 10.0
-    bleed_mcf = bleed_mm * MM_TO_MCF
+    
+    # Get new dimensions from transformer
+    new_width, new_height = transformer.transform_page_dimensions()
     
     # Initialize result
     result = {
@@ -97,8 +99,8 @@ def calculate_resize_impact(old_width: float, old_height: float,
         'margin_bottom_mm': 0,
         'aspect_ratio_change_pct': 0,
         'photo_crop_pct': 0,
-        'scale_x': 1.0,
-        'scale_y': 1.0,
+        'scale_x': transformer.scale_x,
+        'scale_y': transformer.scale_y,
     }
     
     # Calculate old and new aspect ratios
@@ -107,146 +109,61 @@ def calculate_resize_impact(old_width: float, old_height: float,
     aspect_change_pct = ((new_aspect - old_aspect) / old_aspect) * 100
     result['aspect_ratio_change_pct'] = aspect_change_pct
     
-    # Calculate content area (excluding bleed)
+    # Transform a test rectangle that represents the entire page content area
+    # (excluding bleed). This will tell us how content is mapped.
+    bleed_mcf = transformer.bleed_mcf
     old_content_width = old_width - 2 * bleed_mcf
     old_content_height = old_height - 2 * bleed_mcf
     new_content_width = new_width - 2 * bleed_mcf
     new_content_height = new_height - 2 * bleed_mcf
     
-    if scaling_rule == 'None':
-        # No scaling, just place content
-        # Content keeps its original size
-        result['scale_x'] = 1.0
-        result['scale_y'] = 1.0
-        
-        # Calculate margins/cropping (no centering)
-        # Horizontal
-        width_diff_mcf = new_content_width - old_content_width
-        if width_diff_mcf > 0:
-            # New page is wider - add margin on right
-            result['margin_right_mm'] = width_diff_mcf / MM_TO_MCF
-        else:
-            # New page is narrower - crop right
-            result['crop_right_mm'] = -width_diff_mcf / MM_TO_MCF
-        
-        # Vertical
-        height_diff_mcf = new_content_height - old_content_height
-        if height_diff_mcf > 0:
-            # New page is taller - add margin on bottom
-            result['margin_bottom_mm'] = height_diff_mcf / MM_TO_MCF
-        else:
-            # New page is shorter - crop bottom
-            result['crop_bottom_mm'] = -height_diff_mcf / MM_TO_MCF
+    # Transform the content rectangle (left page, so origin_left = 0)
+    # Start at (0, 0) with size (old_content_width, old_content_height)
+    new_left, new_top, transformed_width, transformed_height = transformer.transform_rect(
+        0, 0, old_content_width, old_content_height, origin_left=0
+    )
     
-    elif scaling_rule == 'None (center on page)':
-        # No scaling, but center content
-        result['scale_x'] = 1.0
-        result['scale_y'] = 1.0
-        
-        # Horizontal
-        width_diff_mcf = new_content_width - old_content_width
-        if width_diff_mcf > 0:
-            # New page is wider - split margin equally
-            margin_each = width_diff_mcf / 2 / MM_TO_MCF
-            result['margin_left_mm'] = margin_each
-            result['margin_right_mm'] = margin_each
-        else:
-            # New page is narrower - split crop equally
-            crop_each = -width_diff_mcf / 2 / MM_TO_MCF
-            result['crop_left_mm'] = crop_each
-            result['crop_right_mm'] = crop_each
-        
-        # Vertical
-        height_diff_mcf = new_content_height - old_content_height
-        if height_diff_mcf > 0:
-            # New page is taller - split margin equally
-            margin_each = height_diff_mcf / 2 / MM_TO_MCF
-            result['margin_top_mm'] = margin_each
-            result['margin_bottom_mm'] = margin_each
-        else:
-            # New page is shorter - split crop equally
-            crop_each = -height_diff_mcf / 2 / MM_TO_MCF
-            result['crop_top_mm'] = crop_each
-            result['crop_bottom_mm'] = crop_each
+    # Analyze the transformation result
+    # If content starts at negative position, it's cropped from that edge
+    # If content ends before the page edge, there's a margin on that edge
     
-    elif scaling_rule == 'Fit (may have margins)':
-        # Scale uniformly to fit, tightest dimension fits exactly
-        scale_x = new_content_width / old_content_width
-        scale_y = new_content_height / old_content_height
-        scale = min(scale_x, scale_y)  # Use tightest dimension
-        
-        result['scale_x'] = scale
-        result['scale_y'] = scale
-        
-        # Scaled content dimensions
-        scaled_width = old_content_width * scale
-        scaled_height = old_content_height * scale
-        
-        # Calculate margins (centering scaled content)
-        width_diff_mcf = new_content_width - scaled_width
-        if width_diff_mcf > 0:
-            margin_each = width_diff_mcf / 2 / MM_TO_MCF
-            result['margin_left_mm'] = margin_each
-            result['margin_right_mm'] = margin_each
-        
-        height_diff_mcf = new_content_height - scaled_height
-        if height_diff_mcf > 0:
-            margin_each = height_diff_mcf / 2 / MM_TO_MCF
-            result['margin_top_mm'] = margin_each
-            result['margin_bottom_mm'] = margin_each
-        
-        # No cropping with this option (it creates margins instead)
+    # Left edge
+    if new_left < 0:
+        result['crop_left_mm'] = -new_left / MM_TO_MCF
+    elif new_left > 0:
+        result['margin_left_mm'] = new_left / MM_TO_MCF
     
-    elif scaling_rule == 'Fill (crop to avoid margins)':
-        # Scale uniformly to fill, loosest dimension fills exactly
-        scale_x = new_content_width / old_content_width
-        scale_y = new_content_height / old_content_height
-        scale = max(scale_x, scale_y)  # Use loosest dimension to fill
-        
-        result['scale_x'] = scale
-        result['scale_y'] = scale
-        
-        # Scaled content dimensions
-        scaled_width = old_content_width * scale
-        scaled_height = old_content_height * scale
-        
-        # Calculate cropping (centering scaled content)
-        width_diff_mcf = scaled_width - new_content_width
-        if width_diff_mcf > 0:
-            crop_each = width_diff_mcf / 2 / MM_TO_MCF
-            result['crop_left_mm'] = crop_each
-            result['crop_right_mm'] = crop_each
-        
-        height_diff_mcf = scaled_height - new_content_height
-        if height_diff_mcf > 0:
-            crop_each = height_diff_mcf / 2 / MM_TO_MCF
-            result['crop_top_mm'] = crop_each
-            result['crop_bottom_mm'] = crop_each
-        
-        # Estimate photo cropping due to uniform scaling with different aspect ratio
-        if abs(aspect_change_pct) > 0.01:
-            # Photos will be cropped to fit their rectangles
-            # The tighter dimension determines the crop percentage
-            aspect_ratio_factor = abs(1 - old_aspect / new_aspect)
-            result['photo_crop_pct'] = aspect_ratio_factor * 100
+    # Top edge
+    if new_top < 0:
+        result['crop_top_mm'] = -new_top / MM_TO_MCF
+    elif new_top > 0:
+        result['margin_top_mm'] = new_top / MM_TO_MCF
     
-    elif scaling_rule == 'Fill (may change aspect ratio)':
-        # Scale each dimension independently to fill exactly
-        scale_x = new_content_width / old_content_width
-        scale_y = new_content_height / old_content_height
-        
-        result['scale_x'] = scale_x
-        result['scale_y'] = scale_y
-        
-        # No margins or cropping of the page content - fills exactly
-        # However, layout rectangles now have different aspect ratios
-        # Photos are cropped to fit their rectangles, so aspect ratio change
-        # means photos will be cropped differently
-        if abs(aspect_change_pct) > 0.01:
-            # Photos will be cropped to fit rectangles with new aspect ratio
-            # Estimate the crop percentage based on aspect ratio change
-            aspect_ratio_factor = abs(1 - old_aspect / new_aspect)
-            result['photo_crop_pct'] = aspect_ratio_factor * 100
+    # Right edge
+    new_right = new_left + transformed_width
+    if new_right > new_content_width:
+        result['crop_right_mm'] = (new_right - new_content_width) / MM_TO_MCF
+    elif new_right < new_content_width:
+        result['margin_right_mm'] = (new_content_width - new_right) / MM_TO_MCF
+    
+    # Bottom edge
+    new_bottom = new_top + transformed_height
+    if new_bottom > new_content_height:
+        result['crop_bottom_mm'] = (new_bottom - new_content_height) / MM_TO_MCF
+    elif new_bottom < new_content_height:
+        result['margin_bottom_mm'] = (new_content_height - new_bottom) / MM_TO_MCF
+    
+    # Estimate photo cropping for non-uniform scaling or aspect ratio changes
+    if abs(result['scale_x'] - result['scale_y']) > 0.001:
+        # Non-uniform scaling - aspect ratio of rectangles changed
+        # Photos will be cropped to fit their rectangles
+        aspect_ratio_factor = abs(1 - old_aspect / new_aspect)
+        result['photo_crop_pct'] = aspect_ratio_factor * 100
+    elif abs(aspect_change_pct) > 0.01 and transformer.scale_x == transformer.scale_y:
+        # Uniform scaling but different page aspect ratios
+        # Photos in repositioned rectangles may experience different cropping
+        aspect_ratio_factor = abs(1 - old_aspect / new_aspect)
+        result['photo_crop_pct'] = aspect_ratio_factor * 100
     
     return result
 
