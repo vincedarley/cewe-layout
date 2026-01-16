@@ -52,7 +52,9 @@ def copy_page_data(
     old_page_number: Union[str, int],
     new_page_number: Union[str, int],
     source_dir: Path,
-    output_dir: Path
+    output_dir: Path,
+    photo_prefix: Optional[str] = None,
+    photo_counter: Optional[List[int]] = None
 ) -> Dict[str, Any]:
     """Copy page data, updating image filenames and copying image files.
     
@@ -65,6 +67,9 @@ def copy_page_data(
         new_page_number: New page number (for filename encoding, may equal old_page_number)
         source_dir: Directory containing source images
         output_dir: Directory to copy images to
+        photo_prefix: Optional prefix for unified photo renaming (e.g., "vacation2024")
+        photo_counter: Optional mutable list [counter] that increments for each photo in the book.
+                      If provided with photo_prefix, photos are renamed to {prefix}p{counter:03d}_sz_pg.ext
         
     Returns:
         Updated page data dict with new filenames
@@ -89,9 +94,30 @@ def copy_page_data(
             
             # Validation: if filename has page number, it should match expected old_page_number
             if page_from_filename is not None and page_from_filename != old_page_number:
-                logger.warning(f"Page number mismatch: filename {old_filename} has {page_from_filename}, expected {old_page_number}. This can happen if you've been re-arranging pages with CEWE. We will automatically adjust.")
+                logger.warning(f"Page number mismatch: filename {old_filename} has {page_from_filename}, expected {old_page_number}. This can happen if you've been re-arranging pages with CEWE. We will automatically fix this.")
             
-            new_filename = encode_metadata_in_filename(base_name, size, new_page_number)
+            # Handle unified photo renaming if prefix is provided
+            if photo_prefix and photo_counter is not None:
+                # Get file extension from original filename
+                old_path = Path(old_filename.replace('safecontainer:/', ''))
+                extension = old_path.suffix
+                
+                # Format counter: 3 digits minimum (000-999), grows beyond that
+                counter_str = f"{photo_counter[0]:03d}" if photo_counter[0] < 1000 else str(photo_counter[0])
+                
+                # Build new base name: {prefix}p{counter}
+                new_base_name = f"{photo_prefix}p{counter_str}{extension}"
+                
+                # Encode with size and page metadata
+                new_filename = encode_metadata_in_filename(new_base_name, size, new_page_number)
+                
+                # Increment counter for next photo
+                photo_counter[0] += 1
+                
+                logger.debug(f"Renamed photo: {base_name} -> {new_base_name} (counter={photo_counter[0]-1})")
+            else:
+                # Standard renaming (just update page number)
+                new_filename = encode_metadata_in_filename(base_name, size, new_page_number)
             
             # Handle safecontainer prefix
             if old_filename.startswith('safecontainer:/'):
@@ -126,7 +152,8 @@ def build_cewe_photobook(
 def create_photobook_copy(
     source_photobook: Photobook,
     source_dir: Path,
-    output_dir: Path
+    output_dir: Path,
+    photo_prefix: Optional[str] = None
 ) -> CEWEPhotobook:
     """Create a copy of a photobook with all images copied to output directory.
     
@@ -137,11 +164,15 @@ def create_photobook_copy(
         source_photobook: Source photobook to copy
         source_dir: Directory containing source images
         output_dir: Directory to copy images to (should already exist)
+        photo_prefix: Optional prefix for unified photo renaming (e.g., "vacation2024")
         
     Returns:
         New CEWEPhotobook with copied pages and images
     """
     logger.info(f"Creating photobook copy: {source_photobook.get_page_count()} pages")
+    
+    # Initialize photo counter if prefix is provided
+    photo_counter = [0] if photo_prefix else None
     
     pages = []
     
@@ -155,7 +186,8 @@ def create_photobook_copy(
         
         # Use copy_page_data with same page number (no renumbering, just copying)
         new_data = copy_page_data(
-            page_info, page_num, page_num, source_dir, output_dir
+            page_info, page_num, page_num, source_dir, output_dir,
+            photo_prefix, photo_counter
         )
         pages.append((page_num, new_data))
     
@@ -167,7 +199,8 @@ def create_photobook_copy(
 def create_photobook_with_inside_covers_at_end(
     source_photobook: Photobook,
     source_dir: Path,
-    output_dir: Path
+    output_dir: Path,
+    photo_prefix: Optional[str] = None
 ) -> CEWEPhotobook:
     """Create new photobook with inside cover content moved to new pages at end.
     
@@ -186,6 +219,7 @@ def create_photobook_with_inside_covers_at_end(
         source_photobook: Source photobook to transform
         source_dir: Directory containing source images
         output_dir: Directory to copy images to (should already exist)
+        photo_prefix: Optional prefix for unified photo renaming (e.g., "vacation2024")
         
     Returns:
         New CEWEPhotobook with rearranged pages
@@ -201,6 +235,9 @@ def create_photobook_with_inside_covers_at_end(
     
     logger.info(f"Transforming photobook: moving inside covers to end (N={N} -> N+4={N+4})")
     
+    # Initialize photo counter if prefix is provided
+    photo_counter = [0] if photo_prefix else None
+    
     pages = []
     
     # 1. Copy front cover (and its images)
@@ -208,7 +245,8 @@ def create_photobook_with_inside_covers_at_end(
     if front is None:
         raise ValueError("Source photobook must have a front cover")
     front_data = copy_page_data(
-        front.get_page_info(), "F", "F", source_dir, output_dir
+        front.get_page_info(), "F", "F", source_dir, output_dir,
+        photo_prefix, photo_counter
     )
     pages.append(("F", front_data))
     
@@ -223,7 +261,8 @@ def create_photobook_with_inside_covers_at_end(
         if page is None:
             raise ValueError(f"Missing content page {i}")
         page_data = copy_page_data(
-            page.get_page_info(), i, i, source_dir, output_dir
+            page.get_page_info(), i, i, source_dir, output_dir,
+            photo_prefix, photo_counter
         )
         pages.append((i, page_data))
     logger.debug(f"Copied content pages 1..{N} with images")
@@ -239,7 +278,8 @@ def create_photobook_with_inside_covers_at_end(
     old_inside_front = source_photobook.get_inside_front_page()
     if old_inside_front and _has_content(old_inside_front):
         new_data = copy_page_data(
-            old_inside_front.get_page_info(), 0, N+2, source_dir, output_dir
+            old_inside_front.get_page_info(), 0, N+2, source_dir, output_dir,
+            photo_prefix, photo_counter
         )
         pages.append((N+2, new_data))
         logger.info(f"Moved old inside front cover content to page {N+2}")
@@ -251,7 +291,8 @@ def create_photobook_with_inside_covers_at_end(
     old_inside_back = source_photobook.get_inside_back_page()
     if old_inside_back and _has_content(old_inside_back):
         new_data = copy_page_data(
-            old_inside_back.get_page_info(), N+1, N+3, source_dir, output_dir
+            old_inside_back.get_page_info(), N+1, N+3, source_dir, output_dir,
+            photo_prefix, photo_counter
         )
         pages.append((N+3, new_data))
         logger.info(f"Moved old inside back cover content to page {N+3}")
@@ -272,7 +313,8 @@ def create_photobook_with_inside_covers_at_end(
     if back is None:
         raise ValueError("Source photobook must have a back cover")
     back_data = copy_page_data(
-        back.get_page_info(), "B", "B", source_dir, output_dir
+        back.get_page_info(), "B", "B", source_dir, output_dir,
+        photo_prefix, photo_counter
     )
     pages.append(("B", back_data))
     
@@ -286,7 +328,8 @@ def merge_photobooks(
     book2: Photobook,
     source_dir1: Path,
     source_dir2: Path,
-    output_dir: Path
+    output_dir: Path,
+    photo_prefix: Optional[str] = None
 ) -> CEWEPhotobook:
     """Merge two photobooks by inserting book2's content into book1.
     
@@ -303,6 +346,7 @@ def merge_photobooks(
         source_dir1: Directory containing book1's images
         source_dir2: Directory containing book2's images
         output_dir: Directory to copy images to (should already exist)
+        photo_prefix: Optional prefix for unified photo renaming (e.g., "vacation2024")
         
     Returns:
         New CEWEPhotobook with merged content
@@ -321,6 +365,9 @@ def merge_photobooks(
     
     logger.info(f"Merging photobooks: book1 (N={N1}) + book2 (N={N2})")
     
+    # Initialize photo counter if prefix is provided
+    photo_counter = [0] if photo_prefix else None
+    
     pages = []
     
     # Copy book1's front cover and its images
@@ -328,7 +375,8 @@ def merge_photobooks(
     if front1 is None:
         raise ValueError("Book1 must have a front cover")
     front1_data = copy_page_data(
-        front1.get_page_info(), "F", "F", source_dir1, output_dir
+        front1.get_page_info(), "F", "F", source_dir1, output_dir,
+        photo_prefix, photo_counter
     )
     pages.append(("F", front1_data))
     
@@ -337,7 +385,8 @@ def merge_photobooks(
         inside = book1.get_inside_front_page()
         if inside:
             inside_data = copy_page_data(
-                inside.get_page_info(), 0, 0, source_dir1, output_dir
+                inside.get_page_info(), 0, 0, source_dir1, output_dir,
+                photo_prefix, photo_counter
             )
             pages.append((0, inside_data))
         else:
@@ -351,7 +400,8 @@ def merge_photobooks(
         if page is None:
             raise ValueError(f"Missing content page {i} in book1")
         page_data = copy_page_data(
-            page.get_page_info(), i, i, source_dir1, output_dir
+            page.get_page_info(), i, i, source_dir1, output_dir,
+            photo_prefix, photo_counter
         )
         pages.append((i, page_data))
     logger.debug(f"Copied book1 pages 1..{N1} with images")
@@ -373,7 +423,8 @@ def merge_photobooks(
         
         old_page_num = page.get_page_number()
         new_data = copy_page_data(
-            page.get_page_info(), old_page_num, next_page_num, source_dir2, output_dir
+            page.get_page_info(), old_page_num, next_page_num, source_dir2, output_dir,
+            photo_prefix, photo_counter
         )
         pages.append((next_page_num, new_data))
         next_page_num += 1
@@ -394,7 +445,8 @@ def merge_photobooks(
         inside = book1.get_inside_back_page()
         if inside:
             inside_data = copy_page_data(
-                inside.get_page_info(), N1+1, next_page_num, source_dir1, output_dir
+                inside.get_page_info(), N1+1, next_page_num, source_dir1, output_dir,
+                photo_prefix, photo_counter
             )
             pages.append((next_page_num, inside_data))
         else:
@@ -407,7 +459,8 @@ def merge_photobooks(
     if back1 is None:
         raise ValueError("Book1 must have a back cover")
     back1_data = copy_page_data(
-        back1.get_page_info(), "B", "B", source_dir1, output_dir
+        back1.get_page_info(), "B", "B", source_dir1, output_dir,
+        photo_prefix, photo_counter
     )
     pages.append(("B", back1_data))
     

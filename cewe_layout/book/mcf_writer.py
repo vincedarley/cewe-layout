@@ -1,4 +1,4 @@
-"""Generate CEWE MCF format files from extracted PDF content."""
+"""Generate CEWE MCF format files from a Photobook object (from PDF, Mimeo or CEWE source)."""
 
 import xml.etree.ElementTree as ET
 from xml.dom import minidom
@@ -523,8 +523,8 @@ def create_cover_spread_element(front_page_data: Dict[str, Any], back_page_data:
         page_width_mcf: Single page width in MCF units (original, before transformation)
         page_height_mcf: Page height in MCF units (original, before transformation)
         verbose: Print detailed info
-        input_page_width: Original PDF page width (for scaling)
-        input_page_height: Original PDF page height (for scaling)
+        input_page_width: Original page width (for scaling)
+        input_page_height: Original page height (for scaling)
         transformer: Optional ResizeTransformer for covers
         
     Returns:
@@ -564,7 +564,6 @@ def create_cover_spread_element(front_page_data: Dict[str, Any], back_page_data:
     z_position = 1000
     
     # Add back cover images (left half of spread)
-    # PDF extractor now correctly positions back cover on left side
     if back_page_data:
         for img in back_page_data.get('photos', []):
             img['ui_page'] = 'B'  # Back cover identifier
@@ -581,7 +580,6 @@ def create_cover_spread_element(front_page_data: Dict[str, Any], back_page_data:
             z_position += 1
     
     # Add front cover images (right half of spread)
-    # Front cover images from PDF already have x in [page_width, 2*page_width) since they're right pages
     for img in front_page_data.get('photos', []):
         img['ui_page'] = 'F'  # Front cover identifier
         area = create_image_area(img, output_dir, z_position, verbose,
@@ -687,8 +685,8 @@ def create_page_element(page_data: Dict[str, Any], output_dir: Path,
         verbose: Print detailed info
         is_first_content_dummy: True if this is the dummy page 0 for first content page
         ui_page: UI page identifier ("F", "B", 0, 1, 2, ...) for filename generation
-        input_page_width: Original PDF page width (for scaling)
-        input_page_height: Original PDF page height (for scaling)
+        input_page_width: Original page width (for scaling)
+        input_page_height: Original page height (for scaling)
         transformer: Optional ResizeTransformer
         origin_left: Original origin offset for this page (0 for left, page_width for right)
         
@@ -724,15 +722,12 @@ def create_page_element(page_data: Dict[str, Any], output_dir: Path,
         background.set('designElementId', str(background_id))
         background.set('rotation', '0')
         background.set('type', '1')
-    
-    # Coordinates are already in MCF spread units from PDF extractor
-    # No x_offset calculation needed - positioning already handled
-    
+
     z_position = 1000  # Starting z-position
     
     # Add image areas
     for img in page_data['photos']:
-        # Use UI page number if provided, otherwise fall back to PDF page_num
+        # Use UI page number if provided, otherwise get it from the page
         img['ui_page'] = ui_page if ui_page is not None else page_data.get('page_num', cewe_pagenr)
         area = create_image_area(img, output_dir, z_position, verbose,
                                 input_page_width, input_page_height, transformer, origin_left,
@@ -761,8 +756,8 @@ def create_image_area(img: Dict[str, Any], output_dir: Path, z_position: int, ve
         output_dir: Directory to save image file
         z_position: Z-position for layering
         verbose: Print detailed info
-        input_page_width: Original PDF page width (for scaling)
-        input_page_height: Original PDF page height (for scaling)
+        input_page_width: Original page width (for scaling)
+        input_page_height: Original page height (for scaling)
         transformer: Optional ResizeTransformer
         origin_left: Original origin offset for this page (0 for left, page_width for right)
         cewe_pagenr: CEWE page number where this image will be saved (for validation)
@@ -850,8 +845,7 @@ def create_image_area(img: Dict[str, Any], output_dir: Path, z_position: int, ve
         if verbose:
             print(f"  Using existing image: {image_filename}")
     
-    # Scale coordinates from PDF to CEWE dimensions if scaling info provided
-    # Note: Coordinates are in spread space, so use 2*page_width for spread width
+    # Scale coordinates if scaling info provided
     area = _get_scaled_xml_area(img, 'imagearea', transformer, origin_left, z_position)
 
     # Image element
@@ -882,16 +876,15 @@ def create_text_area(text_block: Dict[str, Any], z_position: int, verbose: bool 
         text_block: Text block data dictionary with coordinates in MCF spread units
         z_position: Z-position for layering
         verbose: Print detailed info
-        input_page_width: Original PDF page width (for scaling)
-        input_page_height: Original PDF page height (for scaling)
+        input_page_width: Original page width (for scaling)
+        input_page_height: Original page height (for scaling)
         transformer: Optional ResizeTransformer
         origin_left: Original origin offset for this page (0 for left, page_width for right)
         
     Returns:
         Area XML element
     """
-    # Scale coordinates from PDF to CEWE dimensions if scaling info provided
-    # Note: Coordinates are in spread space, so use 2*page_width for spread width
+    # Scale coordinates from if scaling info provided
     area = _get_scaled_xml_area(text_block, 'textarea', transformer, origin_left, z_position)
 
     # Decoration element

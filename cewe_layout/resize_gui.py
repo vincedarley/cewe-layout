@@ -388,15 +388,6 @@ class TransformWindow:
         view_btn = ttk.Button(section_frame, text='View As Resized', command=self._view_resized)
         view_btn.pack(fill='x', pady=(0, 10))
         
-        # Checkbox for retaining inside covers at end
-        self.retain_inside_covers_var = tk.BooleanVar(value=False)
-        retain_checkbox = ttk.Checkbutton(
-            section_frame,
-            text='Retain inside covers at end (adds 4 pages)',
-            variable=self.retain_inside_covers_var
-        )
-        retain_checkbox.pack(fill='x', pady=(0, 10))
-        
         # Merge book button and info label
         merge_frame = ttk.Frame(section_frame)
         merge_frame.pack(fill='x', pady=(0, 10))
@@ -407,9 +398,12 @@ class TransformWindow:
         self.merge_info_label = ttk.Label(merge_frame, text='', foreground='gray')
         self.merge_info_label.pack(side='left', fill='x', expand=True)
         
-        # Label and name input field
-        name_label = ttk.Label(section_frame, text='Name of new book:')
-        name_label.pack(fill='x', pady=(0, 2))
+        # Name of new book label and input field on same line
+        name_frame = ttk.Frame(section_frame)
+        name_frame.pack(fill='x', pady=(0, 10))
+        
+        name_label = ttk.Label(name_frame, text='Name of new book:')
+        name_label.pack(side='left', padx=(0, 5))
         
         # Get photobook name from the directory containing data.mcf (same logic as GUI titlebar)
         if self.mcf_file_path:
@@ -419,12 +413,34 @@ class TransformWindow:
             current_name = 'Unknown'
         
         self.name_var = tk.StringVar(value=current_name)
-        name_entry = ttk.Entry(section_frame, textvariable=self.name_var)
-        name_entry.pack(fill='x', pady=(0, 10))
+        name_entry = ttk.Entry(name_frame, textvariable=self.name_var)
+        name_entry.pack(side='left', fill='x', expand=True)
         
-        # Save Transformed Book button at bottom
-        save_btn = ttk.Button(section_frame, text='Save Transformed Book', command=self._save_resized)
-        save_btn.pack(fill='x')
+        # Photo prefix label and input field on same line
+        prefix_frame = ttk.Frame(section_frame)
+        prefix_frame.pack(fill='x', pady=(0, 10))
+        
+        prefix_label = ttk.Label(prefix_frame, text='Rename all photos to have a unified prefix:')
+        prefix_label.pack(side='left', padx=(0, 5))
+        
+        self.photo_prefix_var = tk.StringVar(value='')
+        prefix_entry = ttk.Entry(prefix_frame, textvariable=self.photo_prefix_var, width=15)
+        prefix_entry.pack(side='left')
+        
+        # Save button with retain inside covers checkbox on same line
+        save_frame = ttk.Frame(section_frame)
+        save_frame.pack(fill='x')
+        
+        self.retain_inside_covers_var = tk.BooleanVar(value=False)
+        retain_checkbox = ttk.Checkbutton(
+            save_frame,
+            text='Retain inside covers at end (adds 4 pages)',
+            variable=self.retain_inside_covers_var
+        )
+        retain_checkbox.pack(side='left', padx=(0, 10))
+        
+        save_btn = ttk.Button(save_frame, text='Save Transformed Book', command=self._save_resized)
+        save_btn.pack(side='left', fill='x', expand=True)
     
     def _view_resized(self):
         """View the resized photobook."""
@@ -506,6 +522,9 @@ class TransformWindow:
             # Create output directory
             output_dir.mkdir(parents=True, exist_ok=True)
             
+            # Get photo prefix from UI (empty string if not provided)
+            photo_prefix = self.photo_prefix_var.get().strip() or None
+            
             # Check if we need to rearrange inside covers
             inside_cover_info = ""
             
@@ -515,7 +534,8 @@ class TransformWindow:
                 book_to_save = create_photobook_with_inside_covers_at_end(
                     self.book,
                     current_dir,
-                    output_dir
+                    output_dir,
+                    photo_prefix
                 )
                 
                 N = self.book.get_content_page_count()
@@ -527,7 +547,8 @@ class TransformWindow:
                 book_to_save = create_photobook_copy(
                     self.book,
                     current_dir,
-                    output_dir
+                    output_dir,
+                    photo_prefix
                 )
             
             # Merge another book if one was loaded
@@ -542,7 +563,8 @@ class TransformWindow:
                     self.merge_book,
                     current_dir,
                     self.merge_source_dir,
-                    output_dir
+                    output_dir,
+                    photo_prefix
                 )
                 
                 merge_info = (f"\n\nMerged with {self.merge_book_name}:\n"
