@@ -42,9 +42,11 @@ from .gap_utils import (
 )
 from .file_utils import (
     extract_metadata_from_filename,
-    encode_metadata_in_filename
+    encode_metadata_in_filename,
+    get_photos_directory
 )
 from .resize_gui import open_transform_window
+from .drag_drop import setup_drag_and_drop
 
 
 # Constants for MCF unit conversion and defaults
@@ -272,7 +274,12 @@ class LayoutViewer:
         self.canvas.pack(fill='both', expand=True)
         
         # Enable drag-and-drop for photo files
-        self._setup_drag_and_drop()
+        album_path = Path(self.mcf_file_path).parent if self.mcf_file_path else None
+        if album_path:
+            setup_drag_and_drop(
+                self.canvas, album_path, self._handle_dropped_files,
+                show_status_callback=lambda msg, duration_ms: self.show_status(msg)
+            )
         
         # Bind window resize event to redraw
         self.root.bind('<Configure>', self._on_window_resize)
@@ -1508,27 +1515,6 @@ class LayoutViewer:
         
         self.show_status(f'Deleted text box {text_index+1} from page {pageno}')
     
-    def _setup_drag_and_drop(self):
-        """Setup drag-and-drop handlers for photo files."""
-        # macOS drag-and-drop support using tkinterdnd2 or fallback
-        drag_drop_available = False
-        try:
-            from tkinterdnd2 import DND_FILES, TkinterDnD
-            # Register the canvas widget for drag-and-drop
-            self.canvas.drop_target_register(DND_FILES)
-            self.canvas.dnd_bind('<<Drop>>', self._on_drop)
-            drag_drop_available = True
-        except (ImportError, AttributeError, Exception) as e:
-            # tkinterdnd2 not available or failed to initialize
-            logger.info(f"Drag-and-drop not available ({e}). Use Cmd+O to open photos.")
-        
-        # Show one-time info if drag-drop is not available
-        if not drag_drop_available:
-            self.show_status("Drag-and-drop unavailable. Use Cmd+O to add photos.", duration_ms=3000)
-        
-        # allow cmd-O under all circumstances
-        self.root.bind('<Command-o>', lambda e: self._prompt_add_photos())
-        
     def _prompt_add_photos(self):
         """Prompt user to select photos to add to current page."""
         from tkinter import filedialog
@@ -1545,13 +1531,6 @@ class LayoutViewer:
         )
         if files:
             self._handle_dropped_files(list(files))
-    
-    def _on_drop(self, event):
-        """Handle file drop event from tkinterdnd2."""
-        # Parse dropped file paths
-        files = self.root.tk.splitlist(event.data)
-        self._handle_dropped_files(files)
-        return event.action
     
     def _handle_dropped_files(self, file_paths):
         """Process dropped/selected photo files and add to current page."""
@@ -2081,29 +2060,7 @@ class LayoutViewer:
             item_label.grid(row=row, column=0, padx=2, pady=1)
 
             # DPI column (photos only) - small font and colour coded
-            dpi_text = ''
-            dpi_color = 'black'
-            if item_type == 'photo':
-                # Compute DPI using slot dimensions in MCF units
-                photo = photos[item_idx]
-                slot_w = photo.get('area_width', 0)
-                slot_h = photo.get('area_height', 0)
-                dpi_val = self._calculate_photo_dpi(photo, slot_w, slot_h)
-                if dpi_val is None:
-                    dpi_text = '--'
-                    dpi_color = 'black'
-                else:
-                    dpi_text = f'{dpi_val}'
-                    if dpi_val < 100:
-                        dpi_color = 'red'
-                    elif dpi_val < 200:
-                        dpi_color = 'yellow'
-                    elif dpi_val < 300:
-                        dpi_color = 'yellowgreen'
-                    else:
-                        dpi_color = 'green'
-            else:
-                dpi_text = ''
+            dpi_color, dpi_text = self._getDPI(item_type, item_idx, photos)
 
             dpi_label = ttk.Label(self.photo_frame, text=dpi_text, font=('TkDefaultFont', 8))
             dpi_label.grid(row=row, column=1, padx=4, pady=1)
@@ -2232,6 +2189,32 @@ class LayoutViewer:
             all_items = photos + texts
             analysis = analyze_gap_details(all_items, page_w, page_h, origin_left, self.spread_mode.get())
             report_gap_variations(analysis, pageno)
+
+    def _getDPI(self, item_type: Literal['photo'] | Any, item_idx, photos: list[Any] | Any) -> tuple[str, str]:
+        dpi_text = ''
+        dpi_color = 'black'
+        if item_type == 'photo':
+            # Compute DPI using slot dimensions in MCF units
+            photo = photos[item_idx]
+            slot_w = photo.get('area_width', 0)
+            slot_h = photo.get('area_height', 0)
+            dpi_val = self._calculate_photo_dpi(photo, slot_w, slot_h)
+            if dpi_val is None:
+                dpi_text = '--'
+                dpi_color = 'black'
+            else:
+                dpi_text = f'{dpi_val}'
+                if dpi_val < 100:
+                    dpi_color = 'red'
+                elif dpi_val < 200:
+                    dpi_color = 'yellow'
+                elif dpi_val < 300:
+                    dpi_color = 'yellowgreen'
+                else:
+                    dpi_color = 'green'
+        else:
+            dpi_text = ''
+        return dpi_color, dpi_text
 
     # Use cache where possible, and add to the cache if not currently there.
     def _get_photo_dimensions(self, fn: str or None) -> Tuple[int, int]:
@@ -3296,9 +3279,7 @@ class LayoutViewer:
         
         # Get album directory and create parallel -photos directory
         album_path = Path(self.mcf_file_path).parent
-        album_name = album_path.name.replace('.xmcf', '').replace('.mcfx', '')
-        photos_dir = album_path.parent / f"{album_name}-photos"
-        photos_dir.mkdir(exist_ok=True)
+        photos_dir = get_photos_directory(album_path)
         
         print(f"Saving segmentation images to: {photos_dir}")
         
@@ -4318,14 +4299,7 @@ class LayoutViewer:
                 
                 # Handle deleted photos: move to parallel -photos directory
                 if deleted_photos:
-                    album_name = album_dir.name
-                    # Remove .xmcf or .mcf extension if present
-                    if album_name.endswith('.xmcf') or album_name.endswith('.mcf'):
-                        album_base = album_name.rsplit('.', 1)[0]
-                    else:
-                        album_base = album_name
-                    photos_dir = album_dir.parent / f"{album_base}-photos"
-                    photos_dir.mkdir(exist_ok=True)
+                    photos_dir = get_photos_directory(album_dir)
                     
                     for filename in deleted_photos:
                         safefn = filename.replace('safecontainer:/', '').lstrip('/')

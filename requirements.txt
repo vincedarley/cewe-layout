@@ -6,5 +6,8 @@ reportlab>=3.6.0
 imagehash>=4.3.0
 pillow-heif>=0.10.0
 
-# Optional: for drag-and-drop support on macOS/Windows
-tkinterdnd2>=0.3.0
+# Optional: Drag-and-drop support
+# macOS: PyObjC provides native drag-and-drop with Photos app file promises
+pyobjc-framework-Cocoa>=9.0; sys_platform == 'darwin'
+# All platforms: tkinterdnd2 is an optional fallback (not needed if PyObjC works on macOS)
+# tkinterdnd2>=0.3.0

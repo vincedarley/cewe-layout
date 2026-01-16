@@ -6,6 +6,26 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 
+def get_photos_directory(album_path: Path) -> Path:
+    """Get the parallel -photos directory for an album.
+    
+    Args:
+        album_path: Path to the album directory (e.g., "Album.xmcf")
+    
+    Returns:
+        Path to the -photos directory (e.g., "Album-photos")
+    """
+    album_name = album_path.name
+    # Remove .xmcf or .mcf extension if present
+    if album_name.endswith('.xmcf') or album_name.endswith('.mcf'):
+        album_base = album_name.rsplit('.', 1)[0]
+    else:
+        album_base = album_name
+    photos_dir = album_path.parent / f"{album_base}-photos"
+    photos_dir.mkdir(exist_ok=True)
+    return photos_dir
+
+
 def split_safecontainer_prefix(filename):
     """Split filename into (prefix, clean_name) tuple.
     
