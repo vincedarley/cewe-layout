@@ -970,12 +970,20 @@ class PageRenderer:
                 x1 = btn_x + 20  # Include button width
                 y1 = btn_y + 100
             
+            # Build tag list - always include item_idx for hover
+            # For photos, also add photo_pageno_idx tag for drag-drop detection
+            tag_list = ['item_hover', f'item_{idx}']
+            if 'photo_index' in info:
+                pageno = info['pageno']
+                photo_idx = info['item_index']
+                tag_list.append(f'photo_{pageno}_{photo_idx}')
+            
             # Create invisible rectangle (no fill, no outline initially)
             rect_id = self.canvas.create_rectangle(
                 x0, y0, x1, y1,
                 outline='',
                 width=0,
-                tags=('item_hover', f'item_{idx}')
+                tags=tuple(tag_list)
             )
             self.canvas.tag_raise(f'item_{idx}')  # Bring to front
 
