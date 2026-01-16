@@ -78,23 +78,29 @@ def copy_page_data(
         new_photo = photo.copy()
         old_filename = photo['filename']
         
-        # Parse and update filename
-        base_name, size, page_from_filename = extract_metadata_from_filename(old_filename)
-        
-        # Validation: if filename has page number, it should match expected old_page_number
-        if page_from_filename is not None and page_from_filename != old_page_number:
-            logger.warning(f"Page number mismatch: filename has {page_from_filename}, expected {old_page_number}")
-        
-        new_filename = encode_metadata_in_filename(base_name, size, new_page_number)
-        
-        # Handle safecontainer prefix
-        if old_filename.startswith('safecontainer:/'):
-            new_filename = f'safecontainer:/{new_filename}'
-        
-        new_photo['filename'] = new_filename
-        
-        # Copy physical file
-        _copy_image_file(old_filename, new_filename, source_dir, output_dir)
+        if (old_filename is None):
+            # This is an empty photo slot - not a problem - the user is likely to fill it later
+            new_photo['filename'] = None
+            logger.warning(f"Empty photo slot on page {old_page_number}.")
+
+        else:
+            # Parse and update filename
+            base_name, size, page_from_filename = extract_metadata_from_filename(old_filename)
+            
+            # Validation: if filename has page number, it should match expected old_page_number
+            if page_from_filename is not None and page_from_filename != old_page_number:
+                logger.warning(f"Page number mismatch: filename {old_filename} has {page_from_filename}, expected {old_page_number}. This can happen if you've been re-arranging pages with CEWE. We will automatically adjust.")
+            
+            new_filename = encode_metadata_in_filename(base_name, size, new_page_number)
+            
+            # Handle safecontainer prefix
+            if old_filename.startswith('safecontainer:/'):
+                new_filename = f'safecontainer:/{new_filename}'
+            
+            new_photo['filename'] = new_filename
+            
+            # Copy physical file
+            _copy_image_file(old_filename, new_filename, source_dir, output_dir)
         
         new_data['photos'].append(new_photo)
     

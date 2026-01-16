@@ -1449,6 +1449,13 @@ class LayoutViewer:
                 self.use_slot_aspect[new_key] = self.use_slot_aspect[old_key]
                 del self.use_slot_aspect[old_key]
         
+        # Clean up any stray checkbox states beyond the valid range
+        # This prevents new photos from inheriting incorrect checkbox states
+        idx = num_photos
+        while (pageno, idx) in self.use_slot_aspect:
+            del self.use_slot_aspect[(pageno, idx)]
+            idx += 1
+        
         # Mark page(s) as modified
         self._mark_current_pages_modified()
         
@@ -1506,6 +1513,12 @@ class LayoutViewer:
             if old_key in self.slot_aspect_ratios:
                 self.slot_aspect_ratios[new_key] = self.slot_aspect_ratios[old_key]
                 del self.slot_aspect_ratios[old_key]
+        
+        # Clean up any stray aspect ratio entries beyond the valid range
+        idx = num_photos + num_texts
+        while (pageno, idx) in self.slot_aspect_ratios:
+            del self.slot_aspect_ratios[(pageno, idx)]
+            idx += 1
         
         # Mark page(s) as modified
         self._mark_current_pages_modified()

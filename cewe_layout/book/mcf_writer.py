@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Dict, Any, Optional
 import hashlib
 import logging
+from xml.etree.ElementTree import Element
 
 from cewe_layout.book.utils import BOOK_SIZES, find_closest_book_size, ResizeTransformer
 from cewe_layout.book.photobook import Photobook
@@ -775,6 +776,21 @@ def create_image_area(img: Dict[str, Any], output_dir: Path, z_position: int, ve
     ui_page = img.get('ui_page', 0)
     relative_size = img.get('relative_size', 1.0)
     
+    if 'filename' in img and img['filename'] is None:
+        # Empty photo slot - save just the layout rectangle without image data
+        # This allows work-in-progress books to preserve empty slots
+        
+        # Scale coordinates
+        area = _get_scaled_xml_area(img, 'imagearea', transformer, origin_left, z_position)
+
+        # Decoration element (required by CEWE structure)
+        ET.SubElement(area, 'decoration')
+        
+        if verbose:
+            print(f"  Created empty photo slot on {cewe_pagenr}")
+
+        return area
+
     # If image already has a filename (e.g., from CEWE MCF, Mimeo converter), use it
     # Otherwise generate a new filename
     if 'filename' in img and img['filename']:
@@ -836,23 +852,8 @@ def create_image_area(img: Dict[str, Any], output_dir: Path, z_position: int, ve
     
     # Scale coordinates from PDF to CEWE dimensions if scaling info provided
     # Note: Coordinates are in spread space, so use 2*page_width for spread width
-    scaled_left, scaled_top, scaled_width, scaled_height = scale_area_to_cewe(
-        img['area_left'], img['area_top'], img['area_width'], img['area_height'], transformer, origin_left
-    )
-    
-    # Create area element
-    area = ET.Element('area')
-    area.set('areatype', 'imagearea')
-    
-    # Position element with scaled coordinates
-    position = ET.SubElement(area, 'position')
-    position.set('left', f"{scaled_left:.2f}")
-    position.set('top', f"{scaled_top:.2f}")
-    position.set('width', f"{scaled_width:.2f}")
-    position.set('height', f"{scaled_height:.2f}")
-    position.set('rotation', '0')
-    position.set('zposition', str(z_position))
-    
+    area = _get_scaled_xml_area(img, 'imagearea', transformer, origin_left, z_position)
+
     # Image element
     image = ET.SubElement(area, 'image')
     image.set('filename', f"safecontainer:/{image_filename}")
@@ -891,21 +892,8 @@ def create_text_area(text_block: Dict[str, Any], z_position: int, verbose: bool 
     """
     # Scale coordinates from PDF to CEWE dimensions if scaling info provided
     # Note: Coordinates are in spread space, so use 2*page_width for spread width
-    scaled_left, scaled_top, scaled_width, scaled_height = scale_area_to_cewe(
-        text_block['area_left'], text_block['area_top'], text_block['area_width'], text_block['area_height'], transformer, origin_left)
-    
-    area = ET.Element('area')
-    area.set('areatype', 'textarea')
-    
-    # Position element with scaled coordinates
-    position = ET.SubElement(area, 'position')
-    position.set('left', f"{scaled_left:.2f}")
-    position.set('top', f"{scaled_top:.2f}")
-    position.set('width', f"{scaled_width:.2f}")
-    position.set('height', f"{scaled_height:.2f}")
-    position.set('rotation', '0')
-    position.set('zposition', str(z_position))
-    
+    area = _get_scaled_xml_area(text_block, 'textarea', transformer, origin_left, z_position)
+
     # Decoration element
     ET.SubElement(area, 'decoration')
     
@@ -1001,6 +989,26 @@ def create_text_area(text_block: Dict[str, Any], z_position: int, verbose: bool 
         textFormat.set('letterSpacing', '0')
         textFormat.set('lineHeight', '100')
     
+    return area
+
+
+def _get_scaled_xml_area(block: dict[str, Any], areatype: str, transformer: ResizeTransformer | None, origin_left: float,
+                         z_position: int) -> Element[str]:
+    scaled_left, scaled_top, scaled_width, scaled_height = scale_area_to_cewe(
+        block['area_left'], block['area_top'], block['area_width'], block['area_height'],
+        transformer, origin_left)
+
+    area = ET.Element('area')
+    area.set('areatype', areatype)
+
+    # Position element with scaled coordinates
+    position = ET.SubElement(area, 'position')
+    position.set('left', f"{scaled_left:.2f}")
+    position.set('top', f"{scaled_top:.2f}")
+    position.set('width', f"{scaled_width:.2f}")
+    position.set('height', f"{scaled_height:.2f}")
+    position.set('rotation', '0')
+    position.set('zposition', str(z_position))
     return area
 
 
