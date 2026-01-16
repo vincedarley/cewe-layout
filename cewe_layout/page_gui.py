@@ -573,21 +573,20 @@ class PageRenderer:
             draw.rectangle(bg_bbox, fill='#cccccc')  # Light grey background
             draw.text((x0+4, y0+4), label_text, fill='black', font=label_font)
             
-            # Store delete button position info
-            if fn:  # Only add delete button if photo has a filename
-                delete_button_info.append({
-                    'photo_index': i - 1,  # Convert to 0-based (within combined list)
-                    'item_index': i - start_number,  # 0-based index within this page's photos
-                    'pageno': pageno,  # Which page this photo belongs to
-                    'filename': fn,
-                    'x': int(x1) - 20,  # 20px from right edge
-                    'y': int(y0) + 2,   # 2px from top edge
-                    # Store full rectangle coordinates for drag handling
-                    'rect_x0': int(x0),
-                    'rect_y0': int(y0),
-                    'rect_x1': int(x1),
-                    'rect_y1': int(y1),
-                })
+            # Store delete button position info (for both filled and empty photo slots)
+            delete_button_info.append({
+                'photo_index': i - 1,  # Convert to 0-based (within combined list)
+                'item_index': i - start_number,  # 0-based index within this page's photos
+                'pageno': pageno,  # Which page this photo belongs to
+                'filename': fn,  # May be None or empty string for empty slots
+                'x': int(x1) - 20,  # 20px from right edge
+                'y': int(y0) + 2,   # 2px from top edge
+                # Store full rectangle coordinates for drag handling
+                'rect_x0': int(x0),
+                'rect_y0': int(y0),
+                'rect_x1': int(x1),
+                'rect_y1': int(y1),
+            })
     
     def _render_texts(self, draw, texts, frame_x, frame_y, scale, origin_left,
                      start_number, pageno, delete_button_info):
