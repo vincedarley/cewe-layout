@@ -1382,14 +1382,16 @@ class PageRenderer:
                         crop_bottom_px = crop_top_px + (slot_height_mcf / cutout_scale)
                         
                         # Clamp to image bounds
-                        crop_left_px = max(0, min(img_w, crop_left_px))
-                        crop_top_px = max(0, min(img_h, crop_top_px))
-                        crop_right_px = max(0, min(img_w, crop_right_px))
-                        crop_bottom_px = max(0, min(img_h, crop_bottom_px))
+                        crop_left_px_clamped = max(0, min(img_w, crop_left_px))
+                        crop_top_px_clamped = max(0, min(img_h, crop_top_px))
+                        crop_right_px_clamped = max(0, min(img_w, crop_right_px))
+                        crop_bottom_px_clamped = max(0, min(img_h, crop_bottom_px))
+                        
+                        #logger.debug(f"CROP [{base_filename}]: Using XML cutout - img={img_w}x{img_h}px, scale={cutout_scale:.4f}, slot={slot_width_mcf:.0f}x{slot_height_mcf:.0f}mcf, cutout_offset=({cutout_left:.1f},{cutout_top:.1f})mcf → crop_px=({crop_left_px:.1f},{crop_top_px:.1f})-({crop_right_px:.1f},{crop_bottom_px:.1f}) clamped=({crop_left_px_clamped:.0f},{crop_top_px_clamped:.0f})-({crop_right_px_clamped:.0f},{crop_bottom_px_clamped:.0f})")
                         
                         # Crop the image
-                        cropped = full_img.crop((int(crop_left_px), int(crop_top_px), 
-                                                int(crop_right_px), int(crop_bottom_px)))
+                        cropped = full_img.crop((int(crop_left_px_clamped), int(crop_top_px_clamped), 
+                                                int(crop_right_px_clamped), int(crop_bottom_px_clamped)))
                     else:
                         # No cutout info - use default: zoom to fill slot (crop equally from all sides)
                         img_aspect = img_w / img_h
@@ -1399,12 +1401,14 @@ class PageRenderer:
                             # Image is wider than slot - crop left/right
                             target_width = img_h * slot_aspect
                             crop_left = (img_w - target_width) / 2
+                            #logger.info(f"CROP [{base_filename}]: Default crop (wide img) - img={img_w}x{img_h}px (aspect={img_aspect:.3f}), slot={slot_width_mcf:.0f}x{slot_height_mcf:.0f}mcf (aspect={slot_aspect:.3f}) → crop left/right by {crop_left:.1f}px")
                             cropped = full_img.crop((int(crop_left), 0, 
                                                     int(crop_left + target_width), img_h))
                         else:
                             # Image is taller than slot - crop top/bottom
                             target_height = img_w / slot_aspect
                             crop_top = (img_h - target_height) / 2
+                            #logger.info(f"CROP [{base_filename}]: Default crop (tall img) - img={img_w}x{img_h}px (aspect={img_aspect:.3f}), slot={slot_width_mcf:.0f}x{slot_height_mcf:.0f}mcf (aspect={slot_aspect:.3f}) → crop top/bottom by {crop_top:.1f}px")
                             cropped = full_img.crop((0, int(crop_top), 
                                                     img_w, int(crop_top + target_height)))
                     

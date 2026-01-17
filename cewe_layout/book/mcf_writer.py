@@ -1,4 +1,12 @@
-"""Generate CEWE MCF format files from a Photobook object (from PDF, Mimeo or CEWE source)."""
+"""
+Generate CEWE MCF format files from a Photobook object (from PDF, Mimeo or CEWE source).
+
+CAUTION: Because we create the mcf file entirely from scratch, and we only handle the 
+basics of the format, all advanced formatting, decorations, text styles, etc. will be lost
+if you load an existing CEWE photobook and then re-save it using this code.
+
+You should only do your more advanced editing in CEWE Creator after this step.
+"""
 
 import xml.etree.ElementTree as ET
 from xml.dom import minidom
@@ -853,12 +861,12 @@ def create_image_area(img: Dict[str, Any], output_dir: Path, z_position: int, ve
     image.set('filename', f"safecontainer:/{image_filename}")
     image.set('backgroundPosition', 'CENTER_MIDDLE')
     
-    # Cutout element (default: no crop)
-    cutout = ET.SubElement(image, 'cutout')
-    cutout.set('left', '0')
-    cutout.set('top', '0')
-    # We do not set a "scale" because we might have rescaled the page a bit,
-    # and CEWE will do its own fitting. Setting scale=1.0 forces no scaling.
+    # Cutout element (default: no crop). If we want to write this information we should either
+    # write all 3 of left, top, scale, or none. We could calculate them, but it turns out CEWE
+    # will calculate them for us if we leave them out.
+    #cutout = ET.SubElement(image, 'cutout')
+    #cutout.set('left', '0')
+    #cutout.set('top', '0')
     #cutout.set('scale', '1.0')
     
     # Decoration element (no decoration by default)
