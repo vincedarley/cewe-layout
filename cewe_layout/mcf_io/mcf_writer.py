@@ -216,9 +216,11 @@ def photobook_create_mcf_xml(photobook: Photobook, output_dir: Path, verbose: bo
         # Get dimensions from the page info
         input_page0_width = round(inside_front_data['page_width'])
         input_page0_height = round(inside_front_data['page_height'])
-        inside_front_page = create_left_page_with_content(inside_front_data, output_dir, 0, 'emptypage', z_position, verbose, ui_page=0,
-                                                          input_page_width=input_page0_width, input_page_height=input_page0_height,
-                                                          transformer=content_transformer)
+        # First create empty page, then add things to it.
+        inside_front_page = create_empty_page(input_page0_width, input_page0_height, 0, 'emptypage',
+                                 inside_front_data.get('background_id'), content_transformer)
+        _add_page_contents(inside_front_page, 0, content_transformer, 0, inside_front_data,
+                           output_dir, z_position, verbose)
     else:
         inside_front_page = create_empty_page(input_interior_width_mcf, input_interior_height_mcf,
                                               0, 'emptypage', None, content_transformer)
@@ -264,10 +266,10 @@ def photobook_create_mcf_xml(photobook: Photobook, output_dir: Path, verbose: bo
             
             # Even page (left page of spread) - create page element with areas
             z_position = [1000]
-            page_elem = create_left_page_with_content(page_data, output_dir, cewe_pagenr, 'normalpage', z_position,
-                                                      verbose, ui_page=ui_page,
-                                                      input_page_width=input_even_width, input_page_height=input_even_height,
-                                                      transformer=content_transformer)
+            page_elem = create_empty_page(input_even_width, input_even_height, cewe_pagenr, 'normalpage',
+                                          page_data.get('background_id'), content_transformer)
+            _add_page_contents(page_elem, 0, content_transformer, ui_page, page_data,
+                               output_dir, z_position, verbose)
             fotobook.append(page_elem)
             
             # If there's a next odd page in our mapping, add its areas too
@@ -368,29 +370,6 @@ def _add_page_contents(page_xml: Element[str], origin_left, transformer: ResizeT
         z_position[0] += 1
 
 
-def scale_area_to_cewe(area_left: float, area_top: float, area_width: float, area_height: float,
-                      transformer: Optional[ResizeTransformer] = None,
-                      origin_left: float = 0) -> tuple[float, float, float, float]:
-    """Scale area coordinates using ResizeTransformer.
-    
-    Args:
-        area_left: Left coordinate in original MCF spread space
-        area_top: Top coordinate in original MCF space
-        area_width: Width in original MCF units
-        area_height: Height in original MCF units
-        transformer: ResizeTransformer instance or None
-        origin_left: Original origin offset for right pages (old_width for right, 0 for left)
-        
-    Returns:
-        Tuple of (scaled_left, scaled_top, scaled_width, scaled_height)
-    """
-    if transformer is None:
-        # No transformation - return as-is
-        return area_left, area_top, area_width, area_height
-    
-    # Use transformer.transform_rect()
-    return transformer.transform_rect(area_left, area_top, area_width, area_height, origin_left)
-
 def create_empty_page(page_width_mcf: float, page_height_mcf: float, cewe_pagenr: int, page_type: str,
                       background_id: int = None, transformer: Optional[ResizeTransformer] = None) -> ET.Element:
     """Create an empty content page element - this could be empty for odd pages, or the caller
@@ -404,6 +383,8 @@ def create_empty_page(page_width_mcf: float, page_height_mcf: float, cewe_pagenr
         page_width_mcf: Single page width in MCF units
         page_height_mcf: Page height in MCF units
         cewe_pagenr: Page number
+        page_type:
+        background_id:
         transformer: Optional ResizeTransformer
         
     Returns:
@@ -435,44 +416,6 @@ def create_empty_page(page_width_mcf: float, page_height_mcf: float, cewe_pagenr
     
     return page
 
-
-def create_left_page_with_content(page_data: Dict[str, Any], output_dir: Path,
-                                  cewe_pagenr: int, page_type: str, z_position: list[int], verbose: bool = False,
-                                  ui_page = None, input_page_width: float = None, input_page_height: float = None,
-                                  transformer: Optional[ResizeTransformer] = None) -> ET.Element:
-    """Create a page element with images and text.  This is used for LEFT pages only, because CEWE stores
-    all images/texts from both sides of a spread inside the left page element. The contents of the right page
-    will be added to this by our caller.
-    
-    Args:
-        page_data: Page content dictionary with coordinates in MCF spread units
-        output_dir: Directory to save image files
-        cewe_pagenr:
-        page_type: CEWE page type ('fullcover', 'normalpage', etc.)
-        z_position:
-        verbose: Print detailed info
-        ui_page: UI page identifier ("F", "B", 0, 1, 2, ...) for filename generation
-        input_page_width: Original page width (for scaling)
-        input_page_height: Original page height (for scaling)
-        transformer: Optional ResizeTransformer
-
-    Returns:
-        Page XML element
-    """
-
-    # First create empty page, then add things to it.
-    page = create_empty_page(input_page_width, input_page_height, cewe_pagenr, page_type,
-                             page_data.get('background_id'), transformer)
-
-    # It's a left page, by definition, here.
-    origin_left = 0
-
-    _add_page_contents(page, origin_left, transformer, ui_page, page_data,
-                       output_dir, z_position, verbose)
-
-    return page
-
-
 def create_image_area(img: Dict[str, Any], output_dir: Path, z_position: int, cewe_pagenr: int, verbose: bool = False,
                       transformer: Optional[ResizeTransformer] = None, origin_left: float = 0) -> ET.Element:
     """Create an image area element.
@@ -485,7 +428,6 @@ def create_image_area(img: Dict[str, Any], output_dir: Path, z_position: int, ce
         verbose: Print detailed info
         transformer: Optional ResizeTransformer
         origin_left: Original origin offset for this page (0 for left, page_width for right)
-        pg_pagenr_check: validate that photo files have -pgN in their names
 
     Returns:
         Area XML element
@@ -507,7 +449,7 @@ def create_image_area(img: Dict[str, Any], output_dir: Path, z_position: int, ce
         ET.SubElement(area, 'decoration')
         
         if verbose:
-            print(f"  Created empty photo slot on {pg_pagenr_check}")
+            print(f"  Created empty photo slot on pagenr={cewe_pagenr}")
 
         return area
 
@@ -715,7 +657,7 @@ def create_text_area(text_block: Dict[str, Any], z_position: int, verbose: bool 
 
 def _get_scaled_xml_area(block: dict[str, Any], areatype: str, transformer: ResizeTransformer | None, origin_left: float,
                          z_position: int) -> Element[str]:
-    scaled_left, scaled_top, scaled_width, scaled_height = scale_area_to_cewe(
+    scaled_left, scaled_top, scaled_width, scaled_height = _scale_area(
         block['area_left'], block['area_top'], block['area_width'], block['area_height'],
         transformer, origin_left)
 
@@ -731,6 +673,30 @@ def _get_scaled_xml_area(block: dict[str, Any], areatype: str, transformer: Resi
     position.set('rotation', '0')
     position.set('zposition', str(z_position))
     return area
+
+
+def _scale_area(area_left: float, area_top: float, area_width: float, area_height: float,
+                       transformer: Optional[ResizeTransformer] = None,
+                       origin_left: float = 0) -> tuple[float, float, float, float]:
+    """Scale area coordinates using ResizeTransformer.
+
+    Args:
+        area_left: Left coordinate in original MCF spread space
+        area_top: Top coordinate in original MCF space
+        area_width: Width in original MCF units
+        area_height: Height in original MCF units
+        transformer: ResizeTransformer instance or None
+        origin_left: Original origin offset for right pages (old_width for right, 0 for left)
+
+    Returns:
+        Tuple of (scaled_left, scaled_top, scaled_width, scaled_height)
+    """
+    if transformer is None:
+        # No transformation - return as-is
+        return area_left, area_top, area_width, area_height
+
+    # Use transformer.transform_rect()
+    return transformer.transform_rect(area_left, area_top, area_width, area_height, origin_left)
 
 
 def escape_html(text: str) -> str:
