@@ -1,4 +1,4 @@
-"""Simple Tkinter UI to browse pages and display layout rectangles."""
+"""Our main Tkinter UI control window. Gives user controls to browse pages, optimise layouts, etc"""
 import tkinter as tk
 from tkinter import ttk, filedialog
 
