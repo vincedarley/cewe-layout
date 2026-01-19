@@ -8,7 +8,7 @@ if you load an existing CEWE photobook and then re-save it using the code in thi
 You should only do your more advanced editing in CEWE Creator after you are done with
 merging and resizing photobooks.
 
-For clarity, that is different to the approach we use in "writer.py" whose job is only
+For clarity, that is different to the approach we use in "mcf_layout_change.py" whose job is only
 to write out modified layouts for existing photobooks. That code tries its best to
 make minimal edits to existing XML and therefore to preserve your formatting.
 """

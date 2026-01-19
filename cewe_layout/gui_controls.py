@@ -15,7 +15,7 @@ from .pdf2cewe.pdf_extractor import PDFPhotobook, performSegmentationOnPage
 
 logger = logging.getLogger(__name__)
 
-from .parser import extract_pages_info, parse_mcf_from_path
+from .mcf_parser import extract_pages_info, parse_mcf_from_path
 from .layout_ops import LayoutManager
 from .page_gui import PageRenderer, PageRenderData
 from .collage_wrapper import generate_layout_for_page
@@ -28,7 +28,7 @@ from .algorithms.gridify import GridifyAlgorithm
 from .algorithms.gap_perfecter import GapPerfecterAlgorithm
 from .algorithms.long_gap_perfecter import LongGapPerfecterAlgorithm
 from .photos import get_image_dimensions, get_photo_preferred_size
-from .writer import update_page_layout
+from .mcf_layout_change import update_page_layout
 from .page_utils import determine_page_owner_of_area, page_sort_key
 from .gap_utils import (
     analyze_gaps,

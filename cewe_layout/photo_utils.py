@@ -224,7 +224,7 @@ def resolve_photo_path(filename: str, mcf_base_folder: Path, image_folder_attr: 
         if candidate.exists():
             return candidate
     
-    # Fallback: check relative to mcf base
+    # Fallback: check relative to mcf_io base
     candidate = mcf_base_folder / safefn
     if candidate.exists():
         return candidate

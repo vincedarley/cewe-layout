@@ -15,7 +15,7 @@ from .mimeo_photobook import MimeoPhotobook
 from ..book.mcf_writer import photobook_write_to_mcf
 from ..book.utils import BOOK_SIZES
 from ..photos import get_image_dimensions
-from ..writer import _calculate_cutout
+from ..mcf_layout_change import _calculate_cutout
 from ..colour_utils import find_closest_color_code
 import re
 

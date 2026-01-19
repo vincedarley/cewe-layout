@@ -10,7 +10,7 @@ from typing import List, Dict, Any
 import re
 import logging
 from .page_utils import determine_page_owner_of_area
-from .parser import is_canvas_format, is_calendar_format
+from .mcf_parser import is_canvas_format, is_calendar_format
 
 logger = logging.getLogger(__name__)
 

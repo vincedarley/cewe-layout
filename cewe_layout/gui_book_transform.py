@@ -10,7 +10,7 @@ import logging
 from .book.utils import BOOK_SIZES, find_closest_book_size, calculate_resize_impact, ResizeTransformer
 from .book.mcf_writer import photobook_write_to_mcf
 from .book.photobook_transform import create_photobook_with_inside_covers_at_end, merge_photobooks, create_photobook_copy
-from .parser import parse_mcf_from_path, extract_pages_info
+from .mcf_parser import parse_mcf_from_path, extract_pages_info
 
 logger = logging.getLogger(__name__)
 
@@ -627,7 +627,7 @@ class TransformWindow:
         file_path = Path(file_path)
         
         # Use resolve_mcf_path to handle both files and directories
-        from .parser import resolve_mcf_path
+        from .mcf_parser import resolve_mcf_path
         try:
             mcf_file = Path(resolve_mcf_path(str(file_path)))
             source_dir = mcf_file.parent
