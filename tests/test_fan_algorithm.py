@@ -10,7 +10,7 @@ from pathlib import Path
 # Add parent directory to path so we can import cewe_layout
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from cewe_layout.parser import parse_mcf_from_path, extract_pages_info
+from cewe_layout.mcf_io.mcf_parser import parse_mcf_from_path, extract_pages_info
 from cewe_layout.algorithms.fan_layout import FanLayoutAlgorithm
 from cewe_layout.algorithms.base import LayoutRectangle
 from cewe_layout.collage_wrapper import generate_layout_for_page

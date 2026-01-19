@@ -9,7 +9,7 @@ import os
 from typing import List, Dict, Any
 import re
 import logging
-from .page_utils import determine_page_owner_of_area
+from cewe_layout.page_utils import determine_page_owner_of_area
 from .mcf_parser import is_canvas_format, is_calendar_format
 
 logger = logging.getLogger(__name__)
@@ -324,7 +324,7 @@ def _validate_saved_page(path: str, pageno: int, expected_photos: List[Dict[str,
     """Validate that the saved XML matches expectations.
     
     Args:
-        path: Path to the .mcf file
+        path: Path to the .mcf_io file
         pageno: Logical page number that was saved
         expected_photos: List of photo dicts that should be in XML
         expected_texts: List of text dicts that should be in XML
@@ -427,11 +427,11 @@ def update_page_layout(path: str, uiPage: Any, photos: List[Dict[str, Any]],
     - Odd pagenr: left side = pagenr-1, right side = pagenr
     
     Args:
-        path: Path to the .mcf file
+        path: Path to the .mcf_io file
         uiPage: F, 0 (inside front cover), 1....N-2 (main pages), N-1 (inside back cover), B
         photos: List of photo dicts with keys: filename, area_left, area_top, area_width, area_height
         texts: List of text dicts with keys: area_left, area_top, area_width, area_height
-        make_backup: If True, rename original file to path-N.mcf before writing
+        make_backup: If True, rename original file to path-N.mcf_io before writing
         new_photos: Optional list of filenames that are newly added (need new <area> elements)
         deleted_photos: Optional list of filenames that were deleted (remove <area> elements)
         rename_map: Optional dict mapping old filenames to new filenames (e.g., after adding -sz suffix)

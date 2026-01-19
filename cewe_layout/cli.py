@@ -5,8 +5,8 @@ import sys
 import re
 from pathlib import Path
 from collections import defaultdict
-from .parser import parse_mcf_from_path, extract_pages_info
-from .photos import get_photo_creation_date, get_photo_star_rating
+from cewe_layout.mcf_io.mcf_parser import parse_mcf_from_path, extract_pages_info
+from .photo_utils import get_photo_creation_date, get_photo_star_rating
 
 
 def natural_sort_key(path):
@@ -130,7 +130,7 @@ def main():
         candidates = [os.path.join(mcf_path, 'data.mcf')] + [os.path.join(mcf_path, f) for f in os.listdir(mcf_path) if f.endswith('.mcf')]
         found = next((c for c in candidates if os.path.exists(c)), None)
         if found is None:
-            print(f'No data.mcf or .mcf found in folder: {mcf_path}', file=sys.stderr)
+            print(f'No data.mcf or .mcf_io found in folder: {mcf_path}', file=sys.stderr)
             sys.exit(2)
         mcf_path = found
 

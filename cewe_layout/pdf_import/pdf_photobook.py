@@ -64,7 +64,7 @@ class PDFPhotobookPage(PhotobookPage):
     def get_page_info(self) -> Dict[str, Any]:
         """Get page info as dictionary for backward compatibility.
         
-        Returns dict matching the format expected by gui.py.
+        Returns dict matching the format expected by gui_controls.py.
         """
         # Determine origin_left based on page type/number
         # For PDF, we use standard CEWE layout: left pages have origin_left=0

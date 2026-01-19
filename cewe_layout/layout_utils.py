@@ -4,7 +4,7 @@ Reusable helpers for building photo dimensions, evaluating layouts, etc.
 """
 import os
 from pathlib import Path
-from .photos import get_image_dimensions
+from .photo_utils import get_image_dimensions
 from .algorithms.base import LayoutRectangle
 from .algorithms.evaluator import evaluate_layout
 from .gap_utils import transform_page_to_gapfree, transform_item_to_gapfree

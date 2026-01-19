@@ -4,7 +4,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from cewe_layout.gui import (
+from cewe_layout.gui_controls import (
     extract_metadata_from_filename,
     encode_metadata_in_filename
 )

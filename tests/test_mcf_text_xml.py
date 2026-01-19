@@ -5,7 +5,7 @@ and no extraneous whitespace.
 """
 
 import xml.etree.ElementTree as ET
-from cewe_layout.book.mcf_writer import create_text_area, prettify_xml
+from cewe_layout.mcf_io.mcf_writer import create_text_area, prettify_xml
 
 
 def test_text_element_basic_structure():

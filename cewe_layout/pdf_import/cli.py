@@ -1,14 +1,14 @@
-"""Command-line interface for pdf2cewe."""
+"""Command-line interface for pdf_import."""
 
 import argparse
 import sys
 from pathlib import Path
 from .pdf_extractor import extract_pdf_content
-from cewe_layout.book.mcf_writer import photobook_write_to_mcf
+from cewe_layout.mcf_io.mcf_writer import photobook_write_to_mcf
 
 
 def main():
-    """Main entry point for pdf2cewe CLI."""
+    """Main entry point for pdf_import CLI."""
     parser = argparse.ArgumentParser(
         description='Convert PDF photobooks to CEWE MCF format'
     )

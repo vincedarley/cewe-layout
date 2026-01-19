@@ -109,7 +109,7 @@ class LayoutManager:
             return {}
         
         # Import helper to extract base filename
-        from .gui import extract_metadata_from_filename
+        from .gui_controls import extract_metadata_from_filename
         
         result = {}
         for p in orig.photos:

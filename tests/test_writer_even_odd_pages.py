@@ -6,8 +6,8 @@ from pathlib import Path
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from cewe_layout.writer import update_page_layout
-from cewe_layout.parser import parse_mcf_from_path, extract_pages_info
+from cewe_layout.mcf_io.mcf_layout_change import update_page_layout
+from cewe_layout.mcf_io.mcf_parser import parse_mcf_from_path, extract_pages_info
 
 
 def test_page(mcf_path, pageno, page_info):

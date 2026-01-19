@@ -1,6 +1,6 @@
 """Diagnostic script to understand Mimeo database structure."""
 from pathlib import Path
-from cewe_layout.mimeo.mimeo_database import MimeoProject
+from cewe_layout.mimeo_import.mimeo_database import MimeoProject
 import sqlite3
 
 ppb = Path('../2016-test.photoslibrary/resources/projects/legacy/7D065F9C-2AAF-49A2-A998-238E4C4E5B84.ppb')

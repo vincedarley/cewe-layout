@@ -5,8 +5,8 @@ from lxml import etree
 import os
 import glob
 import logging
-from .page_utils import determine_page_owner_of_area, page_sort_key
-from .book.cewe_photobook import CEWEPhotobook
+from cewe_layout.page_utils import determine_page_owner_of_area, page_sort_key
+from cewe_layout.book.cewe_photobook import CEWEPhotobook
 
 logger = logging.getLogger(__name__)
 

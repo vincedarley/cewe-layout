@@ -8,9 +8,9 @@ from pathlib import Path
 import logging
 
 from .book.utils import BOOK_SIZES, find_closest_book_size, calculate_resize_impact, ResizeTransformer
-from .book.mcf_writer import photobook_write_to_mcf
+from cewe_layout.mcf_io.mcf_writer import photobook_write_to_mcf
 from .book.photobook_transform import create_photobook_with_inside_covers_at_end, merge_photobooks, create_photobook_copy
-from .mcf_parser import parse_mcf_from_path, extract_pages_info
+from cewe_layout.mcf_io.mcf_parser import parse_mcf_from_path, extract_pages_info
 
 logger = logging.getLogger(__name__)
 
@@ -467,9 +467,9 @@ class TransformWindow:
         Given this, there are a few possible scenarios:
         - The input photobook has no pages representing inside-covers (e.g. it is derived from a PDF file which
           has a front cover page which is followed directly by the first content page (page 1 in MCF). In this
-          case we can safely create empty insidecovers in mcf and we don't lose anything.
+          case we can safely create empty insidecovers in mcf_io and we don't lose anything.
         - The input photobook has pages representing inside-covers, but they are empty. In this
-          case we can safely create empty insidecovers in mcf and we don't lose anything.
+          case we can safely create empty insidecovers in mcf_io and we don't lose anything.
         - The input photobook has pages representing inside-covers, but they are NOT empty. In this case we need
           to make a choice: (a) we can place the content of those pages on the MCF pages 0 and N+1, where they will
           be visible and editable in QLayout, but ignored by CEWE Creator, (b) we can ignore and discard that content,
@@ -619,7 +619,7 @@ class TransformWindow:
     def _load_merge_book(self):
         """Load another photobook to merge (doesn't write anything yet)."""
         file_path = filedialog.askopenfilename(
-            title="Select photobook file to merge (.xmcf or .mcf file)",
+            title="Select photobook file to merge (.xmcf or .mcf_io file)",
         )
         if not file_path:
             return
@@ -627,7 +627,7 @@ class TransformWindow:
         file_path = Path(file_path)
         
         # Use resolve_mcf_path to handle both files and directories
-        from .mcf_parser import resolve_mcf_path
+        from cewe_layout.mcf_io.mcf_parser import resolve_mcf_path
         try:
             mcf_file = Path(resolve_mcf_path(str(file_path)))
             source_dir = mcf_file.parent

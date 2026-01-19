@@ -63,7 +63,7 @@ class MimeoPhotobookPage(PhotobookPage):
     def get_page_info(self) -> Dict[str, Any]:
         """Get page info as dictionary for backward compatibility.
         
-        Returns dict matching the format expected by gui.py.
+        Returns dict matching the format expected by gui_controls.py.
         """
         return {
             'photos': self.get_images(),

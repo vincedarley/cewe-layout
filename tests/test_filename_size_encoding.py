@@ -5,7 +5,7 @@ from pathlib import Path
 # Add parent directory to path to import the module
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from cewe_layout.gui import extract_metadata_from_filename, encode_metadata_in_filename
+from cewe_layout.gui_controls import extract_metadata_from_filename, encode_metadata_in_filename
 
 
 def test_extract_simple():

@@ -3,11 +3,10 @@ import sys
 from pathlib import Path
 import tempfile
 import pytest
-from lxml import etree
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from cewe_layout.writer import update_page_layout
+from cewe_layout.mcf_io.mcf_layout_change import update_page_layout
 
 
 def test_raises_when_new_photo_not_in_list():

@@ -1,6 +1,10 @@
 """PDF export functionality for layouts.
 
-Standalone module for exporting page layouts to PDF with photos and text boxes.
+Standalone module for exporting a single page to PDF with photos and text boxes.
+Super simple. Sometimes helpful for debugging, testing and validation.
+
+If you want to turn an entire photobook to a high-quality, accurate pdf, there is
+an excellent cewe2pdf project on Github.
 """
 import os
 

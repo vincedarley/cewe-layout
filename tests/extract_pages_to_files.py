@@ -15,7 +15,7 @@ This creates a simple, version-controlled, human-readable format for test data.
 
 from pathlib import Path
 import cv2
-from cewe_layout.parser import parse_mcf_from_path, extract_pages_info
+from cewe_layout.mcf_io.mcf_parser import parse_mcf_from_path, extract_pages_info
 
 
 def extract_pages(mcf_path, output_dir):

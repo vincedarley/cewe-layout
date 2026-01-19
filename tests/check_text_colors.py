@@ -1,7 +1,7 @@
 """Check text colors in Mimeo photobook."""
 import sys
 from pathlib import Path
-from cewe_layout.mimeo.mimeo_database import MimeoProject
+from cewe_layout.mimeo_import.mimeo_database import MimeoProject
 
 if len(sys.argv) < 2:
     print("Usage: python check_text_colors.py <path_to_ppb>")

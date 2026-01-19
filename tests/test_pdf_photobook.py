@@ -1,7 +1,7 @@
 """Quick test of PDFPhotobook implementation."""
 
 from pathlib import Path
-from cewe_layout.pdf2cewe.pdf_extractor import extract_pdf_content
+from cewe_layout.pdf_import.pdf_extractor import extract_pdf_content
 
 # Test with a small PDF if available
 test_pdf = Path("../Test-album-photos/test.pdf")

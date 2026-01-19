@@ -5,7 +5,7 @@ from pathlib import Path
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from cewe_layout.parser import parse_mcf_from_path, extract_pages_info
+from cewe_layout.mcf_io.mcf_parser import parse_mcf_from_path, extract_pages_info
 from cewe_layout.gap_utils import analyze_gaps, make_uniform_edge_gap
 
 # Path to the album
@@ -59,7 +59,7 @@ for i, photo in enumerate(photos, 1):
     height = photo.get('area_height', 0)
     filename = photo.get('filename', '')
     
-    # Calculate gap-free dimensions (as done in gui.py lines 1395-1396)
+    # Calculate gap-free dimensions (as done in gui_controls.py lines 1395-1396)
     gf_width = width + internal_gap
     gf_height = height + internal_gap
     aspect_ratio = gf_width / gf_height if gf_height > 0 else 0

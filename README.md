@@ -52,8 +52,8 @@ Here's my current workflow:
 4) If your photobook is called "MyBook.xmcf" then put the directory with all your photos next to it, and rename the directory to be called "MyBook-photos".
 5) Run QLayout (python run_qlayout --cewe /path/to/MyBook.xmcf). The first empty page of your book will open automatically.
 6) Examine your photos, in approximate date order (assuming your photo-books are roughly chronological), and drag and drop as many photos as you want onto that empty page.
-7) Run the "Fan-GA" algorithm.  Tweak slot aspect ratio and "preferred size" for any of the photos you want -- simplest is to give the very best 2-4 photos a preferred size of somewhere between 3.0 and 6.0.  This is easy in the UI.
-- Re-run the "Fan-GA" algorithm. Sometimes you might wish to re-run the algorithm a few times to check out the different results and pick the layout you like best. 
+7) Run the "Genetic Algorithm (Fan)" algorithm.  Tweak slot aspect ratio and "preferred size" for any of the photos you want -- simplest is to give the very best 2-4 photos a preferred size of somewhere between 3.0 and 6.0.  This is easy in the UI.
+- Re-run the "Genetic Algorithm (Fan)" algorithm. Sometimes you might wish to re-run the algorithm a few times to check out the different results and pick the layout you like best. 
 - If you don't quite like any, you can delete some photos, add some new photos (or a text-box) and try again.  
 - If you want an exact grid layout (e.g. 2 rows of 4 photos, all identically sized), try the "Gridify" algorithm instead of Fan-GA.
 - Adjust edge gaps and internal gaps for a different look
@@ -112,7 +112,7 @@ Photo improver (experimental): building on top of the PDF import, search in a di
 and:
 
 ```bash
-python -m cewe_layout.mimeo.convert_mimeo_cli \                                                        
+python -m cewe_layout.mimeo_import.convert_mimeo_cli \                                                        
   --ppb "../2014-2015-library.photoslibrary/resources/projects/legacy/96877E29-2401-41E3-B0DF-090065A2EBDB.ppb" \
   --library "../2014-2015-library.photoslibrary" \
   --output "../2015-test-converted.xmcf" \

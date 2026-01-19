@@ -3,8 +3,8 @@ from pathlib import Path
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from cewe_layout.mimeo.mimeo_database import MimeoProject
-from cewe_layout.mimeo.mimeo_converter import MimeoCoordinateTransformer
+from cewe_layout.mimeo_import.mimeo_database import MimeoProject
+from cewe_layout.mimeo_import.mimeo_converter import MimeoCoordinateTransformer
 
 ppb = Path('../../2016-test.ppb')
 

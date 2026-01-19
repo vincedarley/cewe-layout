@@ -14,7 +14,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from cewe_layout.parser import parse_mcf_from_path, extract_pages_info
+from cewe_layout.mcf_io.mcf_parser import parse_mcf_from_path, extract_pages_info
 from cewe_layout.algorithms.base import LayoutRectangle
 from cewe_layout.algorithms.evaluator import evaluate_layout
 

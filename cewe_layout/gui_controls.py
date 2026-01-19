@@ -11,13 +11,13 @@ import shutil
 import logging
 from typing import Literal, Any, Tuple
 
-from .pdf2cewe.pdf_extractor import PDFPhotobook, performSegmentationOnPage
+from .pdf_import.pdf_extractor import PDFPhotobook, performSegmentationOnPage
 
 logger = logging.getLogger(__name__)
 
-from .mcf_parser import extract_pages_info, parse_mcf_from_path
+from cewe_layout.mcf_io.mcf_parser import extract_pages_info, parse_mcf_from_path
 from .layout_ops import LayoutManager
-from .page_gui import PageRenderer, PageRenderData
+from .gui_page_render import PageRenderer, PageRenderData
 from .collage_wrapper import generate_layout_for_page
 from .algorithms.evaluator import evaluate_layout
 from .algorithms.base import LayoutAlgorithm
@@ -27,8 +27,8 @@ from .algorithms.tree_builder import TreeBuilderAlgorithm
 from .algorithms.gridify import GridifyAlgorithm
 from .algorithms.gap_perfecter import GapPerfecterAlgorithm
 from .algorithms.long_gap_perfecter import LongGapPerfecterAlgorithm
-from .photos import get_image_dimensions, get_photo_preferred_size
-from .mcf_layout_change import update_page_layout
+from .photo_utils import get_image_dimensions, get_photo_preferred_size
+from cewe_layout.mcf_io.mcf_layout_change import update_page_layout
 from .page_utils import determine_page_owner_of_area, page_sort_key
 from .gap_utils import (
     analyze_gaps,
@@ -45,7 +45,7 @@ from .file_utils import (
     encode_metadata_in_filename,
     get_photos_directory
 )
-from .resize_gui import open_transform_window
+from .gui_book_transform import open_transform_window
 from .drag_drop import setup_drag_and_drop
 
 
@@ -420,8 +420,7 @@ class LayoutViewer:
             ttk.Label(pdf_frame, text='  Algorithm:').pack(side='left', padx=(10,4))
             
             # Dynamically populate segmenters from registry
-            from .pdf2cewe.segmenter_base import list_segmenters
-            from .pdf2cewe import image_segmenter, grid_segmenter, tree_segmenter  # Ensure all segmenters are registered
+            from .pdf_import.segmenter_base import list_segmenters
             available_segmenters = list_segmenters()
             
             self.segmentation_algorithm_var = tk.StringVar(value=available_segmenters[0] if available_segmenters else 'morphological')
@@ -998,7 +997,7 @@ class LayoutViewer:
             # Get composite image from PDF content if available
             composite_image = None
             if self.pdf_originalBook:
-                from .pdf2cewe.pdf_extractor import get_page_content
+                from .pdf_import.pdf_extractor import get_page_content
                 # Map UI page number to PDF page index
                 pdf_page_index = self._ui_page_to_pdf_page(pageno)
                 if pdf_page_index is not None:
@@ -1052,7 +1051,7 @@ class LayoutViewer:
     
     @property
     def pages(self):
-        """Compatibility property for pdf2cewe module.
+        """Compatibility property for pdf_import module.
         
         Returns a list of (page_number, page_info) tuples matching the old format.
         This is a temporary shim for code that hasn't been migrated to use self.book yet.
@@ -3112,7 +3111,7 @@ class LayoutViewer:
             print(f"Re-analyzing entire CEWE page {current_ui_pageno} (PDF page {pdf_page_index}) with target photo count: {target_count}")
                 
         # Get selected algorithm and segmenter
-        from .pdf2cewe.segmenter_base import get_segmenter
+        from .pdf_import.segmenter_base import get_segmenter
 
         algorithm = self.segmentation_algorithm_var.get();
         segmenter = get_segmenter(algorithm)
@@ -4181,7 +4180,7 @@ class LayoutViewer:
                             img_path = album_dir / safefn
                     
                     if img_path.exists():
-                        from .photos import get_image_dimensions
+                        from .photo_utils import get_image_dimensions
                         dims = get_image_dimensions(img_path)
                         if dims:
                             photo['image_width'], photo['image_height'] = dims

@@ -11,12 +11,12 @@ from pathlib import Path
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from cewe_layout.pdf2cewe.image_segmenter import (
+from cewe_layout.pdf_import.image_segmenter import (
     segment_composite_image,
     MorphologicalSegmenter
 )
-from cewe_layout.pdf2cewe.grid_segmenter import GridSegmenter
-from cewe_layout.pdf2cewe.tree_segmenter import TreeSegmenter
+from cewe_layout.pdf_import.grid_segmenter import GridSegmenter
+from cewe_layout.pdf_import.tree_segmenter import TreeSegmenter
 
 
 def test_different_threshold_c_values():

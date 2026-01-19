@@ -17,7 +17,7 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 from cewe_layout.cli import main
-from cewe_layout.gui import launch_gui
+from cewe_layout.gui_controls import launch_gui
 
 if __name__ == '__main__':
     import argparse
@@ -49,8 +49,8 @@ if __name__ == '__main__':
         main()
     
     elif args.unpatch:
-        from cewe_layout.writer import restore_mcf_backup
-        from cewe_layout.parser import resolve_mcf_path
+        from cewe_layout.mcf_io.mcf_layout_change import restore_mcf_backup
+        from cewe_layout.mcf_io.mcf_parser import resolve_mcf_path
         real = resolve_mcf_path(args.cewe)
         res = restore_mcf_backup(real)
         print(f"✅ Restored {res['path']}")
@@ -71,10 +71,10 @@ if __name__ == '__main__':
         pdf_photobook = None
 
         if args.originalPdf:
-            # Import pdf2cewe conversion logic
+            # Import pdf_import conversion logic
             from pathlib import Path
-            from cewe_layout.pdf2cewe.pdf_extractor import extract_pdf_content, create_pdf_reader
-            from cewe_layout.book.mcf_writer import photobook_write_to_mcf
+            from cewe_layout.pdf_import.pdf_extractor import extract_pdf_content, create_pdf_reader
+            from cewe_layout.mcf_io.mcf_writer import photobook_write_to_mcf
             
             pdf_path = Path(args.originalPdf)
             output_path = Path(args.cewe)
@@ -104,7 +104,7 @@ if __name__ == '__main__':
                 print(f"✅ Successfully converted {pdf_path.name} to {args.cewe}")
                 print(f"   Pages: {pdf_photobook.get_page_count()}")
 
-        from cewe_layout.parser import resolve_mcf_path
+        from cewe_layout.mcf_io.mcf_parser import resolve_mcf_path
         real = resolve_mcf_path(args.cewe)
         
         if args.profile:

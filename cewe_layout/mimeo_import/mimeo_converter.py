@@ -4,18 +4,15 @@ This module converts legacy Mimeo Photos photobook projects to CEWE format,
 copying and renaming photos into the .xmcf directory.
 """
 
-import xml.etree.ElementTree as ET
 from pathlib import Path
-from typing import Dict, List, Optional, Any, Tuple
+from typing import Dict, Any, Tuple
 import logging
 
 from .mimeo_database import MimeoProject
 from .mimeo_uuid import PhotosLibraryMapper
 from .mimeo_photobook import MimeoPhotobook
-from ..book.mcf_writer import photobook_write_to_mcf
-from ..book.utils import BOOK_SIZES
-from ..photos import get_image_dimensions
-from ..mcf_layout_change import _calculate_cutout
+from cewe_layout.mcf_io.mcf_writer import photobook_write_to_mcf
+from cewe_layout.mcf_io.mcf_layout_change import _calculate_cutout
 from ..colour_utils import find_closest_color_code
 import re
 

@@ -2,15 +2,13 @@
 import sys
 from pathlib import Path
 import tempfile
-import shutil
 import pytest
 from lxml import etree
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from cewe_layout.writer import update_page_layout
-from cewe_layout.parser import parse_mcf_from_path, extract_pages_info
-from cewe_layout.gui import extract_metadata_from_filename
+from cewe_layout.mcf_io.mcf_layout_change import update_page_layout
+from cewe_layout.gui_controls import extract_metadata_from_filename
 
 
 def test_save_photos_with_sz_suffix():
