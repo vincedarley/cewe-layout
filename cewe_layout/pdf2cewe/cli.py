@@ -4,7 +4,7 @@ import argparse
 import sys
 from pathlib import Path
 from .pdf_extractor import extract_pdf_content
-from cewe_layout.book.mcf_writer import write_mcf_project
+from cewe_layout.book.mcf_writer import photobook_write_to_mcf
 
 
 def main():
@@ -54,7 +54,7 @@ def main():
         pdf_photobook = extract_pdf_content(input_path, page_range, verbose=args.verbose)
         
         print(f"Writing MCF project to {args.output}...")
-        write_mcf_project(pdf_photobook, args.output, verbose=args.verbose)
+        photobook_write_to_mcf(pdf_photobook, args.output, verbose=args.verbose)
         
         print(f"✅ Successfully converted {input_path.name} to {args.output}")
         print(f"   Pages: {pdf_photobook.get_page_count()}")

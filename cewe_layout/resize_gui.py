@@ -8,7 +8,7 @@ from pathlib import Path
 import logging
 
 from .book.utils import BOOK_SIZES, find_closest_book_size, calculate_resize_impact, ResizeTransformer
-from .book.mcf_writer import write_mcf_project
+from .book.mcf_writer import photobook_write_to_mcf
 from .book.photobook_transform import create_photobook_with_inside_covers_at_end, merge_photobooks, create_photobook_copy
 from .parser import parse_mcf_from_path, extract_pages_info
 
@@ -573,7 +573,7 @@ class TransformWindow:
                             f"  Result: {N1+N2+2} pages")
             
             # Write the transformed MCF file
-            write_mcf_project(
+            photobook_write_to_mcf(
                 book_to_save,
                 str(output_dir),
                 verbose=True,

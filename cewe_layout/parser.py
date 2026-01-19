@@ -605,12 +605,14 @@ def _parseImageArea(imageTag, area_width: float, area_height: float, area_left: 
     cut = imageTag.find('cutout')
     if cut is not None:
         try:
-            cleft = float(cut.get('left', '0').replace(',', '.'))
-            ctop = float(cut.get('top', '0').replace(',', '.'))
-            cscale = float(cut.get('scale', '1.0').replace(',', '.'))
-            info['cutout_left'] = cleft
-            info['cutout_top'] = ctop
-            info['cutout_scale'] = cscale
+            # Only parse attributes that are actually present (no defaults)
+            left_str = cut.get('left')
+            top_str = cut.get('top')
+            scale_str = cut.get('scale')
+            
+            info['cutout_left'] = float(left_str.replace(',', '.')) if left_str is not None else None
+            info['cutout_top'] = float(top_str.replace(',', '.')) if top_str is not None else None
+            info['cutout_scale'] = float(scale_str.replace(',', '.')) if scale_str is not None else None
         except (TypeError, AttributeError, ValueError):
             info['cutout_left'] = None
             info['cutout_top'] = None

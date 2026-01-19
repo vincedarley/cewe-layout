@@ -12,7 +12,7 @@ import logging
 from .mimeo_database import MimeoProject
 from .mimeo_uuid import PhotosLibraryMapper
 from .mimeo_photobook import MimeoPhotobook
-from ..book.mcf_writer import write_mcf_project
+from ..book.mcf_writer import photobook_write_to_mcf
 from ..book.utils import BOOK_SIZES
 from ..photos import get_image_dimensions
 from ..writer import _calculate_cutout
@@ -285,7 +285,7 @@ def convert_ppb_to_xmcf(ppb_path: Path,
     )
     
     # Use generalized write_mcf_project to create the CEWE project
-    write_mcf_project(
+    photobook_write_to_mcf(
         mimeo_photobook,
         str(output_path),
         verbose=verbose,
