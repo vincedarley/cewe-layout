@@ -86,9 +86,3 @@ For a spread with the same dimensions:
 - When splitting a spread into two pages, do not add bleed at the center fold.
 - This matches CEWE’s own XML output and avoids unwanted overlap at the fold.
 
----
-
-**See also:**
-- `cewe_layout/gui.py` (spread rendering logic)
-- `cewe_layout/writer.py` (MCF/XML output)
-- `tests/bad photo position at fold.txt` (real-world example)

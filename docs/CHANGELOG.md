@@ -2,8 +2,32 @@
 
 All notable changes to this project will be documented in this file.
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [1.0.0] - 2026-01-20
+
+### Many new features
+
+Layout:
+- Several different layout creation and layout-tweaking algorithms
+- Good handling and control of gaps between photos and edge-gaps on the page
+- Size control, aspect ratio control of all photos
+- DPI calculations to ensure good quality
+
+Page Viewer:
+- Drag to swap 2 photos
+- X to delete photo or text blocks
+- Toggle between 1-page and Spread views
+- Toggle to show photos zoomed appropriately in their frames
+- Can drag'n'drop photos from your file-system and from MacOS photos to the page
+- Can dynamically rescale the view
+
+Book Transformations:
+- Resize/scale a book to a new size
+- Merge 2 books
+- Bulk rename all photo-files inside a photobook
+
+Import:
+- PDF and Mimeo legacy book imports
+- HEIF/HEIC file formats supported (as well as jpeg, png, etc)
 
 ## [0.1.0] — 2025-11-27
 

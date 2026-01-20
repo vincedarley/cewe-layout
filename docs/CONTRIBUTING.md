@@ -18,14 +18,6 @@ pip install -r requirements.txt
 python run_qlayout.py --cewe path/to/test/album.xmcf
 ```
 
-## Code Organization
-
-- `cewe_layout/parser.py` — XML parsing and page/photo extraction.
-- `cewe_layout/gui.py` — Tkinter UI for browsing and interaction.
-- `cewe_layout/layout_ops.py` — In-memory layout history and weight management.
-- `cewe_layout/algorithms/` — Pluggable layout generation algorithms.
-- `cewe_layout/collage_wrapper.py` — Glue between GUI and algorithms.
-
 ## Adding a New Layout Algorithm
 
 1. Create a new file in `cewe_layout/algorithms/`, e.g., `my_algorithm.py`.
