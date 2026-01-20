@@ -6,13 +6,17 @@ This is a tool to semi-automatically generate new layouts for pages of your CEWE
 
 The primary workflow step I aim to dramatically improve is this one: you have 11 photos you want to place on a single page. 3 of them are more important and should be approximately 4x the size of the others, two other photos would also preferably be a bit larger than the rest, say 2x the size. You want to produce a nice-looking layout which achieves these aims, and where the photos collectively occupy most of the page (with edge gaps and internal gaps easily configurable and precisely aligned).  Perhaps you want to include 1-2 text boxes in the layout.  And you want to get that beautiful layout in seconds, not 10s of minutes... And you want to be able to press a button to see different layouts which achieve these aims, so you can pick the one you like the most.
 
+This workflow is designed to make minimal changes to the xml which represents your photobook on disk, and hence it should preserve almost all adjustments and tweaks that you make in CEWE Creator if you are switching back and forth between the two tools (except of course the actual layout of the photos/texts which are being modified!)
+
 Using this tool, I've now built more than one 100+ page photobook that looks great, in very little time, and with very little hassle.  After some quick fine-tuning in CEWE's software I can then get them purchased, printed & delivered.
+
+In this primary workflow you will create the new photobook and lots of (mostly empty?) pages in CEWE Creator and then switch to QLayout to fill them with photos and do the layouts.
 
 Secondary purpose:
 
-Recover, modernise old photobooks. I have PDF files of photo-books from old software, some of them quite low quality. I have legacy Mimeo photo-books stored in ".ppb" database files from iPhoto and early Apple Photos days. I have a scanned physical album in PDF form. This tool can facilitate the process of turning those old non-editable documents into new editable CEWE photobook files, resizing/rescaling them if desired (e.g. I choose to save the new editable photobook in CEWE's XXL Landscape size), and helping you replace low-resolution photos with higher resolution originals from your library.
+Recover and modernise old photobooks. I have PDF files of photo-books from old software, some of them quite low quality. I have legacy Mimeo photo-books stored in ".ppb" database files from iPhoto and early Apple Photos days. I have a scanned physical album in PDF form. This tool can facilitate the process of turning those old non-editable documents into new editable CEWE photobook files, resizing/rescaling the book size if desired (e.g. I choose to save the new editable photobook in CEWE's XXL Landscape size), and helping you replace low-resolution photos with higher resolution originals from your photo library.
 
-As part of this secondary purpose, you can also merge two .mcf photobook files into a single photo-book. Currently rescaling & merging photobooks creates an entirely new photobook and you will lose any fancy formatting you may have applied to photos, text, etc.
+As part of this secondary purpose, you can also merge two .mcf photobook files into a single photo-book. Currently rescaling & merging photobooks creates an entirely new photobook and you will lose any fancy formatting you may have applied to photos, text, etc.  (As such this is more limiting than the layout optimisation described above)
 
 **Quickstart**
 
@@ -24,7 +28,7 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-2. Run the diagnostic just to list all page contents of an unpacked `.xmcf` folder-bundle or `.mcf` file (assuming you already have a partially completed photo-book project). This is perhaps a useful first step to reassure you that the tool correctly understands your photobook:
+2. An optional step is to run the diagnostic just to list all page contents of an unpacked `.xmcf` folder-bundle or `.mcf` file (created with CEWE Creator, whether it is empty or a partially completed photo-book project). This can be a useful first step to reassure you that QLayout correctly understands your photobook, but can be skipped:
 
 ```bash
 python run_qlayout.py --cewe /path/to/My-album.xmcf --nogui
@@ -70,8 +74,7 @@ Once you're done: open the book in CEWE Creator and do any fine-tuning you wish.
 
 Optional additional steps in QLayout:
 - Use the "Photo Gap Perfecter" algorithms to ensure all edge gaps and internal gaps on a page are identical - fixing minor imperfections or overlaps. The "Long Gap Perfecter" aligns photos/texts along long straight lines that approximately exist in your layout - making them exactly straight. The "Photo Gap Perfecter" just looks locally at each photo and its neighbours. 
-- Adjust the "Edge Gap" and "Internal Gap" - on some pages you might want a large gap, on others no gap at all.  Note that an edge-gap of -3.0mm is what CEWE suggests for full-page layouts. The 3.0mm bleed ensures a neat edge to the page.
-- Export PDF - this is a quick export of just a single page of photos (no texts) so you can examine carefully.
+- Adjust the "Edge Gap" and "Internal Gap" - on some pages you might want a large gap, on others no gap at all.  Note that an edge-gap of -3.0mm is what CEWE suggests for full-page layouts. The 3.0mm bleed ensures a neat edge to the page when the pages are printed and cut.
 - Note that if you have used zoom/cropping in CEWE, which is saved into the .mcf file, QLayout will NOT modify the zoom/cropping that you have previously saved. Normally this is what you want, since you are at the stage of fine-tuning the layout, and would not want QLayout to over-write any careful adjustments you have made.
 
 You can obviously go back and forth between CEWE Creator and QLayout as often as you wish.
@@ -84,8 +87,8 @@ Finally:
 **Adding Photos to a Page**
 
 You can add new photos to the current page by:
-- **Drag-and-drop** (if tkinterdnd2 is installed): Drag photo files (.jpeg, etc) from Finder directly onto the main window
-- **Keyboard shortcut**: Press `Cmd+O` to open a file picker and select photos
+- **Drag-and-drop** (if PyObjC and/or tkinterdnd2 is installed): Drag photo files (.jpeg, etc) from Finder directly onto the main window. If PyObjC is installed you can drag them directly from MacOS Photos. If you only have tkinterdnd2 it is best to drag from the Finder - dragging from Photos will appear to work but will only place a low-resolution thumbnail of each photo in your photobook - presumably not what you want.
+- **Keyboard shortcut**: Instead of drag-and-drop, you can press `Cmd+O` to open a file picker and select photos
 
 When photos are added:
 1. They are copied to the album's image folder
@@ -94,7 +97,7 @@ When photos are added:
    - "4 star" keyword → size 3.0 (medium importance, ~3× larger)
    - No star keyword → size 1.0 (normal)
 3. Initial layout rectangles are created (overlapping at the top of the page for easy visibility)
-4. You can then use any layout algorithm (Collage-Gen, Fan-GA, etc.) to arrange them nicely
+4. You can then use any layout algorithm (Genetic Algorithm, Collage-Gen, etc.) to arrange them nicely
 
 **Secondary workflow for importing old photo books**
 
@@ -119,12 +122,15 @@ python -m cewe_layout.mimeo_import.convert_mimeo_cli \
 ```
 
 In this second case I have an old Apple Photos library, containing just the photos from 2 years, which I have saved on disk as "2014-2015-library", and which contains two legacy Mimeo photo-books one of which is stored in the "96877E29-2401-41E3-B0DF-090065A2EBDB.ppb" 
-database.  Note that there is no support for more recent Mimeo photo-book formats. If you don't have a .ppb database file hidden in your Apple Photos album, then this tool can't help you.
+database.  These legacy photobooks convert very nicely to the modern CEWE structure - so much so that I am deleting the old versions.
+
+Note that there is no support for more recent Mimeo photo-book formats. If you don't have a .ppb database file hidden in your Apple Photos album, then this tool can't help you.
 
 **Future, TO DO and possible ideas**
 
 - Validate we have bleed/margins correct for front and back cover ("special pages").
 - More/better layout clean-up/fine-tuning algorithms? (Gap Perfecter, Gridify, and Tree Builder all have their good and bad aspects in improving layouts).
+- Add basic rendering of some decorative aspects (photo & text borders, etc)
 
 **Other capabilities (partially or completely implemented)**
 
@@ -154,11 +160,13 @@ Details for the technically minded:
 
 **Layout Algorithms**
 
-- **[Fan Layout](cewe_layout/algorithms/fan_layout.py)** — Genetic algorithm-based layout using binary slicing trees with O(N) fast evaluation, based on [Fan, Jian (2012)](https://ieeexplore.ieee.org/document/6267282). Uses crossover and mutation operators to explore the layout space, balancing canvas coverage and photo size distribution. Best for generating completely new layouts from scratch.
+- **[Genetic Algorithm (Fan Layout)](cewe_layout/algorithms/fan_layout.py)** — Genetic algorithm-based layout using binary slicing trees with O(N) fast evaluation, based on [Fan, Jian (2012)](https://ieeexplore.ieee.org/document/6267282). Uses crossover and mutation operators to explore the layout space, balancing canvas coverage and photo size distribution. Best for generating completely new layouts from scratch.  This is my current favourite layout algorithm.
 
-- **[Gap Perfecter](cewe_layout/algorithms/gap_perfecter.py)** - Tries to ensure all gaps (internal gaps and edge gaps) are identical across the layout, and fixes small overlaps. It will only work effectively on a layout that is "nearly perfect" and will try to make it completely perfect.  If it doesn't work on your layout, just hit Undo.
+- **[Photo Gap Perfecter](cewe_layout/algorithms/gap_perfecter.py)** - Tries to ensure all gaps (internal gaps and edge gaps) are identical across the layout, and fixes small overlaps. It will only work effectively on a layout that is "nearly perfect" and will try to make it completely perfect.  If it doesn't work on your layout, just hit Undo.  This algorithm operates by examing the edges of each photo in turn from top-left to bottom-right.
 
-- **[Collage Generator](cewe_layout/algorithms/collage_generator.py)** — Content-preserved photo collage algorithm based on [Wu & Aizawa (2016)](https://www.researchgate.net/publication/269455490_Very_fast_generation_of_content_preserved_photo_collage_under_canvas_size_constraint). Uses greedy tree construction to preserve aspect ratios while maximizing canvas coverage. Adapted from [n-gao's implementation](https://github.com/n-gao/collage-generator).
+- **[Long Gap Perfecter] - Similar to the above but works by looking for long nearly-straight-lines in your layout and going from longest to shortest adjusting photos/texts on each side to make those lines exactly straight.  Neither "Gap Perfecer" is quite perfect, but both are pretty good - I find myself using the "Long Gap Perfecter" more than the other.
+
+- **[Collage Generator](cewe_layout/algorithms/collage_generator.py)** — Content-preserved photo collage algorithm based on [Wu & Aizawa (2016)](https://www.researchgate.net/publication/269455490_Very_fast_generation_of_content_preserved_photo_collage_under_canvas_size_constraint). Uses greedy tree construction to preserve aspect ratios while maximizing canvas coverage. Adapted from [n-gao's implementation](https://github.com/n-gao/collage-generator).  I generally prefer the Genetic Algorith (Fan) above.
 
 - **[Tree Builder](cewe_layout/algorithms/tree_builder.py)** — Reverse-engineers existing layouts into binary slicing tree representations by finding splitting lines. Useful for analyzing existing Cewe layouts or converting manual layouts into tree structures that can be mutated. Operates on layouts with positioned rectangles and reconstructs the underlying tree structure.
 

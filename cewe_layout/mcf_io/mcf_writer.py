@@ -476,7 +476,8 @@ def create_image_area(img: Dict[str, Any], output_dir: Path, z_position: int, ce
     image_path = output_dir / image_filename
     
     # VALIDATION: Check that photos with "-pgN" suffix are being saved in the correct <page> element
-    # This catches bugs where photos from odd (right) pages are placed in wrong page elements
+    # This catches bugs where photos from odd (right) pages are placed in wrong page elements.
+    # We only check integer pages, not F and B, for the moment.
     if isinstance(ui_page, int):
         # Extract page number from filename if it has "-pgN" suffix
         import re
@@ -487,7 +488,7 @@ def create_image_area(img: Dict[str, Any], output_dir: Path, z_position: int, ce
             if filename_page != ui_page:
                 raise ValueError(
                     f"ERROR: Photo filename mismatch detected!\n"
-                    f"  Filename: {image_filename} doesn't match it's page {ui_page}."
+                    f"  Filename: {image_filename} doesn't match its page {ui_page}."
                     f"  This indicates a bug in page number assignment (ui_page) during MCF generation."
                 )
             if filename_page != cewe_pagenr and filename_page != cewe_pagenr+1:

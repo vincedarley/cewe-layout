@@ -23,6 +23,9 @@ A typical CEWE photobook has the following structure:
 | Last      | 0      | `emptypage` or `EMPTY`     | Inside back cover (blank page)         | **Not in PDF**               | Page N-1 |
 
 **Notes**: 
+Every page has its own <page> xml section in the document. However, there is a very important detail that the entire _contents_ of every right-hand-page is actually stored in
+the xml of the left hand page. So <page> xmls for right hand pages exist (and are critical) but are always empty (beyond decorative factors like the background colour).
+
 - The back cover fullcover page (1st in list) contains both back cover AND front cover areas positioned on the SAME spread. The backcover is the left side of the spread and the front cover is the right side of the same spread.
 - The 4th "0" empty page (just before page 1) is where the contents of page 1 is stored, just as with all odd-numbered pages
 - In xml, using the usual x-offset is applied to the contents of any odd-numbered pagenr (and the front cover) - i.e. to all of the right-side pages - this is what makes that contents appear on the right side - simply the fact that their x-coordinates are >= half the size of the spread.
@@ -31,7 +34,7 @@ A typical CEWE photobook has the following structure:
 ### Key Points
 
 1. **Five `pagenr="0"` pages**: There are 5 pages with `pagenr="0"` in total:
-   - 3 before `pagenr="1"` (back cover, spine, front cover, inside front)
+   - 4 before `pagenr="1"` (back cover, spine, front cover, inside front)
    - 1 after the last numbered page (inside back cover)
 
 2. **Only one fullcover has content**: The fullcover page with `pagenr="0"` that contains `<area>` elements is the one with actual cover content
@@ -41,7 +44,7 @@ A typical CEWE photobook has the following structure:
    page in the xml, but offset by the usual x-offset.
    - **Inside back cover** (last page): Has `pagenr="0"`, `type="emptypage"`, no `<area>` elements or has `<background alignment="3">`
 
-In many photobook types, pages come in chunks of 4 (due to the nature of the printing process).  So a photobook must have 2+4xM internal pages (for some 'M'), excluding the inside front and inside back pages, or if you include those empty inside pages, then it must be a multiple of 4.
+In many photobook types, pages come in chunks of 4 (due to the nature of the book-construction/printing process).  So a photobook must have 2+4xM internal pages (for some 'M'), excluding the inside front and inside back pages, or if you include those empty inside pages, then it must be a multiple of 4.
 
 ## Spread Layout System
 
@@ -68,6 +71,9 @@ Special cases:
 - **Front cover** (pagenr=0, type=fullcover): `x_offset = single_page_width` (right side)
 - **Back cover** (pagenr=0, type=fullcover): `x_offset = 0` (left side, on same spread element)
 
+Note that the front/back cover typically have a different width (and height) than the interior pages. In theory the file format allows each page to have its own width and height, but in practice we just have covers and content pages as the two sizes, with covers slightly
+larger than content pages.
+
 ## PDF to CEWE Mapping
 
 When converting from PDF photobooks to CEWE MCF format:
@@ -93,15 +99,6 @@ mcf_height = pdf_height × 3.52778
 
 ## Implementation Notes
 
-### From cewe2pdf
-
-The cewe2pdf tool (CEWE → PDF direction) handles special pages as follows:
-
-1. **Page 0 (PDF output page 1)**: Renders front cover from the fullcover element
-2. **Page 1 (PDF output page 2)**: Combines inside front cover emptypage + pagenr=1 normalpage
-3. **Pages 2...N-2**: Normal content pages (pagenr=2 to pagenr=N-2)
-4. **Last page**: Combines last normalpage + inside back cover emptypage
-
 ### For pdf2cewe (Reverse Direction)
 
 When generating MCF from PDF:
@@ -115,6 +112,3 @@ When generating MCF from PDF:
 ## References
 
 - Test-album.xmcf: Example of complete photobook structure
-- cewe2pdf.py: Lines 1690-1775 contain page type detection logic
-- cewe2pdf.py: Line 121 defines EmptyPage type
-- cewe2pdf.py: Lines 203, 214 show handling of inside cover pages

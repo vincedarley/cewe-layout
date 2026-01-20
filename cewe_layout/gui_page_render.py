@@ -235,7 +235,7 @@ class PageRenderer:
             # Render photos for this page
             self._render_photos(img, draw, page_data.photos, frame_x, frame_y, scale, 
                                page_data.origin_left, photo_counter, page_data.pageno, 
-                               delete_button_info, page_bg_color, swap_callback)
+                               delete_button_info, page_bg_color)
             photo_counter += len(page_data.photos)
             
             # Render texts for this page
@@ -494,7 +494,7 @@ class PageRenderer:
         return thumbnail_map
     
     def _render_photos(self, img, draw, photos, frame_x, frame_y, scale, origin_left, 
-                      start_number, pageno, delete_button_info, page_bg_color, swap_callback=None):
+                      start_number, pageno, delete_button_info, page_bg_color):
         """Render photos for a single page.
         
         Args:

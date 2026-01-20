@@ -4,7 +4,7 @@ The Gap Perfecter algorithm deterministically eliminates small gaps and overlaps
 
 ## Purpose
 
-Takes an existing layout that is already very close to perfect (e.g., photos nearly touching with tiny gaps of 1-3 pixels, or small overlaps of 1-5mm) and adjusts it to be 100% gap-free without changing the overall layout structure.
+Takes an existing layout that is already very close to perfect - gaps between photos are almost all the same, and edge-gaps of the page are almost all the same - and adjusts things around each photo to attempt to make them exactly the same.
 
 Works with both photos and text blocks interchangeably.
 
