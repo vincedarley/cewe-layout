@@ -27,7 +27,7 @@ from .algorithms.tree_builder import TreeBuilderAlgorithm
 from .algorithms.gridify import GridifyAlgorithm
 from .algorithms.gap_perfecter import GapPerfecterAlgorithm
 from .algorithms.long_gap_perfecter import LongGapPerfecterAlgorithm
-from .photo_utils import get_image_dimensions, get_photo_preferred_size
+from .photo_utils import get_image_dimensions, get_photo_preferred_size, batch_get_image_dimensions
 from cewe_layout.mcf_io.mcf_layout_change import update_page_layout
 from .page_utils import determine_page_owner_of_area, page_sort_key
 from .gap_utils import (
@@ -128,7 +128,7 @@ class LayoutViewer:
         # Track which photos should use slot aspect ratio (dict: {(pageno, photo_idx): BooleanVar})
         self.use_slot_aspect = {}
         
-        # Track slot aspect ratios for each item (dict: {(pageno, item_idx): aspect_ratio})
+        # Track slot aspect ratios for each item (dict: {(pageno, item_type, item_idx): aspect_ratio})
         # This allows users to override the slot aspect ratio
         self.slot_aspect_ratios = {}
         
@@ -1423,25 +1423,25 @@ class LayoutViewer:
         # We need to preserve user edits (aspect ratios, checkbox states) by shifting them
         
         # Shift slot aspect ratios: delete entry for deleted item, shift higher indices down
-        if (pageno, photo_index) in self.slot_aspect_ratios:
-            del self.slot_aspect_ratios[(pageno, photo_index)]
+        if (pageno, 'photo', photo_index) in self.slot_aspect_ratios:
+            del self.slot_aspect_ratios[(pageno, 'photo', photo_index)]
         
         # Shift all higher photo indices down by 1
         num_photos = len(updated_photos)
         for idx in range(photo_index, num_photos):
-            old_key = (pageno, idx + 1)
-            new_key = (pageno, idx)
+            old_key = (pageno, 'photo', idx + 1)
+            new_key = (pageno, 'photo', idx)
             if old_key in self.slot_aspect_ratios:
                 self.slot_aspect_ratios[new_key] = self.slot_aspect_ratios[old_key]
                 del self.slot_aspect_ratios[old_key]
         
         # Shift checkbox states similarly
-        if (pageno, photo_index) in self.use_slot_aspect:
-            del self.use_slot_aspect[(pageno, photo_index)]
+        if (pageno, 'photo', photo_index) in self.use_slot_aspect:
+            del self.use_slot_aspect[(pageno, 'photo', photo_index)]
         
         for idx in range(photo_index, num_photos):
-            old_key = (pageno, idx + 1)
-            new_key = (pageno, idx)
+            old_key = (pageno, 'photo', idx + 1)
+            new_key = (pageno, 'photo', idx)
             if old_key in self.use_slot_aspect:
                 self.use_slot_aspect[new_key] = self.use_slot_aspect[old_key]
                 del self.use_slot_aspect[old_key]
@@ -1449,8 +1449,8 @@ class LayoutViewer:
         # Clean up any stray checkbox states beyond the valid range
         # This prevents new photos from inheriting incorrect checkbox states
         idx = num_photos
-        while (pageno, idx) in self.use_slot_aspect:
-            del self.use_slot_aspect[(pageno, idx)]
+        while (pageno, 'photo', idx) in self.use_slot_aspect:
+            del self.use_slot_aspect[(pageno, 'photo', idx)]
             idx += 1
         
         # Mark page(s) as modified
@@ -1491,30 +1491,25 @@ class LayoutViewer:
         self.layout_mgr.push_layout(pageno, photos, updated_texts)
         
         # Shift cached data for items after deleted text
-        # Text items come after photos in the combined item list
-        # Text at text_index corresponds to item_index = len(photos) + text_index
-        num_photos = len(photos)
-        item_index = num_photos + text_index
+        # Text items use their own index within the texts list
         
         # Shift slot aspect ratios: delete entry for deleted text, shift higher indices down
-        if (pageno, item_index) in self.slot_aspect_ratios:
-            del self.slot_aspect_ratios[(pageno, item_index)]
+        if (pageno, 'text', text_index) in self.slot_aspect_ratios:
+            del self.slot_aspect_ratios[(pageno, 'text', text_index)]
         
         # Shift all higher text indices down by 1
         num_texts = len(updated_texts)
         for idx in range(text_index, num_texts):
-            old_item_idx = num_photos + idx + 1
-            new_item_idx = num_photos + idx
-            old_key = (pageno, old_item_idx)
-            new_key = (pageno, new_item_idx)
+            old_key = (pageno, 'text', idx + 1)
+            new_key = (pageno, 'text', idx)
             if old_key in self.slot_aspect_ratios:
                 self.slot_aspect_ratios[new_key] = self.slot_aspect_ratios[old_key]
                 del self.slot_aspect_ratios[old_key]
         
         # Clean up any stray aspect ratio entries beyond the valid range
-        idx = num_photos + num_texts
-        while (pageno, idx) in self.slot_aspect_ratios:
-            del self.slot_aspect_ratios[(pageno, idx)]
+        idx = num_texts
+        while (pageno, 'text', idx) in self.slot_aspect_ratios:
+            del self.slot_aspect_ratios[(pageno, 'text', idx)]
             idx += 1
         
         # Mark page(s) as modified
@@ -1572,6 +1567,7 @@ class LayoutViewer:
         
         # Stage photos (don't move yet - only on save)
         new_photos = self._stage_photos(photo_files)
+        
         if not new_photos:
             self.show_status('Failed to stage photos', error=True)
             return
@@ -1606,16 +1602,16 @@ class LayoutViewer:
         self._update_modified_pages_display()
         
         # Process all newly added photos: cache dimensions, set preferences, mark as new
+        # Batch-fetch IPTC keywords for all photos at once (much faster than individual calls)
+        from .photo_utils import batch_get_iptc_keywords
+        img_paths_for_batch = [Path(photo['_source_path']) for photo in new_photos_with_layout]
+        batch_get_iptc_keywords(img_paths_for_batch)
+        
         for photo in new_photos_with_layout:
             filename = photo['filename']
             img_path = Path(photo['_source_path'])
             
-            # Populate dimensions cache for algorithm
-            dims = get_image_dimensions(img_path)
-            if dims:
-                self.photo_dimensions[filename] = dims
-            
-            # Set preferred size
+            # Set preferred size (now uses cached IPTC keywords)
             preferred_size = get_photo_preferred_size(img_path)
             
             # Use base filename (without -sz-pg) as key for layout_mgr
@@ -1627,6 +1623,7 @@ class LayoutViewer:
         
         # Re-render page to show new photos
         self.render_page()
+        
         self.show_status(f'Added {len(new_photos)} photo(s) to page {pageno}')
     
     def _stage_photos(self, photo_paths):
@@ -1651,7 +1648,9 @@ class LayoutViewer:
         
         album_dir = Path(self.mcf_base_folder)
         
-        new_photos = []
+        # First pass: validate files and generate safe names (fast, no I/O)
+        photo_info = []  # List of (src_path, dst_name, filename) tuples
+        
         for src_path in photo_paths:
             src = Path(src_path)
             if not src.exists():
@@ -1674,17 +1673,38 @@ class LayoutViewer:
                 dst_path = album_dir / dst_name
                 counter += 1
             
-            # Get image dimensions from SOURCE file (not copied yet)
-            dims = get_image_dimensions(src)
-            if dims:
-                img_width, img_height = dims
-            else:
-                img_width, img_height = 4000, 3000  # fallback
+            filename = f"safecontainer:/{dst_name}"
+            photo_info.append((src, dst_name, filename))
+        
+        if not photo_info:
+            return []
+        
+        # Second pass: read all dimensions in parallel (I/O bound)
+        # For HEIF files, use exiftool first to get dimensions AND keywords in one batch call
+        source_paths = [src for src, _, _ in photo_info]
+        logger.debug(f"Reading dimensions from paths: {[str(p)[:80] for p in source_paths[:3]]}...")
+        
+        # Get both dimensions and keywords in single exiftool call (fast for HEIF/RAW)
+        from .photo_utils import batch_get_exif_data
+        batch_get_exif_data(source_paths)
+        
+        # Then read actual dimensions (will use EXIF cache if available, avoiding slow decode)
+        dims_results = batch_get_image_dimensions(source_paths, max_workers=8)
+        
+        # Third pass: build photo data dicts with dimensions
+        new_photos = []
+        for src, dst_name, filename in photo_info:
+            dims = dims_results.get(src)
+            if dims is None:
+                logger.warning(f"Skipping {src.name}: could not read image dimensions")
+                continue
+            
+            img_width, img_height = dims
+            
+            # Cache dimensions using destination filename (for later lookups)
+            self.photo_dimensions[filename] = dims
             
             # Create photo data dict with safecontainer path format
-            # Use destination filename (where it WILL be after save)
-            filename = f"safecontainer:/{dst_name}"
-            
             photo_data = {
                 'filename': filename,
                 'image_width': img_width,
@@ -1907,6 +1927,11 @@ class LayoutViewer:
             self.cost_size_undersized_label.config(text='--')
             return
         
+        # Batch-prefetch dimensions for all photos (parallel I/O, much faster than sequential)
+        photo_filenames = [p.get('filename', '') for p in photos if p.get('filename')]
+        if photo_filenames:
+            self._batch_prefetch_dimensions(photo_filenames)
+        
         # Get current gaps from layout manager for evaluation
         # For calendars, edge_gap is a dict; algorithms expect it as-is
         edge_gap = self.layout_mgr.get_edge_gap(pageno)
@@ -2081,7 +2106,7 @@ class LayoutViewer:
                     pass
 
             # Initialize slot aspect ratio from current layout if not already set
-            ar_key = (pageno, item_idx)
+            ar_key = (pageno, item_type, item_idx)
             if ar_key not in self.slot_aspect_ratios:
                 # Get from current slot dimensions IN GAP-FREE SPACE (what algorithms use)
                 # This ensures the displayed aspect ratio matches what the algorithm sees
@@ -2112,14 +2137,14 @@ class LayoutViewer:
             slot_ar_var = tk.StringVar(value=f'{self.slot_aspect_ratios[ar_key]:.2f}')
             slot_ar_entry = ttk.Entry(self.photo_frame, textvariable=slot_ar_var, width=4)
             slot_ar_entry.grid(row=row, column=2, padx=2, pady=1)
-            slot_ar_entry.bind('<Return>', lambda e, pg=pageno, idx=item_idx, var=slot_ar_var: self.on_slot_aspect_changed(pg, idx, var))
-            slot_ar_entry.bind('<FocusOut>', lambda e, pg=pageno, idx=item_idx, var=slot_ar_var: self.on_slot_aspect_changed(pg, idx, var))
+            slot_ar_entry.bind('<Return>', lambda e, pg=pageno, itype=item_type, idx=item_idx, var=slot_ar_var: self.on_slot_aspect_changed(pg, idx, var, itype))
+            slot_ar_entry.bind('<FocusOut>', lambda e, pg=pageno, itype=item_type, idx=item_idx, var=slot_ar_var: self.on_slot_aspect_changed(pg, idx, var, itype))
 
             # Column 3: "Use slot" checkbox
             checkbox_widget = None
             if item_type == 'photo':
                 # Get or create checkbox state
-                checkbox_key = (pageno, item_idx)
+                checkbox_key = (pageno, item_type, item_idx)
                 if checkbox_key not in self.use_slot_aspect:
                     # Auto-check if photo aspect ratio differs significantly from slot
                     should_auto_check = False
@@ -2145,7 +2170,7 @@ class LayoutViewer:
                 checkbox_widget.grid(row=row, column=3, padx=2, pady=1)
             else:
                 # For text blocks, always use slot aspect (checkbox always checked, disabled)
-                checkbox_key = (pageno, item_idx)
+                checkbox_key = (pageno, item_type, item_idx)
                 if checkbox_key not in self.use_slot_aspect:
                     self.use_slot_aspect[checkbox_key] = tk.BooleanVar(value=True)
                 checkbox_widget = ttk.Checkbutton(self.photo_frame, variable=self.use_slot_aspect[checkbox_key], state='disabled')
@@ -2227,13 +2252,28 @@ class LayoutViewer:
         return dpi_color, dpi_text
 
     # Use cache where possible, and add to the cache if not currently there.
-    def _get_photo_dimensions(self, fn: str or None) -> Tuple[int, int]:
+    def _get_photo_dimensions(self, fn: str or None, source_path: Path = None) -> Tuple[int, int]:
+        """Get photo dimensions, with caching.
+        
+        Args:
+            fn: Filename (for cache key, may include safecontainer: prefix)
+            source_path: Optional full path to read from (for staging). If None, constructs path from album dir.
+        
+        Returns:
+            Tuple of (width, height) or None if file not found/invalid
+        """
         if not fn: return None
         # If not cached, then find it and cache.
         if fn not in self.photo_dimensions:
-            # Load and cache dimensions
-            safefn = fn.replace('safecontainer:/', '').lstrip('/')
-            img_path = Path(self.mcf_base_folder) / safefn
+            # Determine where to read the file from
+            if source_path:
+                # Staging: read from provided source path
+                img_path = source_path
+            else:
+                # Normal: read from album directory
+                safefn = fn.replace('safecontainer:/', '').lstrip('/')
+                img_path = Path(self.mcf_base_folder) / safefn
+            
             if img_path.exists():
                 try:
                     dims = get_image_dimensions(img_path)
@@ -2246,6 +2286,44 @@ class LayoutViewer:
         if img_h == 0 or img_w == 0: return None
 
         return self.photo_dimensions[fn]
+    
+    def _batch_prefetch_dimensions(self, filenames: list):
+        """Prefetch dimensions for multiple photos in parallel.
+        
+        Reads dimensions for all uncached photos at once using parallel I/O.
+        This is much faster than reading them one-by-one.
+        
+        Args:
+            filenames: List of photo filenames (may include safecontainer: prefix)
+        """
+        # Filter to only uncached photos
+        uncached = [fn for fn in filenames if fn and fn not in self.photo_dimensions]
+        
+        if not uncached:
+            return  # All already cached
+        
+        # Build list of paths to read
+        paths_to_read = []
+        filename_to_path = {}
+        
+        for fn in uncached:
+            safefn = fn.replace('safecontainer:/', '').lstrip('/')
+            img_path = Path(self.mcf_base_folder) / safefn
+            if img_path.exists():
+                paths_to_read.append(img_path)
+                filename_to_path[img_path] = fn
+        
+        if not paths_to_read:
+            return
+        
+        # Read all dimensions in parallel
+        dims_results = batch_get_image_dimensions(paths_to_read, max_workers=8)
+        
+        # Update cache with results
+        for img_path, dims in dims_results.items():
+            if dims and img_path in filename_to_path:
+                fn = filename_to_path[img_path]
+                self.photo_dimensions[fn] = dims
 
     def _calculate_photo_dpi(self, photo: dict, slot_width_mcf: float, slot_height_mcf: float) -> int:
         """Calculate rendered DPI for a photo in the given slot dimensions, accounting for
@@ -2381,13 +2459,14 @@ class LayoutViewer:
         except ValueError as e:
             logger.warning(f"Page {pageno}: Invalid preferred size input '{var.get()}' for '{item_id}': {e}")
     
-    def on_slot_aspect_changed(self, pageno, item_idx, var):
+    def on_slot_aspect_changed(self, pageno, item_idx, var, item_type):
         """Handle slot aspect ratio entry change.
         
         Args:
             pageno: Page number
             item_idx: Item index (photo or text)
             var: StringVar containing the new aspect ratio
+            item_type: Type of item ('photo' or 'text')
         """
         import logging
         logger = logging.getLogger(__name__)
@@ -2395,15 +2474,15 @@ class LayoutViewer:
         try:
             new_aspect = float(var.get())
             if 0.1 <= new_aspect <= 10.0:  # Reasonable bounds for aspect ratio
-                ar_key = (pageno, item_idx)
-                logger.info(f"Page {pageno}, item {item_idx}: Setting slot aspect ratio to {new_aspect}")
+                ar_key = (pageno, item_type, item_idx)
+                logger.info(f"Page {pageno}, {item_type} {item_idx}: Setting slot aspect ratio to {new_aspect}")
                 self.slot_aspect_ratios[ar_key] = new_aspect
                 # No need to refresh display here, just store the value
                 # The value will be used next time generate_layout is called
             else:
-                logger.warning(f"Page {pageno}, item {item_idx}: Rejected slot aspect ratio {new_aspect} (out of range 0.1-10.0)")
+                logger.warning(f"Page {pageno}, {item_type} {item_idx}: Rejected slot aspect ratio {new_aspect} (out of range 0.1-10.0)")
         except ValueError as e:
-            logger.warning(f"Page {pageno}, item {item_idx}: Invalid slot aspect ratio input '{var.get()}': {e}")
+            logger.warning(f"Page {pageno}, {item_type} {item_idx}: Invalid slot aspect ratio input '{var.get()}': {e}")
     
     def on_edge_gap_changed(self):
         """Handle edge gap entry change.
@@ -3829,17 +3908,22 @@ class LayoutViewer:
                 slot_aspect_ratios_for_page, use_slot_aspect_for_photos = _collect_slot_aspect_ratio_info([(pageno, info)])
 
                 for photo_idx in range(len(photos)):
-                    checkbox_key = (pageno, photo_idx)
+                    checkbox_key = (pageno, 'photo', photo_idx)
                     if checkbox_key in self.use_slot_aspect:
                         use_slot_aspect_for_photos[photo_idx] = self.use_slot_aspect[checkbox_key].get()
                 
                 # Collect custom slot aspect ratios for all items on this page
                 slot_aspect_ratios_for_page = {}
-                num_items = len(photos) + len(texts)
-                for item_idx in range(num_items):
-                    ar_key = (pageno, item_idx)
+                # Handle photos
+                for photo_idx in range(len(photos)):
+                    ar_key = (pageno, 'photo', photo_idx)
                     if ar_key in self.slot_aspect_ratios:
-                        slot_aspect_ratios_for_page[item_idx] = self.slot_aspect_ratios[ar_key]
+                        slot_aspect_ratios_for_page[photo_idx] = self.slot_aspect_ratios[ar_key]
+                # Handle texts (they come after photos in the combined list)
+                for text_idx in range(len(texts)):
+                    ar_key = (pageno, 'text', text_idx)
+                    if ar_key in self.slot_aspect_ratios:
+                        slot_aspect_ratios_for_page[len(photos) + text_idx] = self.slot_aspect_ratios[ar_key]
 
                 # Build preferred_sizes dict from layout manager
                 preferred_sizes = {}
@@ -3956,16 +4040,23 @@ class LayoutViewer:
                 texts_for_page = current_layout.texts if current_layout else page_infos[page_idx][1].get('texts', [])
 
                 for local_photo_idx in range(len(photos_for_page)):
-                    checkbox_key = (pageno, local_photo_idx)
+                    checkbox_key = (pageno, 'photo', local_photo_idx)
                     if checkbox_key in self.use_slot_aspect:
                         use_slot_aspect_for_photos[photo_offset + local_photo_idx] = self.use_slot_aspect[
                             checkbox_key].get()
 
-                num_items = len(photos_for_page) + len(texts_for_page)
-                for local_item_idx in range(num_items):
-                    ar_key = (pageno, local_item_idx)
+                # Collect aspect ratios for photos
+                for local_photo_idx in range(len(photos_for_page)):
+                    ar_key = (pageno, 'photo', local_photo_idx)
                     if ar_key in self.slot_aspect_ratios:
-                        slot_aspect_ratios_combined[photo_offset + text_offset + local_item_idx] = \
+                        slot_aspect_ratios_combined[photo_offset + local_photo_idx] = \
+                        self.slot_aspect_ratios[ar_key]
+                
+                # Collect aspect ratios for texts
+                for local_text_idx in range(len(texts_for_page)):
+                    ar_key = (pageno, 'text', local_text_idx)
+                    if ar_key in self.slot_aspect_ratios:
+                        slot_aspect_ratios_combined[photo_offset + len(photos_for_page) + local_text_idx] = \
                         self.slot_aspect_ratios[ar_key]
 
                 photo_offset += len(photos_for_page)

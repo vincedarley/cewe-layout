@@ -4,16 +4,22 @@ Photo loading utilities for cewe-layout.
 Shared functions for loading photos and extracting their dimensions.
 Used by both GUI (for thumbnails and aspect ratio checks) and
 collage_wrapper (for layout algorithm inputs).
+
+The loading of photos and their metadata is often a bottleneck in the code.
+Hence there is a fair amount of caching and parallel processing applied
+here to speed things up.  This makes operations like viewing a new page,
+dropping a dozen photos onto a page, much faster.
 """
 
 import cv2
 import traceback
 from pathlib import Path
-from typing import Tuple, Optional, List
+from typing import Tuple, Optional, List, Dict
 from datetime import datetime
 from PIL import Image, ImageOps
 from PIL.ExifTags import TAGS
 import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 logger = logging.getLogger(__name__)
 
@@ -28,9 +34,14 @@ except ImportError:
 # Module-level flags to track first-time failures
 _image_load_failures = set()  # Track which files have been logged
 
+# Persistent thread pool for parallel image operations (avoids shutdown overhead)
+_dimension_executor = ThreadPoolExecutor(max_workers=8, thread_name_prefix="dimension_reader")
 
 # Cache for IPTC keywords to avoid repeated exiftool calls
 _iptc_keywords_cache = {}
+
+# Cache for dimensions from EXIF (faster than decoding for HEIF/RAW formats)
+_exif_dimensions_cache = {}
 
 def get_iptc_keywords(img_path: Path) -> List[str]:
     """
@@ -63,6 +74,252 @@ def get_iptc_keywords(img_path: Path) -> List[str]:
             keywords = [kw.strip() for kw in result.stdout.strip().split(',')]
         else:
             keywords = []
+    except Exception:
+        keywords = []
+    
+    # Cache and return
+    _iptc_keywords_cache[cache_key] = keywords
+    return keywords
+
+
+def batch_get_iptc_keywords(img_paths: List[Path]) -> None:
+    """
+    Pre-populate IPTC keywords cache for multiple images in one exiftool call.
+    
+    This is much faster than individual calls when processing many images.
+    Updates the global _iptc_keywords_cache.
+    
+    Args:
+        img_paths: List of image file paths to process
+    """
+    if not img_paths:
+        return
+    
+    # Filter to only paths not already in cache
+    paths_to_fetch = [p for p in img_paths if p and p.exists() and str(p) not in _iptc_keywords_cache]
+    
+    if not paths_to_fetch:
+        return  # All already cached
+    
+    try:
+        import subprocess
+        # Use -csv output format for easier parsing of multiple files
+        # Format: SourceFile,Keywords
+        result = subprocess.run(
+            ['exiftool', '-Keywords', '-csv'] + [str(p) for p in paths_to_fetch],
+            capture_output=True,
+            text=True,
+            timeout=10  # Longer timeout for batch operation
+        )
+        
+        if result.returncode == 0 and result.stdout.strip():
+            lines = result.stdout.strip().split('\n')
+            # First line is header: SourceFile,Keywords
+            # Skip it and process data lines
+            for line in lines[1:]:
+                parts = line.split(',', 1)  # Split only on first comma
+                if len(parts) == 2:
+                    source_file, keywords_str = parts
+                    if keywords_str and keywords_str != '-':  # '-' means no keywords
+                        keywords = [kw.strip() for kw in keywords_str.split(',')]
+                    else:
+                        keywords = []
+                    # Cache using absolute path
+                    cache_key = str(Path(source_file).resolve())
+                    _iptc_keywords_cache[cache_key] = keywords
+        
+        # For any paths that weren't in the output, cache empty list
+        for path in paths_to_fetch:
+            cache_key = str(path)
+            if cache_key not in _iptc_keywords_cache:
+                _iptc_keywords_cache[cache_key] = []
+                
+    except Exception as e:
+        logger.debug(f"Batch IPTC keywords extraction failed: {e}")
+        # Cache empty lists to avoid retry
+        for path in paths_to_fetch:
+            cache_key = str(path)
+            if cache_key not in _iptc_keywords_cache:
+                _iptc_keywords_cache[cache_key] = []
+
+
+def batch_get_exif_data(img_paths: List[Path]) -> None:
+    """
+    Pre-populate BOTH dimension and keywords caches from EXIF in one exiftool call.
+    
+    This is faster than calling batch_get_exif_dimensions and batch_get_iptc_keywords
+    separately, as it invokes exiftool only once.
+    
+    Updates both _exif_dimensions_cache and _iptc_keywords_cache.
+    
+    Args:
+        img_paths: List of image file paths to process
+    """
+    if not img_paths:
+        return
+    
+    # Filter to only paths not already in BOTH caches
+    paths_to_fetch = [p for p in img_paths 
+                     if p and p.exists() 
+                     and (str(p) not in _exif_dimensions_cache 
+                          or str(p) not in _iptc_keywords_cache)]
+    
+    if not paths_to_fetch:
+        return  # All already cached
+    
+    try:
+        import subprocess
+        # Get dimensions, orientation, AND keywords in one call
+        # Orientation is needed to correctly swap width/height for rotated images
+        result = subprocess.run(
+            ['exiftool', '-ImageWidth', '-ImageHeight', '-Orientation#', '-Keywords', '-csv'] + [str(p) for p in paths_to_fetch],
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
+        
+        if result.returncode == 0 and result.stdout.strip():
+            lines = result.stdout.strip().split('\n')
+            # First line is header: SourceFile,ImageWidth,ImageHeight,Orientation,Keywords
+            # Skip it and process data lines
+            for line in lines[1:]:
+                # Split carefully - keywords may contain commas
+                parts = line.split(',', 4)  # Split only first 4 commas
+                if len(parts) >= 4:
+                    source_file = parts[0]
+                    width_str = parts[1]
+                    height_str = parts[2]
+                    orientation_str = parts[3]
+                    keywords_str = parts[4] if len(parts) > 4 else '-'
+                    
+                    cache_key = str(Path(source_file).resolve())
+                    
+                    # Cache dimensions (with orientation applied)
+                    if width_str != '-' and height_str != '-':
+                        try:
+                            width = int(width_str)
+                            height = int(height_str)
+                            
+                            # Apply EXIF orientation to swap width/height if needed
+                            # Orientation values 5, 6, 7, 8 require dimension swap
+                            # (these represent 90° or 270° rotations)
+                            orientation = 1  # Default: no rotation
+                            if orientation_str != '-':
+                                try:
+                                    orientation = int(orientation_str)
+                                except ValueError:
+                                    pass
+                            
+                            # Swap dimensions for rotated images
+                            if orientation in (5, 6, 7, 8):
+                                width, height = height, width
+                            
+                            if width > 0 and height > 0:
+                                _exif_dimensions_cache[cache_key] = (width, height)
+                            else:
+                                _exif_dimensions_cache[cache_key] = None
+                        except ValueError:
+                            _exif_dimensions_cache[cache_key] = None
+                    else:
+                        _exif_dimensions_cache[cache_key] = None
+                    
+                    # Cache keywords
+                    if keywords_str and keywords_str != '-':
+                        keywords = [kw.strip() for kw in keywords_str.split(',')]
+                        _iptc_keywords_cache[cache_key] = keywords
+                    else:
+                        _iptc_keywords_cache[cache_key] = []
+        
+        # For any paths that weren't in the output, cache None/empty
+        for path in paths_to_fetch:
+            cache_key = str(path)
+            if cache_key not in _exif_dimensions_cache:
+                _exif_dimensions_cache[cache_key] = None
+            if cache_key not in _iptc_keywords_cache:
+                _iptc_keywords_cache[cache_key] = []
+                
+    except Exception as e:
+        logger.debug(f"Batch EXIF data extraction failed: {e}")
+        # Cache None/empty to avoid retry
+        for path in paths_to_fetch:
+            cache_key = str(path)
+            if cache_key not in _exif_dimensions_cache:
+                _exif_dimensions_cache[cache_key] = None
+            if cache_key not in _iptc_keywords_cache:
+                _iptc_keywords_cache[cache_key] = []
+
+
+def batch_get_exif_dimensions(img_paths: List[Path]) -> None:
+    """
+    Pre-populate dimension cache from EXIF metadata using exiftool.
+    
+    This is MUCH faster than decoding images, especially for HEIF/HEIC files
+    where PIL decoding can take 100ms+ per image. exiftool reads dimensions
+    from EXIF in ~1ms per image.
+    
+    Updates the global _exif_dimensions_cache with (width, height) tuples.
+    
+    Note: EXIF dimensions may not always match actual image dimensions if the
+    file has been edited. Callers should validate dimensions when actually
+    loading the image for display.
+    
+    Args:
+        img_paths: List of image file paths to process
+    """
+    if not img_paths:
+        return
+    
+    # Filter to only paths not already in cache
+    paths_to_fetch = [p for p in img_paths if p and p.exists() and str(p) not in _exif_dimensions_cache]
+    
+    if not paths_to_fetch:
+        return  # All already cached
+    
+    try:
+        import subprocess
+        # Use -csv output format: SourceFile,ImageWidth,ImageHeight
+        result = subprocess.run(
+            ['exiftool', '-ImageWidth', '-ImageHeight', '-csv'] + [str(p) for p in paths_to_fetch],
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
+        
+        if result.returncode == 0 and result.stdout.strip():
+            lines = result.stdout.strip().split('\n')
+            # First line is header: SourceFile,ImageWidth,ImageHeight
+            # Skip it and process data lines
+            for line in lines[1:]:
+                parts = line.split(',')
+                if len(parts) >= 3:
+                    source_file = parts[0]
+                    width_str = parts[1]
+                    height_str = parts[2]
+                    
+                    # Parse dimensions (skip if '-' which means missing)
+                    if width_str != '-' and height_str != '-':
+                        try:
+                            width = int(width_str)
+                            height = int(height_str)
+                            if width > 0 and height > 0:
+                                cache_key = str(Path(source_file).resolve())
+                                _exif_dimensions_cache[cache_key] = (width, height)
+                        except ValueError:
+                            pass  # Invalid dimension data, skip
+        
+        # For any paths that weren't in the output, cache None
+        for path in paths_to_fetch:
+            cache_key = str(path)
+            if cache_key not in _exif_dimensions_cache:
+                _exif_dimensions_cache[cache_key] = None
+                
+    except Exception as e:
+        logger.debug(f"Batch EXIF dimensions extraction failed: {e}")
+        # Cache None to avoid retry
+        for path in paths_to_fetch:
+            cache_key = str(path)
+            if cache_key not in _exif_dimensions_cache:
+                _exif_dimensions_cache[cache_key] = None
         
         # Cache the result
         _iptc_keywords_cache[cache_key] = keywords
@@ -245,7 +502,8 @@ def get_image_dimensions(img_path: Path) -> Optional[Tuple[int, int]]:
     """
     Load an image and extract its dimensions.
     
-    Tries OpenCV first (faster), falls back to PIL for formats like HEIC.
+    Checks EXIF cache first (fast), then tries OpenCV (faster), 
+    falls back to PIL for formats like HEIC.
     
     Args:
         img_path: Path to the image file
@@ -255,6 +513,13 @@ def get_image_dimensions(img_path: Path) -> Optional[Tuple[int, int]]:
     """
     if not img_path or not img_path.exists():
         return None
+    
+    # Check EXIF cache first (avoids decoding for HEIF files)
+    cache_key = str(Path(img_path).resolve())
+    if cache_key in _exif_dimensions_cache:
+        cached_dims = _exif_dimensions_cache[cache_key]
+        if cached_dims:  # None means EXIF had no dimensions
+            return cached_dims
     
     # Try OpenCV first (faster for most formats)
     try:
@@ -289,6 +554,54 @@ def get_image_dimensions(img_path: Path) -> Optional[Tuple[int, int]]:
             logger.warning(f"Failed to read image dimensions for {img_path}: {e}")
             _image_load_failures.add(str(img_path))
         return None
+
+
+def batch_get_image_dimensions(img_paths: List[Path], max_workers: int = 8) -> Dict[Path, Optional[Tuple[int, int]]]:
+    """
+    Read image dimensions for multiple images in parallel.
+    
+    Uses a persistent ThreadPoolExecutor to avoid thread creation overhead.
+    
+    Args:
+        img_paths: List of Path objects to read
+        max_workers: Maximum number of parallel threads (ignored - module executor used)
+    
+    Returns:
+        Dict mapping Path -> (width, height) or None if read failed
+    """
+    results = {}
+    
+    # Filter out invalid/non-existent paths first
+    valid_paths = [p for p in img_paths if p and p.exists()]
+    
+    if not valid_paths:
+        return {p: None for p in img_paths}
+    
+    def read_one(img_path: Path) -> Tuple[Path, Optional[Tuple[int, int]]]:
+        """Read dimensions for one image and return (path, dimensions)."""
+        dims = get_image_dimensions(img_path)
+        return (img_path, dims)
+    
+    # Use persistent module-level executor (no context manager - no shutdown overhead)
+    # Submit all tasks
+    future_to_path = {_dimension_executor.submit(read_one, path): path for path in valid_paths}
+    
+    # Collect results as they complete
+    for future in as_completed(future_to_path):
+        try:
+            img_path, dims = future.result()
+            results[img_path] = dims
+        except Exception as e:
+            path = future_to_path[future]
+            logger.error(f"Failed to read dimensions for {path}: {e}")
+            results[path] = None
+    
+    # Add None results for invalid paths
+    for p in img_paths:
+        if p not in results:
+            results[p] = None
+    
+    return results
 
 
 def get_image_aspect_ratio(img_path: Path) -> Optional[float]:

@@ -92,6 +92,7 @@ def setup_drag_and_drop_macos(canvas, album_path: Path, drop_callback):
                     # MUST use absolute path for Photos to accept it
                     abs_photos_dir = self.photos_dir.resolve()
                     destURL = NSURL.fileURLWithPath_isDirectory_(str(abs_photos_dir), True)
+                    
                     filenames = sender.namesOfPromisedFilesDroppedAtDestination_(destURL)
                     
                     if filenames:
