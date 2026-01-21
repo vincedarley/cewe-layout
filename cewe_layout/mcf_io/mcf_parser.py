@@ -330,34 +330,23 @@ def extract_pages_info(fotobook_root):
                 background_id = bg.get('designElementId')
                 break
         
-        # Pre-create page entries for both left and right pages
-        # (or just the single page in canvas mode)
-        if single_page_mode:
-            owners = [pagenr]
-            origin_lefts = [0.0]
-            page_widths = [logical_spread_w]
-        else:
-            if (pagenr % 2) == 0:
-                # Even pagenr -> left page is pagenr, right is pagenr+1
-                # BUT: if this is the last normal page and there's an inside back cover,
-                # don't create pagenr+1 (it will be the inside back cover)
-                if inside_back_cover_page is not None and pagenr == max_normal_pagenr:
-                    owners = [pagenr]
-                    origin_lefts = [0.0]
-                    page_widths = [half]
-                else:
-                    owners = [pagenr, pagenr + 1]
-                    origin_lefts = [0.0, half]
-                    page_widths = [half, half]
-            else:
-                # Odd pagenr -> left page is pagenr-1 (or skip if would be < 1), right is pagenr
-                owners = [max(1, pagenr - 1), pagenr]
-                origin_lefts = [0.0, half]
-                page_widths = [half, half]
+        logger.debug(f"extract_pages_info: pagenr={pagenr_str} extracted background_id={background_id}")
         
-        for owner, origin_left, page_width in zip(owners, origin_lefts, page_widths):            
-            if owner not in pages_map:
-                pages_map[owner] = {
+        # Each <page> element represents exactly ONE physical page in the photobook
+        # The spread layout is handled when placing photos/text, not when creating pages
+        if single_page_mode:
+            page_width = logical_spread_w
+            origin_left = 0.0
+        else:
+            # Even pages are on the left (origin_left=0), odd pages are on the right (origin_left=half)
+            page_width = half
+            # This line is correct except for the pagenr=0 special cases of the front cover (which is a right page) and
+            # the inside back cover (which is also a right page). Those must be handled separately.
+            origin_left = half if (pagenr % 2) == 1 else 0.0
+        
+        if pagenr not in pages_map:
+            logger.debug(f"extract_pages_info: pagenr={pagenr_str} creating page {pagenr} origin_left={origin_left} background_id={background_id}")
+            pages_map[pagenr] = {
                     'photos': [], 
                     'texts': [], 
                     'page_width': page_width, 

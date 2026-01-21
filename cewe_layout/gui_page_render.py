@@ -214,7 +214,7 @@ class PageRenderer:
                 frame_y = margin_mcf * scale
                 frame_w = page_w * scale
                 frame_h = page_h * scale
-                
+
                 # Draw the page background rectangle for this page
                 draw.rectangle(
                     [frame_x, frame_y, frame_x + frame_w, frame_y + frame_h],
