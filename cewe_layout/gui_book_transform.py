@@ -465,11 +465,11 @@ class TransformWindow:
         (at least for hardback books, where the inside cover does not use nice photographic paper).
         
         Given this, there are a few possible scenarios:
-        - The input photobook has no pages representing inside-covers (e.g. it is derived from a PDF file which
+        - The input photobook has no pages representing inside-covers - e.g. it is derived from a PDF file which
           has a front cover page which is followed directly by the first content page (page 1 in MCF). In this
-          case we can safely create empty insidecovers in mcf_io and we don't lose anything.
+          case we can safely create empty insidecovers in mcf and we don't lose anything.
         - The input photobook has pages representing inside-covers, but they are empty. In this
-          case we can safely create empty insidecovers in mcf_io and we don't lose anything.
+          case we can safely create empty insidecovers in mcf and we don't lose anything.
         - The input photobook has pages representing inside-covers, but they are NOT empty. In this case we need
           to make a choice: (a) we can place the content of those pages on the MCF pages 0 and N+1, where they will
           be visible and editable in QLayout, but ignored by CEWE Creator, (b) we can ignore and discard that content,
@@ -619,7 +619,7 @@ class TransformWindow:
     def _load_merge_book(self):
         """Load another photobook to merge (doesn't write anything yet)."""
         file_path = filedialog.askopenfilename(
-            title="Select photobook file to merge (.xmcf or .mcf_io file)",
+            title="Select photobook file to merge (.xmcf or .mcf file)",
         )
         if not file_path:
             return

@@ -18,7 +18,6 @@ Attribution:
 """
 
 import math
-import random
 
 import numpy as np
 
@@ -79,7 +78,7 @@ def _find_img_pair(alpha_t, L, temperature=1):
         elif alpha_sum < alpha_t:
             p = p + 1
     i, j = pairs[_sample_energies(energies, temperature)]
-    return (i, j)
+    return i, j
 
 
 def _generate_tree(L, node, temperature):

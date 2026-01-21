@@ -20,7 +20,7 @@ All functions operate on the abstract `LayoutRectangle` and page dimensions
 and do not depend on MCF or file paths.
 """
 
-from typing import List, Dict, Tuple, Optional, Union
+from typing import List, Tuple, Union
 from .base import LayoutRectangle
 
 
@@ -91,7 +91,7 @@ def evaluate_layout(
         rectangles: Positioned `LayoutRectangle` objects with x, y, width, height.
         size_importance: λ factor for size mismatch importance (default 10.0).
         acceptable_empty_fraction: Fraction of page that can be empty without penalty (default 0.05 = 5%).
-        undersized_threshold: Ratio threshold for undersizing (default 0.5 = 50%).
+        undersized_threshold: Ratio threshold for under-sizing (default 0.5 = 50%).
         undersized_penalty: Additional multiplier k for undersized photos (default 5.0).
         detailed: If True, return LayoutCost with full breakdown. If False, return just float cost (default True).
     

@@ -846,7 +846,7 @@ class LayoutViewer:
             # Window menu (standard macOS menu)
             window_menu = tk.Menu(menubar, name='window', tearoff=0)
             menubar.add_cascade(label='Window', menu=window_menu)
-            # The window menu is automatically populated by Tk on macOS with open windows
+            # The window menu is automatically populated by Tk on macOS.
             # Keyboard shortcuts Cmd+0 and Cmd+1 are bound directly, not via menu
             
             # Set app name in menu bar (attempts to override "Python")
@@ -1283,7 +1283,6 @@ class LayoutViewer:
                     # Find next page (should be odd if pages are consecutive)
                     if self.pageIndex < self.book.get_page_count() - 1:
                         right_page = self.book.get_page(self.pageIndex + 1)
-                        right_pageno = right_page.get_page_number()
                         right_info = right_page.get_page_info()
                         # Don't pair with covers
                         if not right_info.get('is_cover', False):
@@ -1302,7 +1301,6 @@ class LayoutViewer:
                     # Current page is odd - find previous even page for left
                     if self.pageIndex > 0:
                         left_page = self.book.get_page(self.pageIndex - 1)
-                        left_pageno = left_page.get_page_number()
                         left_info = left_page.get_page_info()
                         # Don't pair with covers
                         if not left_info.get('is_cover', False):
@@ -2303,88 +2301,6 @@ class LayoutViewer:
         dpi = min(dpi_w, dpi_h)
         return int(round(dpi))
 
-    def _write_debug_dump(self, pageno, page_w, page_h, origin_left, is_left_page, edge_gap, internal_gap,
-                         photos, texts, preferred_sizes, algorithm_name, use_slot_aspect_for_photos, slot_aspect_ratios):
-        """Write debug dump file with all data needed to reproduce layout generation.
-        
-        Args:
-            pageno: Page number
-            page_w, page_h: Page dimensions in MCF units
-            origin_left: Origin left offset for right pages
-            is_left_page: True if left/even page
-            edge_gap, internal_gap: Gap values in MCF units
-            photos: List of photo dicts with MCF coordinates
-            texts: List of text dicts with MCF coordinates
-            preferred_sizes: Dict mapping photo filename or text_id to preferred size
-            algorithm_name: Name of algorithm being run
-            use_slot_aspect_for_photos: Dict mapping photo index to bool (use slot AR)
-            slot_aspect_ratios: Dict mapping item index to float aspect ratio
-        """
-        from pathlib import Path
-        
-        debug_file = Path(f"Debug-Page-{pageno}.txt")
-        
-        with open(debug_file, 'w') as f:
-            f.write(f"Debug Dump for Page {pageno}\n")
-            f.write("=" * 80 + "\n\n")
-            
-            f.write("PAGE PROPERTIES:\n")
-            f.write(f"  page_width: {page_w}\n")
-            f.write(f"  page_height: {page_h}\n")
-            f.write(f"  origin_left: {origin_left}\n")
-            f.write(f"  is_left_page: {is_left_page}\n")
-            f.write(f"  spread_mode: {self.spread_mode.get()}\n")
-            f.write("\n")
-            
-            f.write("GAP PARAMETERS:\n")
-            f.write(f"  edge_gap: {edge_gap} ({edge_gap/10:.1f}mm)\n")
-            f.write(f"  internal_gap: {internal_gap} ({internal_gap/10:.1f}mm)\n")
-            f.write("\n")
-            
-            f.write("ALGORITHM:\n")
-            f.write(f"  name: {algorithm_name}\n")
-            f.write("\n")
-            
-            f.write(f"PHOTOS ({len(photos)} total):\n")
-            for i, p in enumerate(photos):
-                f.write(f"  Photo {i}:\n")
-                f.write(f"    filename: {p.get('filename', 'N/A')}\n")
-                f.write(f"    area_left: {p.get('area_left', 0)}\n")
-                f.write(f"    area_top: {p.get('area_top', 0)}\n")
-                f.write(f"    area_width: {p.get('area_width', 0)}\n")
-                f.write(f"    area_height: {p.get('area_height', 0)}\n")
-                fn = p.get('filename', '')
-                if fn:
-                    base_fn, _, _ = extract_metadata_from_filename(fn)
-                    pref_size = preferred_sizes.get(fn, 1.0)
-                    f.write(f"    preferred_size: {pref_size}\n")
-                    use_slot = use_slot_aspect_for_photos.get(i, False)
-                    f.write(f"    use_slot_aspect: {use_slot}\n")
-                    if use_slot:
-                        slot_ar = slot_aspect_ratios.get(i, None)
-                        f.write(f"    slot_aspect_ratio: {slot_ar}\n")
-                f.write("\n")
-            
-            f.write(f"TEXTS ({len(texts)} total):\n")
-            for i, t in enumerate(texts):
-                f.write(f"  Text {i}:\n")
-                f.write(f"    area_left: {t.get('area_left', 0)}\n")
-                f.write(f"    area_top: {t.get('area_top', 0)}\n")
-                f.write(f"    area_width: {t.get('area_width', 0)}\n")
-                f.write(f"    area_height: {t.get('area_height', 0)}\n")
-                text_id = f'TEXT_{i}'
-                pref_size = preferred_sizes.get(text_id, 1.0)
-                f.write(f"    preferred_size: {pref_size}\n")
-                f.write("\n")
-            
-            f.write("\nTo reproduce in test:\n")
-            f.write("1. Transform items to gap-free coordinates using transform_item_to_gapfree()\n")
-            f.write("2. Transform page dimensions using transform_page_to_gapfree()\n")
-            f.write("3. Run algorithm\n")
-            f.write("4. Transform results back using transform_item_from_gapfree()\n")
-        
-        logger.info(f"Debug dump written to {debug_file}")
-
     def add_text_box(self):
         """Add a new text box to the current page."""
         if self.book.get_page_count() == 0:
@@ -2815,7 +2731,6 @@ class LayoutViewer:
         if self.spread_mode.get():
             # In spread mode, navigate to previous even page (or cover spread)
             current_page = self.book.get_page(self.pageIndex)
-            current_pageno = current_page.get_page_number()
             current_info = current_page.get_page_info()
             is_current_cover = current_info.get('is_cover', False)
             
@@ -3113,7 +3028,7 @@ class LayoutViewer:
         # Get selected algorithm and segmenter
         from .pdf_import.segmenter_base import get_segmenter
 
-        algorithm = self.segmentation_algorithm_var.get();
+        algorithm = self.segmentation_algorithm_var.get()
         segmenter = get_segmenter(algorithm)
         
         if segmenter is None:
@@ -3158,10 +3073,6 @@ class LayoutViewer:
         # Segments are already in PDF-based MCF spread coordinates from _makeScaledSegments()
         # Add dimension metadata to segments for overlay rendering
         
-        # Get PDF page dimensions from composite_image if available
-        # These are the dimensions used when extracting from PDF
-        pdf_page_width = None
-        pdf_page_height = None
         if composite_image:
             # Calculate PDF page dimensions from composite coordinates
             # composite_image has PDF-based MCF coordinates
@@ -4150,13 +4061,13 @@ class LayoutViewer:
             for pageno in pages_to_save:
                 # Get current layout for this page
                 current_layout = self.layout_mgr.get_current(pageno)
-                if not current_layout:
-                    continue
-                
+
                 photos = current_layout.photos
                 texts = current_layout.texts
                 
                 # Filter out empty photo slots (deleted photos with no filename)
+                # We discard empty photo slots on save - perhaps we should keep them
+                # but a very minor issue.
                 photos = [p for p in photos if p.get('filename')]
                 
                 # Ensure all photos have image_width and image_height before saving

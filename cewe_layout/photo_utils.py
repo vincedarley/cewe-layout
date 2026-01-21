@@ -134,12 +134,13 @@ def get_photo_star_rating(img_path: Path) -> int:
 
 def get_photo_creation_date(img_path: Path) -> Optional[datetime]:
     """
-    Extract creation date from photo EXIF data.
+    Extract creation date from photo EXIF data or filesystem.
     
-    Tries multiple EXIF fields in order:
-    1. DateTimeOriginal (when photo was taken)
-    2. CreateDate
-    3. DateTime (when file was modified)
+    Tries multiple sources in order:
+    1. EXIF DateTimeOriginal (when photo was taken)
+    2. EXIF CreateDate
+    3. EXIF DateTime (when file was modified)
+    4. Filesystem creation date (fallback)
     
     Args:
         img_path: Path to the image file
@@ -182,21 +183,29 @@ def get_photo_creation_date(img_path: Path) -> Optional[datetime]:
             )
             date_str = result.stdout.strip()
         
-        if not date_str:
-            return None
-        
-        # Parse date string (format: "YYYY:MM:DD HH:MM:SS")
-        try:
-            return datetime.strptime(date_str, '%Y:%m:%d %H:%M:%S')
-        except ValueError:
-            # Try alternate format without time
+        if date_str:
+            # Parse date string (format: "YYYY:MM:DD HH:MM:SS")
             try:
-                return datetime.strptime(date_str, '%Y:%m:%d')
+                return datetime.strptime(date_str, '%Y:%m:%d %H:%M:%S')
             except ValueError:
-                return None
+                # Try alternate format without time
+                try:
+                    return datetime.strptime(date_str, '%Y:%m:%d')
+                except ValueError:
+                    pass  # Fall through to filesystem date
     
     except Exception as e:
-        logger.warning(f"exiftool not available or failed: {e}")
+        logger.debug(f"exiftool not available or failed for {img_path}: {e}")
+    
+    # Fallback: use filesystem creation time
+    try:
+        stat_info = img_path.stat()
+        # On macOS, st_birthtime is the creation time
+        # On other platforms, may fall back to st_mtime
+        creation_time = getattr(stat_info, 'st_birthtime', None) or stat_info.st_mtime
+        return datetime.fromtimestamp(creation_time)
+    except Exception as e:
+        logger.warning(f"Could not get any date for {img_path}: {e}")
         return None
 
 
@@ -224,7 +233,7 @@ def resolve_photo_path(filename: str, mcf_base_folder: Path, image_folder_attr: 
         if candidate.exists():
             return candidate
     
-    # Fallback: check relative to mcf_io base
+    # Fallback: check relative to mcf base
     candidate = mcf_base_folder / safefn
     if candidate.exists():
         return candidate

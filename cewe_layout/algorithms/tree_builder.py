@@ -459,11 +459,11 @@ class TreeBuilderAlgorithm(LayoutAlgorithm):
                       Default 20.0 = 2.0mm.
         """
         self.tolerance = tolerance
-    
+        self.final_tree = None
+
     def getName(self) -> str:
         return "Tree-Builder"
-        self.final_tree = None
-    
+
     def forcesUseOfCurrentLayout(self) -> bool:
         """Tree Builder requires current layout slot dimensions."""
         return True

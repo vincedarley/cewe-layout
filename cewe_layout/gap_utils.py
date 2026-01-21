@@ -5,14 +5,21 @@ Handles uniform spacing (gaps) between photos and page edges.
 Separates edge gaps (margins) from internal gaps.
 
 KEY CONCEPT - Gaps and Coordinate Spaces:
-- MCF space: Coordinates as stored in the .mcf file, with actual gaps/margins
-- Gap-free space: Algorithm coordinate space where gaps are removed (items touch)
+- MCF space: Coordinates as stored in the .mcf file, with actual gaps/margins just as you would see visually
+- Gap-free space: Algorithm coordinate space where gaps are removed (items touch). When we say gaps are removed
+we mean that the page in MCF-space is analysed to find the most common single uniform value for internal gap 
+(and edge gaps) and then we process the layout to remove these gaps, so that items are touching each other.
+So algorithms always operate in a space where the aim to to fill 100% of the area of the page without any empty
+space - just photos and text blocks.  Once the algorithm has done its best, we then re-apply the desired gap.
+
+If the user manually changes gap size, then we achieve that by transforming between MCF space and gap-free space
+using the old gap size, and then transforming back to MCF space using the new gap size.
 
 Gaps are PARAMETERS that define transformations between these spaces:
 - edge_gap: Margin from page edge to first item (can be negative for bleed)
 - internal_gap: Spacing between adjacent items
 
-Cost calculations operate in GAP-FREE space and are unaware of gaps.
+Cost calculations (which measure how good the layout is) and algorithms operate in GAP-FREE space and are unaware of gaps.
 Visual rendering operates in MCF space with gaps applied.
 Changing gaps transforms positions WITHOUT affecting gap-free coordinates or costs.
 """

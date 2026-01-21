@@ -11,7 +11,7 @@ and the algorithm's generic item/page space.
 """
 
 from abc import ABC, abstractmethod
-from typing import List, Tuple, Optional
+from typing import List, Tuple
 
 
 class TreeNode:

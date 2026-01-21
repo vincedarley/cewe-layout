@@ -88,7 +88,7 @@ def _calculate_cutout(slot_width_mcf, slot_height_mcf, image_width_px, image_hei
     cutout_left = -(scaled_width_mcf - slot_width_mcf) / 2.0
     cutout_top = -(scaled_height_mcf - slot_height_mcf) / 2.0
     
-    return (scale, cutout_left, cutout_top)
+    return scale, cutout_left, cutout_top
 
 
 def _manage_single_backup(path: str) -> tuple:
@@ -319,18 +319,16 @@ def restore_mcf_backup(path: str) -> dict:
 
 
 def _validate_saved_page(path: str, pageno: int, expected_photos: List[Dict[str, Any]], 
-                        expected_texts: List[Dict[str, Any]], is_right_page: bool, 
-                        half_width: float, spread_width: float, validate_files: bool = True) -> List[str]:
+                        expected_texts: List[Dict[str, Any]], half_width: float,
+                        validate_files: bool = True) -> List[str]:
     """Validate that the saved XML matches expectations.
     
     Args:
-        path: Path to the .mcf_io file
+        path: Path to the .mcf file
         pageno: Logical page number that was saved
         expected_photos: List of photo dicts that should be in XML
         expected_texts: List of text dicts that should be in XML
-        is_right_page: Whether this is the right page of the spread
         half_width: Half the spread width for determining page boundaries
-        spread_width: Full spread width
         validate_files: If True, check that photo files exist on disk
     
     Returns:
@@ -427,11 +425,11 @@ def update_page_layout(path: str, uiPage: Any, photos: List[Dict[str, Any]],
     - Odd pagenr: left side = pagenr-1, right side = pagenr
     
     Args:
-        path: Path to the .mcf_io file
+        path: Path to the .mcf file
         uiPage: F, 0 (inside front cover), 1....N-2 (main pages), N-1 (inside back cover), B
         photos: List of photo dicts with keys: filename, area_left, area_top, area_width, area_height
         texts: List of text dicts with keys: area_left, area_top, area_width, area_height
-        make_backup: If True, rename original file to path-N.mcf_io before writing
+        make_backup: If True, rename original file to path-N.mcf before writing
         new_photos: Optional list of filenames that are newly added (need new <area> elements)
         deleted_photos: Optional list of filenames that were deleted (remove <area> elements)
         rename_map: Optional dict mapping old filenames to new filenames (e.g., after adding -sz suffix)
@@ -657,18 +655,14 @@ def update_page_layout(path: str, uiPage: Any, photos: List[Dict[str, Any]],
             
             # Update cutout values in the image element
             cutout_elem = image.find('cutout')
-            if cutout_elem is not None:
-                cutout_elem.set('left', f"{cutout_left:.6f}")
-                cutout_elem.set('scale', f"{scale:.6f}")
-                cutout_elem.set('top', f"{cutout_top:.6f}")
-            else:
-                # Create cutout if it doesn't exist
+            if cutout_elem is None:
+                # Create cutout if it doesn't exist. It won't exist given this is a new photo, or might
+                # it exist if we've swapped a new photo into a previously existing imagearea?
                 cutout_elem = etree.SubElement(image, 'cutout')
-                cutout_elem.set('left', f"{cutout_left:.6f}")
-                cutout_elem.set('scale', f"{scale:.6f}")
-                cutout_elem.set('top', f"{cutout_top:.6f}")
-        # else: preserve existing cutout/scale values from XML
-        
+            cutout_elem.set('left', f"{cutout_left:.6f}")
+            cutout_elem.set('scale', f"{scale:.6f}")
+            cutout_elem.set('top', f"{cutout_top:.6f}")
+
         # Ensure proper formatting for existing elements
         if pos.tail is None or not pos.tail.strip():
             pos.tail = '\n            '
@@ -962,7 +956,7 @@ def update_page_layout(path: str, uiPage: Any, photos: List[Dict[str, Any]],
         raise RuntimeError(f"Failed to write MCF file: {e}") from e
     
     # Validate the saved XML matches expectations
-    validation_errors = _validate_saved_page(path, uiPage, photos, texts, is_page_on_right, half_width, spread_width, validate_files)
+    validation_errors = _validate_saved_page(path, uiPage, photos, texts, half_width, validate_files)
     if validation_errors:
         for error in validation_errors:
             warnings.append(f"VALIDATION ERROR: {error}")

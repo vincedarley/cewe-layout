@@ -16,7 +16,7 @@ Algorithm:
 This produces a gap-free layout while preserving the overall structure.
 """
 
-from typing import List, Tuple, Optional
+from typing import List, Tuple
 import math
 
 from .base import LayoutAlgorithm, LayoutRectangle

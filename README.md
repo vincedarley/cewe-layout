@@ -99,6 +99,11 @@ When photos are added:
 3. Initial layout rectangles are created (overlapping at the top of the page for easy visibility)
 4. You can then use any layout algorithm (Genetic Algorithm, Collage-Gen, etc.) to arrange them nicely
 
+Note that when photo files (.jpeg etc) are copied by CEWE Creator or QLayout into the album directory they are
+renamed. CEWE Creator uses long unfriendly names (which is fine, they aren't meant for human consumption).  In
+QLayout we've chosen to give them more friendly names, which include both the relative size and page number of the
+photo. This means if you look inside the album directory it'll be a bit more obvious what is going on.  A typical file might be called something like "yr9-10p026-sz5-pg3.jpeg" (where yr9-10 is a manually specified prefix for all the photos).
+
 **Secondary workflow for importing old photo books**
 
 If you have old PDF files, or legacy Mimeo photobooks stored in .ppb files inside your Apple Photos library, this tool can import those fairly easily to create a new editable .mcf photobook.  Use:
@@ -125,6 +130,8 @@ In this second case I have an old Apple Photos library, containing just the phot
 database.  These legacy photobooks convert very nicely to the modern CEWE structure - so much so that I am deleting the old versions.
 
 Note that there is no support for more recent Mimeo photo-book formats. If you don't have a .ppb database file hidden in your Apple Photos album, then this tool can't help you.
+
+Within the "Transform Book" UI of the tool, you can also merge two photobooks into one, and/or resize a photobook, and optionally rename all of the photos in the book to have a standard prefix.
 
 **Future, TO DO and possible ideas**
 

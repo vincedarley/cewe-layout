@@ -1,7 +1,7 @@
 """
 Generate CEWE MCF format files from a Photobook object (from PDF, Mimeo or CEWE source).
 
-CAUTION: Because we create the mcf_io file entirely from scratch, and we only handle the
+CAUTION: Because we create the mcf file entirely from scratch, and we only handle the
 basics of the format, all advanced formatting, decorations, text styles, etc. will be lost
 if you load an existing CEWE photobook and then re-save it using the code in this file.
 
@@ -98,7 +98,7 @@ def photobook_create_mcf_xml(photobook: Photobook, output_dir: Path, verbose: bo
     # Calculate relative sizes for all images across all pages
     calculate_image_relative_sizes(photobook)
 
-    # Create fotobook element as root (no mcf_io wrapper)
+    # Create fotobook element as root (no mcf wrapper)
     fotobook = ET.Element('fotobook')
     
     # Get dimensions from cover and interior pages separately
@@ -407,7 +407,7 @@ def create_empty_page(page_width_mcf: float, page_height_mcf: float, cewe_pagenr
     bundlesize.set('height', f"{page_height_mcf:.0f}")
     
     # Add basic background
-    if (background_id):
+    if background_id:
         background = ET.SubElement(page, 'background')
         background.set('alignment', '4')
         background.set('designElementId', str(background_id))

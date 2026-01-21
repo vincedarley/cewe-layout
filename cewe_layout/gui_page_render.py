@@ -497,8 +497,6 @@ class PageRenderer:
                       start_number, pageno, delete_button_info, page_bg_color):
         """Render photos for a single page.
         
-        Args:
-            swap_callback: Optional callback for photo swap events
         """
 
         try:
@@ -1387,7 +1385,7 @@ class PageRenderer:
                         crop_right_px_clamped = max(0, min(img_w, crop_right_px))
                         crop_bottom_px_clamped = max(0, min(img_h, crop_bottom_px))
                         
-                        #logger.debug(f"CROP [{base_filename}]: Using XML cutout - img={img_w}x{img_h}px, scale={cutout_scale:.4f}, slot={slot_width_mcf:.0f}x{slot_height_mcf:.0f}mcf_io, cutout_offset=({cutout_left:.1f},{cutout_top:.1f})mcf_io → crop_px=({crop_left_px:.1f},{crop_top_px:.1f})-({crop_right_px:.1f},{crop_bottom_px:.1f}) clamped=({crop_left_px_clamped:.0f},{crop_top_px_clamped:.0f})-({crop_right_px_clamped:.0f},{crop_bottom_px_clamped:.0f})")
+                        #logger.debug(f"CROP [{base_filename}]: Using XML cutout - img={img_w}x{img_h}px, scale={cutout_scale:.4f}, slot={slot_width_mcf:.0f}x{slot_height_mcf:.0f}mcf, cutout_offset=({cutout_left:.1f},{cutout_top:.1f})mcf → crop_px=({crop_left_px:.1f},{crop_top_px:.1f})-({crop_right_px:.1f},{crop_bottom_px:.1f}) clamped=({crop_left_px_clamped:.0f},{crop_top_px_clamped:.0f})-({crop_right_px_clamped:.0f},{crop_bottom_px_clamped:.0f})")
                         
                         # Crop the image
                         cropped = full_img.crop((int(crop_left_px_clamped), int(crop_top_px_clamped), 
@@ -1401,14 +1399,14 @@ class PageRenderer:
                             # Image is wider than slot - crop left/right
                             target_width = img_h * slot_aspect
                             crop_left = (img_w - target_width) / 2
-                            #logger.info(f"CROP [{base_filename}]: Default crop (wide img) - img={img_w}x{img_h}px (aspect={img_aspect:.3f}), slot={slot_width_mcf:.0f}x{slot_height_mcf:.0f}mcf_io (aspect={slot_aspect:.3f}) → crop left/right by {crop_left:.1f}px")
+                            #logger.info(f"CROP [{base_filename}]: Default crop (wide img) - img={img_w}x{img_h}px (aspect={img_aspect:.3f}), slot={slot_width_mcf:.0f}x{slot_height_mcf:.0f}mcf (aspect={slot_aspect:.3f}) → crop left/right by {crop_left:.1f}px")
                             cropped = full_img.crop((int(crop_left), 0, 
                                                     int(crop_left + target_width), img_h))
                         else:
                             # Image is taller than slot - crop top/bottom
                             target_height = img_w / slot_aspect
                             crop_top = (img_h - target_height) / 2
-                            #logger.info(f"CROP [{base_filename}]: Default crop (tall img) - img={img_w}x{img_h}px (aspect={img_aspect:.3f}), slot={slot_width_mcf:.0f}x{slot_height_mcf:.0f}mcf_io (aspect={slot_aspect:.3f}) → crop top/bottom by {crop_top:.1f}px")
+                            #logger.info(f"CROP [{base_filename}]: Default crop (tall img) - img={img_w}x{img_h}px (aspect={img_aspect:.3f}), slot={slot_width_mcf:.0f}x{slot_height_mcf:.0f}mcf (aspect={slot_aspect:.3f}) → crop top/bottom by {crop_top:.1f}px")
                             cropped = full_img.crop((0, int(crop_top), 
                                                     img_w, int(crop_top + target_height)))
                     
@@ -1474,13 +1472,6 @@ class PageRenderer:
             logger.warning("No current page image to draw overlay on")
             return
         
-        # Get the underlying PIL Image
-        # We need to draw on a copy since PhotoImage doesn't support direct drawing
-        # Get current displayed image dimensions
-        display_img = self.photo_image
-        
-        # Create a copy of the current display as PIL Image
-        # Since we can't easily extract from PhotoImage, we'll draw on top of it using canvas items
         # Store overlay data for canvas rendering
         self.overlay_segments = segments
         self.overlay_canvas_w = canvas_w

@@ -24,11 +24,11 @@ def page_sort_key(page_num):
         ["F", 0, 1, 3, "B"]
     """
     if page_num == "F":
-        return (0, 0)  # Front cover comes first
+        return 0, 0  # Front cover comes first
     elif page_num == "B":
-        return (2, 0)  # Back cover comes last
+        return 2, 0  # Back cover comes last
     else:
-        return (1, page_num)  # Numeric pages in between
+        return 1, page_num  # Numeric pages in between
 
 
 def determine_page_owner_of_area(area_left: float, half_width: float, left_owner: Any, right_owner: Any) -> Any:

@@ -26,7 +26,7 @@ def rename_photos(directory, rename_prefix, pattern='*'):
     
     Args:
         directory: Path to directory containing photos
-        name_prefix: Prefix to use for renamed files
+        rename_prefix: Prefix to use for renamed files
         pattern: Glob pattern to match files (default: '*' for all files)
     """
     photo_dir = Path(directory)
@@ -130,7 +130,7 @@ def main():
         candidates = [os.path.join(mcf_path, 'data.mcf')] + [os.path.join(mcf_path, f) for f in os.listdir(mcf_path) if f.endswith('.mcf')]
         found = next((c for c in candidates if os.path.exists(c)), None)
         if found is None:
-            print(f'No data.mcf or .mcf_io found in folder: {mcf_path}', file=sys.stderr)
+            print(f'No data.mcf or .mcf found in folder: {mcf_path}', file=sys.stderr)
             sys.exit(2)
         mcf_path = found
 
