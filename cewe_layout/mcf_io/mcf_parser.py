@@ -206,6 +206,72 @@ def _is_normal_page(page_el):
         return False
 
 
+def _calculate_page_dimensions(single_page_mode: bool, right_page: bool, logical_spread_w: float) -> tuple[float, float]:
+    """Calculate page_width and origin_left for a given page.
+    
+    Args:
+        single_page_mode: True for Canvas/Calendar (no split), False for photobooks (left/right split)
+        right_page: True if this is the right page in a spread (photobook mode)
+        logical_spread_w: Full spread width (after rotation adjustment)
+    
+    Returns:
+        Tuple of (page_width, origin_left)
+    """
+    if single_page_mode:
+        # Canvas/Calendar: each page is standalone, full width
+        page_width = logical_spread_w
+        origin_left = 0.0
+    else:
+        # Photobook: split spread into left/right pages
+        half = logical_spread_w / 2.0
+        page_width = half
+        # Even pages are on the left (origin_left=0), odd pages are on the right (origin_left=half)
+        # Note: pagenr=0 special cases (covers) must be handled separately by caller
+        origin_left = half if right_page else 0.0
+    
+    return page_width, origin_left
+
+
+def _create_page_info(page_width: float, page_height: float, origin_left: float, 
+                      background_id: str | None, canvas_mode: bool, calendar_mode: bool,
+                      rotation: float, physical_width: float, physical_height: float,
+                      pagenr: int | str, page_type: str | None) -> dict[str, Any]:
+    """Create a page info dictionary with consistent structure.
+    
+    Args:
+        page_width: Width of the page in logical coordinates
+        page_height: Height of the page in logical coordinates
+        origin_left: X offset for this page within the spread
+        background_id: Background design element ID
+        canvas_mode: True if this is a Canvas product
+        calendar_mode: True if this is a Calendar product
+        rotation: Page rotation in degrees
+        physical_width: Physical spread width (pre-rotation)
+        physical_height: Physical spread height (pre-rotation)
+        pagenr: Page number (int or string like 'F'/'B' for covers)
+        page_type: Page type from XML (e.g., 'normalpage', 'calendarcoverfront')
+    
+    Returns:
+        Dictionary with page information
+    """
+    return {
+        'photos': [],
+        'texts': [],
+        'page_width': page_width,
+        'page_height': page_height,
+        'origin_left': origin_left,
+        'background_id': background_id,
+        'is_canvas': canvas_mode,
+        'is_calendar': calendar_mode,
+        'rotation': rotation,
+        'physical_width': physical_width,
+        'physical_height': physical_height,
+        'calendar_edge_gaps': CALENDAR_EDGE_GAPS.copy() if calendar_mode else None,
+        'cewe_pagenr': pagenr,
+        'page_type': page_type
+    }
+
+
 def extract_pages_info(fotobook_root):
     # Collect photos per logical page number. Many .mcf files store a two-page spread
     # in a single <page> element (the "bundle"). To handle that we split areas
@@ -225,12 +291,12 @@ def extract_pages_info(fotobook_root):
     all_pages = fotobook_root.findall('.//page')
     logger.debug(f"extract_pages_info: Found {len(all_pages)} total page elements in XML")
     
-    # Find cover page (type="fullcover")
-    # Note: The fullcover page contains BOTH front and back covers in one spread
+    # Find cover page (type="fullcover"), or calendarcoverfront for calendars.
+    # Note: The fullcover page contains BOTH front and back covers in one spread (for photobooks)
     # Left half = back cover, Right half = front cover (just like normal page spreads)
     cover_page = None
     for page in all_pages:
-        if page.get('type') == 'fullcover':
+        if page.get('type') == 'fullcover' or page.get('type') == 'calendarcoverfront':
             template_name = page.get('designStyleTemplateName', '')
             # Find the cover page that has areas (content)
             if page.findall('.//area'):
@@ -264,31 +330,26 @@ def extract_pages_info(fotobook_root):
                 background_id = bg.get('designElementId')
                 break
         
-        # Cover page width: MCF stores full spread width, but we display half for single page
-        # (just like normal pages - only show full width in spread mode)
-        page_w = spread_w / 2.0
+        # Detect if this is a calendar cover (single page) vs photobook cover (spread)
+        is_calendar_cover = page_el.get('type') == 'calendarcoverfront'
         
-        # origin_left: back cover is left half (0.0), front cover is right half (page_w)
-        origin_left = page_w if is_front_cover else 0.0
+        # Use the same dimension calculation as normal pages for consistency
+        # For calendars: single_page_mode=True gives full width
+        # For photobooks: single_page_mode=False gives half width, with origin based on front/back
+        page_w, origin_left = _calculate_page_dimensions(is_calendar_cover, True, spread_w)
         
-        # Initialize page entry
-        pages_map[page_number] = {
-            'photos': [],
-            'texts': [],
-            'page_width': page_w,
-            'page_height': spread_h,
-            'origin_left': origin_left,
-            'background_id': background_id,
-            'is_canvas': False,
-            'is_calendar': False,
-            'is_cover': True,
-            'is_front_cover': is_front_cover,
-            'has_full_bleed': True,  # Covers have bleed on all 4 sides
-            'rotation': 0.0,
-            'physical_width': spread_w,  # Store original for potential spread mode
-            'physical_height': spread_h,
-            'calendar_edge_gaps': None
-        }
+        # Initialize page entry using helper function
+        # Note: is_calendar must match the actual format (calendar covers ARE calendar pages)
+        pages_map[page_number] = _create_page_info(
+            page_w, spread_h, origin_left, background_id,
+            False, is_calendar_cover, 0.0,  # is_canvas=False, is_calendar=is_calendar_cover, rotation=0
+            spread_w, spread_h, page_number, page_el.get('type')
+        )
+        
+        # Add cover-specific metadata
+        pages_map[page_number]['is_cover'] = True
+        pages_map[page_number]['is_front_cover'] = is_front_cover
+        pages_map[page_number]['has_full_bleed'] = True  # Covers have bleed on all 4 sides
         
         # Extract areas from cover page
         # Front cover is right half (x >= spread_w/2), back cover is left half (x < spread_w/2)
@@ -309,15 +370,16 @@ def extract_pages_info(fotobook_root):
             
             areatype = area.get('areatype', 'imagearea')
             
-            # Filter based on which half of the spread this area is in
-            area_center_x = area_left + area_width / 2.0
-            is_on_right_half = area_center_x >= page_w  # page_w is spread_w/2
-            
-            # Skip this area if it's not on the correct half
-            if is_front_cover and not is_on_right_half:
-                continue  # Front cover: skip left half
-            if not is_front_cover and is_on_right_half:
-                continue  # Back cover: skip right half
+            # Filter based on which half of the spread this area is in (photobooks only)
+            if not is_calendar_cover:
+                area_center_x = area_left + area_width / 2.0
+                is_on_right_half = area_center_x >= page_w  # page_w is spread_w/2
+                
+                # Skip this area if it's not on the correct half
+                if is_front_cover and not is_on_right_half:
+                    continue  # Front cover: skip left half
+                if not is_front_cover and is_on_right_half:
+                    continue  # Back cover: skip right half
             
             # Note: origin_left handles the page offset, so coordinates remain in spread units
             # The renderer will subtract origin_left to make them page-relative
@@ -429,36 +491,16 @@ def extract_pages_info(fotobook_root):
         
         logger.debug(f"extract_pages_info: pagenr={pagenr_str} extracted background_id={background_id}")
         
-        # Each <page> element represents exactly ONE physical page in the photobook
-        # The spread layout is handled when placing photos/text, not when creating pages
-        if single_page_mode:
-            page_width = logical_spread_w
-            origin_left = 0.0
-        else:
-            # Even pages are on the left (origin_left=0), odd pages are on the right (origin_left=half)
-            page_width = half
-            # This line is correct except for the pagenr=0 special cases of the front cover (which is a right page) and
-            # the inside back cover (which is also a right page). Those must be handled separately.
-            origin_left = half if (pagenr % 2) == 1 else 0.0
+        # Calculate page dimensions using helper function
+        page_width, origin_left = _calculate_page_dimensions(single_page_mode, (pagenr % 2) == 1, logical_spread_w)
         
         if pagenr not in pages_map:
             logger.debug(f"extract_pages_info: pagenr={pagenr_str} creating page {pagenr} origin_left={origin_left} background_id={background_id}")
-            pages_map[pagenr] = {
-                    'photos': [], 
-                    'texts': [], 
-                    'page_width': page_width, 
-                    'page_height': logical_spread_h, 
-                    'origin_left': origin_left, 
-                    'background_id': background_id, 
-                    'is_canvas': canvas_mode,
-                    'is_calendar': calendar_mode,
-                    'rotation': rotation_degrees,
-                    'physical_width': spread_w,
-                    'physical_height': spread_h,
-                    'calendar_edge_gaps': CALENDAR_EDGE_GAPS.copy() if calendar_mode else None,
-                    'cewe_pagenr': pagenr,
-                    'page_type': page_type
-                }
+            pages_map[pagenr] = _create_page_info(
+                page_width, logical_spread_h, origin_left, background_id,
+                canvas_mode, calendar_mode, rotation_degrees,
+                spread_w, spread_h, pagenr, page_type
+            )
     
     # Now create inside back cover page (after we know max page number)
     if inside_back_cover_page is not None and not single_page_mode:
@@ -650,14 +692,17 @@ def extract_pages_info(fotobook_root):
     # Process cover page (if it exists)
     # The fullcover page contains BOTH covers - we process it twice:
     # Once for front cover (right half, page "F") and once for back cover (left half, page "B")
+    # Calendar covers are single pages - only process front cover
     # NOTE: Using string page identifiers "F" and "B" to distinguish covers from numeric pages
     if cover_page is not None:
-        # Process front cover (right half) as page "F"
+        is_calendar_cover = cover_page.get('type') == 'calendarcoverfront'
+        
+        # Process front cover (right half for photobooks, full page for calendars) as page "F"
         _process_cover_page(cover_page, "F", is_front_cover=True)
-    
-    # Process back cover (left half of cover spread shown as the final page)
-    if cover_page is not None:
-        _process_cover_page(cover_page, "B", is_front_cover=False)
+        
+        # Process back cover only for photobooks (calendars don't have back covers)
+        if not is_calendar_cover:
+            _process_cover_page(cover_page, "B", is_front_cover=False)
     
     # Build sorted pages list: page "F" (front cover), page 0 (inside front), pages 1..N, 
     # page N+1 (inside back), page "B" (back cover)

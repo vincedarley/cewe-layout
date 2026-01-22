@@ -139,12 +139,14 @@ class LayoutViewer:
         self.inside_front_cover_page = 0  # Page 0 is always inside front cover
         self.inside_back_cover_page = None
         numeric_pages = [(page.get_page_number(), page.get_page_info()) for page in self.book if isinstance(page.get_page_number(), int) and page.get_page_number() > 0]
-        if numeric_pages:
-            last_page_num, last_page_info = numeric_pages[-1]
-            # Inside back cover is always the last numeric page, which must be odd (right side)
-            if last_page_num % 2 == 0:
-                raise RuntimeError(f"Inside back cover page {last_page_num} is even (left side). It should be odd (right side).")
-            self.inside_back_cover_page = last_page_num
+        
+        if not self.is_calendar:
+            if numeric_pages:
+                last_page_num, last_page_info = numeric_pages[-1]
+                # Inside back cover is always the last numeric page, which must be odd (right side)
+                if last_page_num % 2 == 0:
+                    raise RuntimeError(f"Inside back cover page {last_page_num} is even (left side). It should be odd (right side).")
+                self.inside_back_cover_page = last_page_num
         
         # Track protected inside covers - TODO, non urgent
         self.protected_inside_covers = set()

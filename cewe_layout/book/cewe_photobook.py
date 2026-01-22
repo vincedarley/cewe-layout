@@ -105,9 +105,6 @@ class CEWEPhotobook(Photobook):
         self._has_covers = any(pn == "F" for pn, _ in pages) and any(pn == "B" for pn, _ in pages)
         self._has_inside_covers = any(pn == 0 for pn, _ in pages)
         
-        # CEWE photobooks always have inside covers
-        assert self._has_inside_covers, "CEWE photobooks must have inside covers"
-        
         # Check format (canvas, calendar, photobook)
         if pages:
             first_page_data = pages[0][1]
@@ -116,7 +113,10 @@ class CEWEPhotobook(Photobook):
         else:
             self._is_canvas = False
             self._is_calendar = False
-    
+            # CEWE photobooks always have inside covers
+            assert self._has_inside_covers, "CEWE photobooks must have inside covers"
+        
+
     def get_page_count(self) -> int:
         """Get total number of pages."""
         return self._page_count
