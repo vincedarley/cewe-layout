@@ -137,3 +137,36 @@ def evaluate_layout_from_photos_texts(photos, texts, page_w, page_h, origin_left
         undersized_threshold=undersized_threshold,
         undersized_penalty=undersized_penalty
     )
+
+
+def _slot_changed_significantly(old_width: float, old_height: float,
+                                         new_width: float, new_height: float,
+                                         threshold: float = 0.10) -> bool:
+    """Check if slot dimensions changed significantly between old and new sizes.
+
+    This is used to detect when a photo slot has been resized so drastically that
+    the old cutout/scale values (which may include manual user adjustments) are
+    no longer valid and should be recalculated.
+
+    Even if aspect ratio stays the same, scaling up/down requires new cutout values
+    because the scale factor changes.
+
+    Args:
+        old_width: Original slot width in MCF units
+        old_height: Original slot height in MCF units
+        new_width: New slot width in MCF units
+        new_height: New slot height in MCF units
+        threshold: Relative change threshold (default 10% = 0.10)
+
+    Returns:
+        True if width OR height changed by more than threshold
+    """
+    if old_width <= 0 or old_height <= 0 or new_width <= 0 or new_height <= 0:
+        return True  # Invalid dimensions - treat as changed
+
+    # Calculate relative change in width and height
+    width_change = abs(new_width - old_width) / old_width
+    height_change = abs(new_height - old_height) / old_height
+
+    # Return True if EITHER dimension changed significantly
+    return width_change > threshold or height_change > threshold

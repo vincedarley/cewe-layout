@@ -11,6 +11,7 @@ import re
 import logging
 from cewe_layout.page_utils import determine_page_owner_of_area
 from .mcf_parser import is_canvas_format, is_calendar_format
+from ..layout_utils import _slot_changed_significantly
 
 logger = logging.getLogger(__name__)
 
@@ -634,6 +635,10 @@ def update_page_layout(path: str, uiPage: Any, photos: List[Dict[str, Any]],
         if rename_map and filename in rename_map:
             image.set('filename', rename_map[filename])
         
+        # Get old dimensions from XML for aspect ratio comparison
+        old_width = float(pos.get('width', '0').replace(',', '.'))
+        old_height = float(pos.get('height', '0').replace(',', '.'))
+        
         # Update position with physical values (rotated back for MCF storage)
         pos.set('left', f"{physical_left:.2f}")
         pos.set('top', f"{physical_top:.2f}")
@@ -641,9 +646,15 @@ def update_page_layout(path: str, uiPage: Any, photos: List[Dict[str, Any]],
         pos.set('height', f"{physical_height:.2f}")
         pos.set('rotation', f"{physical_rot:.2f}")
         
-        # Only recalculate cutout/scale for NEW photos
-        # Preserve existing values for photos that were already in XML (user may have manually adjusted)
-        if matching_photo['filename'] in new_photos_set:
+        # Recalculate cutout/scale if:
+        # 1. This is a NEW photo (no prior cutout adjustments to preserve), OR
+        # 2. Slot size changed significantly (>10%) - old cutout values no longer valid
+        should_recalculate = (
+                matching_photo['filename'] in new_photos_set or
+                _slot_changed_significantly(old_width, old_height, physical_width, physical_height)
+        )
+        
+        if should_recalculate:
             # Get image dimensions for scale calculation (validated at function entry)
             image_width = matching_photo['image_width']
             image_height = matching_photo['image_height']
@@ -662,6 +673,11 @@ def update_page_layout(path: str, uiPage: Any, photos: List[Dict[str, Any]],
             cutout_elem.set('left', f"{cutout_left:.6f}")
             cutout_elem.set('scale', f"{scale:.6f}")
             cutout_elem.set('top', f"{cutout_top:.6f}")
+            
+            if matching_photo['filename'] not in new_photos_set:
+                logger.debug(f"Page {uiPage}: Recalculated cutout for '{matching_photo['filename']}' "
+                           f"due to slot size change: {old_width:.1f}x{old_height:.1f} → "
+                           f"{physical_width:.1f}x{physical_height:.1f}")
 
         # Ensure proper formatting for existing elements
         if pos.tail is None or not pos.tail.strip():

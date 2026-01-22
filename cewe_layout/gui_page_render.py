@@ -743,15 +743,15 @@ class PageRenderer:
                         else:
                             break
             
-            # Draw label in top-left corner
-            draw.text((x0+4, y0+4), f'T{i}', fill='green', font=self.label_font)
+            # Draw label in top-right corner - 25 pixels is enough space for T1-T9
+            draw.text((int(x1) - 25, y0+4), f'T{i}', fill='green', font=self.label_font)
             
             # Store delete button position info for text boxes
             delete_button_info.append({
                 'text_index': i - 1,  # Convert to 0-based (within combined list)
                 'item_index': i - start_number,  # 0-based index within this page's texts
                 'pageno': pageno,  # Which page this text belongs to
-                'x': int(x1) - 20,  # 20px from right edge
+                'x': int(x1) - 20,  # 20px from right edge - all we need for the X button
                 'y': int(y0) + 2,   # 2px from top edge
             })
     
@@ -1397,12 +1397,35 @@ class PageRenderer:
                     # Calculate what portion of the image to extract
                     img_w, img_h = full_img.size
                     
-                    # If we have cutout info from XML, use it
+                    # Decide whether to use cutout info from XML or recalculate
+                    use_cutout = False
                     if cutout_scale is not None and cutout_left is not None and cutout_top is not None:
-                        # CEWE scale formula: scaled_width_mcf = image_width_px × scale
-                        # This means scale tells us MCF units per pixel
+                        # Reconstruct original slot dimensions from cutout parameters
+                        # From _calculate_cutout: scale = max(slot_width/img_width, slot_height/img_height)
+                        # scaled_width_mcf = img_width * scale
+                        # cutout_left = -(scaled_width_mcf - slot_width) / 2
+                        # Therefore: original_slot_width = scaled_width_mcf + 2 * cutout_left
                         scaled_width_mcf = img_w * cutout_scale
                         scaled_height_mcf = img_h * cutout_scale
+                        original_slot_width = scaled_width_mcf + 2 * cutout_left
+                        original_slot_height = scaled_height_mcf + 2 * cutout_top
+                        
+                        # Check if slot dimensions changed significantly (>10%)
+                        from cewe_layout.layout_utils import _slot_changed_significantly
+                        dimensions_changed = _slot_changed_significantly(
+                            original_slot_width, original_slot_height,
+                            slot_width_mcf, slot_height_mcf
+                        )
+                        
+                        if not dimensions_changed:
+                            # Slot size is similar - use cutout from XML
+                            use_cutout = True
+                        # else: slot resized significantly - ignore cutout, use default crop below
+                    
+                    if use_cutout:
+                        # Use cutout info from XML
+                        # CEWE scale formula: scaled_width_mcf = image_width_px × scale
+                        # This means scale tells us MCF units per pixel
                         
                         # Cutout offsets tell us which part of the scaled image is visible
                         # They're NEGATIVE when cropping from left/top edge
@@ -1425,7 +1448,7 @@ class PageRenderer:
                         cropped = full_img.crop((int(crop_left_px_clamped), int(crop_top_px_clamped), 
                                                 int(crop_right_px_clamped), int(crop_bottom_px_clamped)))
                     else:
-                        # No cutout info - use default: zoom to fill slot (crop equally from all sides)
+                        # No cutout info OR slot resized significantly - use default: zoom to fill slot (crop equally from all sides)
                         img_aspect = img_w / img_h
                         slot_aspect = slot_width_mcf / slot_height_mcf
                         
