@@ -105,13 +105,18 @@ class PageRenderer:
         self.delete_buttons = []  # Currently displayed delete button widgets
         self.delete_button_info_list = []  # List of button info for hover state management
         self.drag_rectangles = []  # Currently displayed drag rectangle canvas items
+        try:
+            from PIL import ImageFont
+            self.label_font = ImageFont.truetype('Arial', 16)
+        except:
+            self.label_font = None
         
         # Hover state for delete button visibility
         self.hovered_item_idx = None  # Index of currently hovered item (or None)
         self.hide_button_timer = None  # Timer ID for delayed button hiding
         
         # Cropping/scaling mode
-        self.draw_cropped = False  # If True, apply cutout/scale transformations
+        self.functional_rendering = True  # If false, render for accuracy and apply cutout/scale transformations
         
         # Photo drag-and-drop state for swapping
         self.drag_active = False
@@ -141,7 +146,7 @@ class PageRenderer:
                     show_pdf_composite: bool = False,
                     protected_inside_covers: list = None,
                     swap_callback = None,
-                    draw_cropped: bool = False) -> None:
+                    functional_rendering: bool = True) -> None:
         """Render one or more pages to the display.
         
         Args:
@@ -155,10 +160,11 @@ class PageRenderer:
             swap_callback: Optional callback for photo swap completion
                           Signature: (source_pageno, source_photo_idx, dest_pageno, dest_photo_idx)
                           Called when user successfully drags and drops to swap two photos
-            draw_cropped: If True, apply cutout/scale transformations from MCF
+            functional_rendering: If True, render UI in a rougher form optimised for functionality,
+                          If false, then try to be as accurate as possible in the render.
         """
-        # Store draw_cropped mode
-        self.draw_cropped = draw_cropped
+        # Store functional_rendering mode
+        self.functional_rendering = functional_rendering
         # Store swap callback for later use
         self.swap_callback = swap_callback
         if protected_inside_covers is None:
@@ -172,8 +178,9 @@ class PageRenderer:
         page_w = first_page.page_width
         page_h = first_page.page_height
         
-        # Create canvas image with white background (will draw page backgrounds per-page)
-        img = Image.new('RGB', (canvas_w, canvas_h), 'white')
+        # Create canvas image with grey background (will draw page backgrounds per-page)
+        # the grey border that will remain shows what will be cut-off during printing process.
+        img = Image.new('RGB', (canvas_w, canvas_h), 'grey')
         draw = ImageDraw.Draw(img)
         
         # Calculate scale to fit page(s) + margins in canvas
@@ -499,15 +506,17 @@ class PageRenderer:
         
         """
 
-        try:
-            from PIL import ImageFont
-            label_font = ImageFont.truetype('Arial', 16)
-        except:
-            label_font = None
-        
         # Preload all thumbnails in parallel
         thumbnail_map = self._preload_thumbnails_parallel(photos, frame_x, frame_y, scale, origin_left, start_number)
         
+        # NOTE: Grey borders appear when the image is smaller than the slot because:
+        # 1. PIL's thumbnail() preserves aspect ratio and never upscales
+        # 2. If image pixels < slot pixels, the thumbnail stays at original size
+        # 3. We center the smaller thumbnail, leaving grey borders visible
+        # This commonly happens with because photo pixel dimensions
+        # will not exactly match the MCF area_width/area_height values.
+        draw_background_and_frame = self.functional_rendering
+
         for i, p in enumerate(photos, start=start_number):
             left = p.get('area_left') or 0
             top = p.get('area_top') or 0
@@ -530,13 +539,8 @@ class PageRenderer:
                 
                 if thumb is not None:
                     # Draw grey background first
-                    # NOTE: Grey borders appear when the image is smaller than the slot because:
-                    # 1. PIL's thumbnail() preserves aspect ratio and never upscales
-                    # 2. If image pixels < slot pixels, the thumbnail stays at original size
-                    # 3. We center the smaller thumbnail, leaving grey borders visible
-                    # This commonly happens with segmented photos whose pixel dimensions
-                    # don't match the MCF area_width/area_height values.
-                    draw.rectangle([x0, y0, x1, y1], fill='#cccccc')
+                    if draw_background_and_frame:
+                        draw.rectangle([x0, y0, x1, y1], fill='#cccccc')
                     
                     # Center the thumbnail in the slot
                     thumb_w, thumb_h = thumb.size
@@ -554,13 +558,23 @@ class PageRenderer:
                     logger.error(f"Photo {i}: Thumbnail not found in preload map (filename: {fn})")
                     draw.rectangle([x0, y0, x1, y1], fill='#eeeeee')
 
-            # wireframe overlay
-            draw.rectangle([x0, y0, x1, y1], outline='blue', width=2)
-            
+            # wireframe overlay for photo slot - draw if we need to, or if there is no photo then we have to.
+            if draw_background_and_frame or not fn:
+                draw.rectangle([x0, y0, x1, y1], outline='blue', width=2)
+
+            if not self.functional_rendering:
+                border_color = p.get('border_color_rgb')
+                border_width = p.get('border_width', 0)  # 0.1mm units
+                
+                # Draw frame if specified
+                if border_color and border_width > 0:
+                    border_width_px = max(1, int(border_width * scale))
+                    draw.rectangle([x0, y0, x1, y1], outline=border_color, width=border_width_px)
+
             # Photo number label with light grey background
             label_text = f'{i}'
-            if label_font:
-                bbox = draw.textbbox((x0+4, y0+4), label_text, font=label_font)
+            if self.label_font:
+                bbox = draw.textbbox((x0+4, y0+4), label_text, font=self.label_font)
             else:
                 # Fallback bounding box estimation
                 bbox = (x0+4, y0+4, x0+30, y0+24)
@@ -569,7 +583,7 @@ class PageRenderer:
             padding = 3
             bg_bbox = (bbox[0]-padding, bbox[1]-padding, bbox[2]+padding, bbox[3]+padding)
             draw.rectangle(bg_bbox, fill='#cccccc')  # Light grey background
-            draw.text((x0+4, y0+4), label_text, fill='black', font=label_font)
+            draw.text((x0+4, y0+4), label_text, fill='black', font=self.label_font)
             
             # Store delete button position info (for both filled and empty photo slots)
             delete_button_info.append({
@@ -589,11 +603,6 @@ class PageRenderer:
     def _render_texts(self, draw, texts, frame_x, frame_y, scale, origin_left,
                      start_number, pageno, delete_button_info):
         """Render text blocks for a single page."""
-        try:
-            from PIL import ImageFont
-            label_font = ImageFont.truetype('Arial', 16)
-        except:
-            label_font = None
         
         for i, t in enumerate(texts, start=start_number):
             left = t.get('area_left') or 0
@@ -609,14 +618,38 @@ class PageRenderer:
             x1 = frame_x + (local_left + w) * scale
             y1 = frame_y + (top + h) * scale
 
-            # Draw text block background (translucent light yellow)
-            # Create a semi-transparent overlay
-            from PIL import Image
-            overlay = Image.new('RGBA', (int(x1-x0), int(y1-y0)), (255, 255, 204, 128))  # Light yellow, 50% opacity
-            draw._image.paste(overlay, (int(x0), int(y0)), overlay)
-            
-            # Draw dashed frame (similar to page frame)
-            self._draw_dashed_rectangle(draw, x0, y0, x1, y1, 'green', dash_length=5, gap_length=3, line_width=2)
+            # Decide which rendering mode to use based on functional_rendering flag
+            if self.functional_rendering:
+                # Functional rendering mode: use old default visualization colors
+                from PIL import Image
+                overlay = Image.new('RGBA', (int(x1-x0), int(y1-y0)), (255, 255, 204, 128))  # Light yellow, 50% opacity
+                draw._image.paste(overlay, (int(x0), int(y0)), overlay)
+                
+                # Draw default dashed green frame
+                self._draw_dashed_rectangle(draw, x0, y0, x1, y1, 'green', dash_length=5, gap_length=3, line_width=2)
+                
+                # Use black text
+                text_color = 'black'
+            else:
+                # Accurate rendering mode: use MCF colors (no fallback)
+                bg_color = t.get('background_color_rgb')  # RGB format for PIL
+                border_color = t.get('border_color_rgb')
+                border_width = t.get('border_width', 0)  # 0.1mm units
+                
+                # Draw text block background if specified
+                if bg_color:
+                    from PIL import Image, ImageColor
+                    rgb_tuple = ImageColor.getrgb(bg_color)  # Convert '#rrggbb' to (r, g, b)
+                    overlay = Image.new('RGBA', (int(x1-x0), int(y1-y0)), rgb_tuple + (255,))  # Fully opaque
+                    draw._image.paste(overlay, (int(x0), int(y0)), overlay)
+                
+                # Draw text block frame if specified
+                if border_color and border_width > 0:
+                    border_width_px = max(1, int(border_width * scale))
+                    draw.rectangle([x0, y0, x1, y1], outline=border_color, width=border_width_px)
+                
+                # Use foreground color from MCF if available
+                text_color = t.get('foreground_color_rgb', 'black')
             
             # Extract and display the actual text content
             raw_html = t.get('raw_html', '')
@@ -704,13 +737,14 @@ class PageRenderer:
                             else:  # left
                                 x_pos = x0 + 4
                             
-                            draw.text((x_pos, y_offset), line, fill='black', font=text_font)
+                            # text_color was already set above based on functional_rendering mode
+                            draw.text((x_pos, y_offset), line, fill=text_color, font=text_font)
                             y_offset += line_height
                         else:
                             break
             
             # Draw label in top-left corner
-            draw.text((x0+4, y0+4), f'T{i}', fill='green', font=label_font)
+            draw.text((x0+4, y0+4), f'T{i}', fill='green', font=self.label_font)
             
             # Store delete button position info for text boxes
             delete_button_info.append({
@@ -1358,8 +1392,8 @@ class PageRenderer:
             
             # Render thumbnail from full image
             try:
-                # Apply cropping/scaling if in draw_cropped mode
-                if self.draw_cropped and slot_width_mcf is not None and slot_height_mcf is not None:
+                # Apply cropping/scaling if not in functional_rendering mode
+                if not self.functional_rendering and slot_width_mcf is not None and slot_height_mcf is not None:
                     # Calculate what portion of the image to extract
                     img_w, img_h = full_img.size
                     

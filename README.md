@@ -8,9 +8,7 @@ The primary workflow step I aim to dramatically improve is this one: you have 11
 
 This workflow is designed to make minimal changes to the xml which represents your photobook on disk, and hence it should preserve almost all adjustments and tweaks that you make in CEWE Creator if you are switching back and forth between the two tools (except of course the actual layout of the photos/texts which are being modified!)
 
-Using this tool, I've now built more than one 100+ page photobook that looks great, in very little time, and with very little hassle.  After some quick fine-tuning in CEWE's software I can then get them purchased, printed & delivered.
-
-In this primary workflow you will create the new photobook and lots of (mostly empty?) pages in CEWE Creator and then switch to QLayout to fill them with photos and do the layouts.
+Using this tool, I've now built more than one 100+ page photobook that look great, in very little time, and with very little hassle.  After some quick fine-tuning in CEWE's software I can then get them purchased, printed & delivered.
 
 Secondary purpose:
 
@@ -50,30 +48,36 @@ Note that on MacOS, CEWE registers the ".xmcf" directory extension with MacOS so
 You have to work _indepedently_ in QLayout vs in Cewe Creator.  In general you should only have one of the two applications open (with the same photobook) at any one time.  So close one, work in the other, repeat until your book is done... In case you forget this "work independently" instruction, you should generally not worry about file corruption - but you should worry that important layout work you've done in one tool is going to be overwritten by the other.  So you will be wasting time and effort.
 
 Here's my current workflow:
+
+Five steps to get started:
 1) Select all your favourite photos in MacOS Photos (or whatever you use to organise your master photos) and _export_ _copies_ of them to a directory. If it is easy for you to do so, before exporting tag the very best photos with either "4 star" or "5 star" as keywords, and make sure you export those keywords. CEWE Creator seems to support jpeg, png, and heif/heic (at least on MacOS), and so does QLayout.
 2) Optionally, run QLayout with "-renamephotos" to name all of the photos according to date (and according to 4/5 star keywords).  For example: python run_qlayout.py --renamephotos path/to/exported-directory "yr". This isn't _necessary_ but I find it helpful to have a clear photo naming scheme in place.
-3) Use CEWE Creator to create a new photo-book (of the size/style you want) with loads of empty pages. Save it in the older xmcf or mcf format. Quit CEWE Creator.
+3) Use CEWE Creator to create a new photo-book (of the size/style you want) with loads of empty pages (set their background colour now if you wish). Save it in the older xmcf or mcf format. Quit CEWE Creator.
 4) If your photobook is called "MyBook.xmcf" then put the directory with all your photos next to it, and rename the directory to be called "MyBook-photos".
 5) Run QLayout (python run_qlayout --cewe /path/to/MyBook.xmcf). The first empty page of your book will open automatically.
-6) Examine your photos, in approximate date order (assuming your photo-books are roughly chronological), and drag and drop as many photos as you want onto that empty page.
+
+Then four more steps to repeat until the book is done.
+6) Examine your photos, in approximate date order (assuming your photo-books are roughly chronological), and drag and drop as many photos as you want onto the next empty page in QLayout.
 7) Run the "Genetic Algorithm (Fan)" algorithm.  Tweak slot aspect ratio and "preferred size" for any of the photos you want -- simplest is to give the very best 2-4 photos a preferred size of somewhere between 3.0 and 6.0.  This is easy in the UI.
 - Re-run the "Genetic Algorithm (Fan)" algorithm. Sometimes you might wish to re-run the algorithm a few times to check out the different results and pick the layout you like best. 
-- If you don't quite like any, you can delete some photos, add some new photos (or a text-box) and try again.  
-- If you want an exact grid layout (e.g. 2 rows of 4 photos, all identically sized), try the "Gridify" algorithm instead of Fan-GA.
+- If you don't quite like any, you can delete some photos, add some new photos (or a text-box) and try again. I've found 
+that the algorithms work best when given a variety of aspect ratios. So make some of your slots longer and thinner (or thinner and longer), make some of them square, and try again.
+- Alternatively, if you want an exact grid layout (e.g. 2 rows of 4 photos, all identically sized), try the "Gridify" algorithm instead of "Genetic Algorithm (Fan)".
 - Adjust edge gaps and internal gaps for a different look
 8) Hit "Save Modified" when you are done with the page.  The photos used disappear from your "-photos" directory - they've been moved into the photo album. This is very helpful, since you can then focus only on the photos you've not yet added. If there are photos I've decided I no longer want, I simply delete them from the "-photos" directory (they are exported copies, so no harm deleting them). If for some reason you've added the same photo twice (to one or more pages), you will get an error on saving.
 9) Move to the next empty page and go back to step 6. If you have no more empty pages, open in CEWE Creator to add some more.
 
-Once you're done: open the book in CEWE Creator and do any fine-tuning you wish. Typically:
+Once you're done (or periodically after creating 5-10 new pages): open the book in CEWE Creator and do any fine-tuning you wish. Typically:
 - Adjust zoom levels of photos
-- Adjust photo cropping (in general the QLayout algorithms produce layouts which require almost zero cropping, so this is normally only required if you zoom into your photos)
+- Adjust photo cropping (in general the QLayout algorithms produce layouts which require almost zero cropping, so this is normally only required if you zoom into your photos or manually adjust aspect-ratios)
+- Rotate images by 90/180/270 degrees (when you rotate and save in CEWE Creator it re-writes the photo file itself with a new name. This is surprising - you would think it was just a metadata adjustment)
 - Change the background colour
 - Edit/adjust text boxes
 - Use any of the many other decorative features CEWE provide.
 ...or of course if you want rotated photos or any other creative manual layout.
 
 Optional additional steps in QLayout:
-- Use the "Photo Gap Perfecter" algorithms to ensure all edge gaps and internal gaps on a page are identical - fixing minor imperfections or overlaps. The "Long Gap Perfecter" aligns photos/texts along long straight lines that approximately exist in your layout - making them exactly straight. The "Photo Gap Perfecter" just looks locally at each photo and its neighbours. 
+- Use the "Gap Perfecter" algorithms to ensure all edge gaps and internal gaps on a page are identical - fixing minor imperfections or overlaps. The "Long Gap Perfecter" aligns photos/texts along long straight lines that approximately exist in your layout - making them exactly straight. The "Photo Gap Perfecter" just looks locally at each photo and its neighbours. 
 - Adjust the "Edge Gap" and "Internal Gap" - on some pages you might want a large gap, on others no gap at all.  Note that an edge-gap of -3.0mm is what CEWE suggests for full-page layouts. The 3.0mm bleed ensures a neat edge to the page when the pages are printed and cut.
 - Note that if you have used zoom/cropping in CEWE, which is saved into the .mcf file, QLayout will NOT modify the zoom/cropping that you have previously saved. Normally this is what you want, since you are at the stage of fine-tuning the layout, and would not want QLayout to over-write any careful adjustments you have made.
 
@@ -82,24 +86,24 @@ You can obviously go back and forth between CEWE Creator and QLayout as often as
 Finally:
 1) Order the photobook from CEWE.
 2) Use (separate) cewe2pdf project from github to export a high-quality, accurate PDF of your entire photobook.
-3) Backup both your photobook and pdf copy for safe-keeping.
+3) Backup/archive both your photobook and pdf copy for safe-keeping.
 
 **Adding Photos to a Page**
 
 You can add new photos to the current page by:
-- **Drag-and-drop** (if PyObjC and/or tkinterdnd2 is installed): Drag photo files (.jpeg, etc) from Finder directly onto the main window. If PyObjC is installed you can drag them directly from MacOS Photos. If you only have tkinterdnd2 it is best to drag from the Finder - dragging from Photos will appear to work but will only place a low-resolution thumbnail of each photo in your photobook - presumably not what you want.
+- **Drag-and-drop** (if PyObjC and/or tkinterdnd2 is installed): Drag photo files (.jpeg, etc) from Finder directly onto the main window. If PyObjC is installed you can also drag them directly from MacOS Photos (although I rarely do that, with my workflow). If you only have tkinterdnd2 it is best to drag _only_ from the Finder - dragging from Photos will appear to work but will only place a low-resolution thumbnail of each photo in your photobook - presumably not what you want.
 - **Keyboard shortcut**: Instead of drag-and-drop, you can press `Cmd+O` to open a file picker and select photos
 
 When photos are added:
-1. They are copied to the album's image folder
-2. Photo importance is determined from IPTC keywords:
+1. Photo importance is determined from IPTC keywords:
    - "5 star" keyword → size 5.0 (high importance, ~5× larger)
    - "4 star" keyword → size 3.0 (medium importance, ~3× larger)
    - No star keyword → size 1.0 (normal)
-3. Initial layout rectangles are created (overlapping at the top of the page for easy visibility)
-4. You can then use any layout algorithm (Genetic Algorithm, Collage-Gen, etc.) to arrange them nicely
+2. Initial layout rectangles are created (overlapping at the top of the page for easy visibility)
+3. You can then use any layout algorithm (Genetic Algorithm, Collage-Gen, etc.) to arrange them nicely
+4. When you "Save Modified" pages, the photos are all copied to the album's image folder
 
-Note that when photo files (.jpeg etc) are copied by CEWE Creator or QLayout into the album directory they are
+Note that when photo files (.jpeg etc) are copied by either CEWE Creator or QLayout into the album directory they are
 renamed. CEWE Creator uses long unfriendly names (which is fine, they aren't meant for human consumption).  In
 QLayout we've chosen to give them more friendly names, which include both the relative size and page number of the
 photo. This means if you look inside the album directory it'll be a bit more obvious what is going on.  A typical file might be called something like "yr9-10p026-sz5-pg3.jpeg" (where yr9-10 is a manually specified prefix for all the photos).
@@ -129,15 +133,15 @@ python -m cewe_layout.mimeo_import.convert_mimeo_cli \
 In this second case I have an old Apple Photos library, containing just the photos from 2 years, which I have saved on disk as "2014-2015-library", and which contains two legacy Mimeo photo-books one of which is stored in the "96877E29-2401-41E3-B0DF-090065A2EBDB.ppb" 
 database.  These legacy photobooks convert very nicely to the modern CEWE structure - so much so that I am deleting the old versions.
 
-Note that there is no support for more recent Mimeo photo-book formats. If you don't have a .ppb database file hidden in your Apple Photos album, then this tool can't help you.
+Note that there is no support for any more recent Mimeo photo-book formats. If you don't have a .ppb database file hidden in your Apple Photos album, then this tool can't help you.
 
-Within the "Transform Book" UI of the tool, you can also merge two photobooks into one, and/or resize a photobook, and optionally rename all of the photos in the book to have a standard prefix.
+**Transforming Photo-books:** Within the "Transform Book" UI of the tool, you can also merge two photobooks into one, and/or resize a photobook, and optionally rename all of the photos in the book to have a standard prefix. This latter option is useful because CEWE Creator can leave orphaned/unused photos inside the photo album directory. By renaming all the used photos it is easy to spot these and delete them, freeing up space.  Note that merging/resizing photobooks saves an entirely new photobook (so your originals are untouched) - unfortunately any fancy formatting from your originals will (currently) not exist in the new photobook.
 
 **Future, TO DO and possible ideas**
 
 - Validate we have bleed/margins correct for front and back cover ("special pages").
 - More/better layout clean-up/fine-tuning algorithms? (Gap Perfecter, Gridify, and Tree Builder all have their good and bad aspects in improving layouts).
-- Add basic rendering of some decorative aspects (photo & text borders, etc)
+- Add basic rendering of some decorative aspects (photo & text borders, text fonts, etc)
 
 **Other capabilities (partially or completely implemented)**
 

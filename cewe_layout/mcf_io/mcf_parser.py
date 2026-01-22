@@ -20,6 +20,103 @@ CALENDAR_EDGE_GAPS = {
 }
 
 
+def convert_cewe_color(cewe_color: str | None, include_alpha: bool = True) -> str | None:
+    """Convert CEWE color format (AARRGGBB) to standard format (RRGGBBAA or RRGGBB).
+    
+    Args:
+        cewe_color: Color string in CEWE format '#AARRGGBB' or None
+        include_alpha: If True, return RRGGBBAA format; if False, return RRGGBB format
+    
+    Returns:
+        Color string in standard format '#RRGGBBAA' or '#RRGGBB', or None if input is None
+    
+    Examples:
+        convert_cewe_color('#ffdf1900', True) -> '#df1900ff'
+        convert_cewe_color('#ffdf1900', False) -> '#df1900'
+        convert_cewe_color('#80ff0000', True) -> '#ff000080'
+    """
+    if cewe_color is None:
+        return None
+    
+    # Remove '#' prefix if present
+    color = cewe_color.lstrip('#')
+    
+    # Expect 8 hex digits: AARRGGBB
+    if len(color) != 8:
+        logger.warning(f"Unexpected color format: '{cewe_color}' (expected 8 hex digits)")
+        return None
+    
+    try:
+        # Extract components
+        aa = color[0:2]  # Alpha
+        rr = color[2:4]  # Red
+        gg = color[4:6]  # Green
+        bb = color[6:8]  # Blue
+        
+        # Reformat to RRGGBB or RRGGBBAA
+        if include_alpha:
+            return f'#{rr}{gg}{bb}{aa}'
+        else:
+            return f'#{rr}{gg}{bb}'
+    except (IndexError, ValueError) as e:
+        logger.warning(f"Failed to convert color '{cewe_color}': {e}")
+        return None
+
+
+def _parse_decoration(area) -> dict[str, Any]:
+    """Parse decoration/border information from an area element.
+    
+    Args:
+        area: The area XML element (can be imagearea or textarea)
+    
+    Returns:
+        Dictionary with border information (color, width, gap, etc.) or empty dict if no decoration
+    """
+    decoration = area.find('decoration')
+    if decoration is None:
+        return {}
+    
+    border = decoration.find('border')
+    if border is None:
+        return {}
+    
+    # Parse border attributes
+    border_info = {}
+    
+    # Color (in CEWE format AARRGGBB)
+    cewe_color = border.get('color')
+    if cewe_color:
+        border_info['border_color'] = convert_cewe_color(cewe_color, include_alpha=True)
+        border_info['border_color_rgb'] = convert_cewe_color(cewe_color, include_alpha=False)
+    
+    # Width (in 0.1mm units like other dimensions)
+    width_str = border.get('width')
+    if width_str:
+        try:
+            border_info['border_width'] = float(width_str.replace(',', '.'))
+        except (ValueError, AttributeError):
+            pass
+    
+    # Gap (space between content and border, in 0.1mm units)
+    gap_str = border.get('gap')
+    if gap_str:
+        try:
+            border_info['border_gap'] = float(gap_str.replace(',', '.'))
+        except (ValueError, AttributeError):
+            pass
+    
+    # Additional attributes that might be useful
+    position = border.get('position')  # e.g., "outside", "inside"
+    if position:
+        border_info['border_position'] = position
+    
+    enabled = border.get('enabled')  # e.g., "true", "false"
+    if enabled:
+        border_info['border_enabled'] = enabled.lower() == 'true'
+    
+    return border_info
+
+
 def is_canvas_format(fotobook_root):
     """Detect if this is a Canvas format (single large page) vs photobook.
     
@@ -232,7 +329,7 @@ def extract_pages_info(fotobook_root):
                 pages_map[page_number]['texts'].append(text_info)
             elif areatype == 'imagearea':
                 for imageTag in area.findall('image'):
-                    info = _parseImageArea(imageTag, area_width, area_height, area_left, area_top, area_rot)
+                    info = _parseImageArea(imageTag, area_width, area_height, area_left, area_top, area_rot, area)
                     pages_map[page_number]['photos'].append(info)
     
     # For photobooks: identify the two pagenr="0" type="emptypage" elements
@@ -546,7 +643,7 @@ def extract_pages_info(fotobook_root):
             else:
                 # Image area (photos)
                 for imageTag in area.findall('image'):
-                    info = _parseImageArea(imageTag, area_width, area_height, area_left, area_top, area_rot)
+                    info = _parseImageArea(imageTag, area_width, area_height, area_left, area_top, area_rot, area)
 
                     pages_map[owner]['photos'].append(info)
 
@@ -582,7 +679,7 @@ def extract_pages_info(fotobook_root):
 
 
 def _parseImageArea(imageTag, area_width: float, area_height: float, area_left: float, area_top: float,
-                    area_rot: float) -> dict[str, float | Any]:
+                    area_rot: float, area=None) -> dict[str, float | Any]:
     info = {
         'filename': imageTag.get('filename'),
         'area_left': area_left,
@@ -610,6 +707,12 @@ def _parseImageArea(imageTag, area_width: float, area_height: float, area_left: 
         info['cutout_left'] = None
         info['cutout_top'] = None
         info['cutout_scale'] = None
+    
+    # Parse decoration/border information if area element is provided
+    if area is not None:
+        border_info = _parse_decoration(area)
+        info.update(border_info)
+    
     return info
 
 
@@ -627,6 +730,12 @@ def _parseTextArea(area, area_width: float, area_height: float, area_left: float
     h_align = 'left'  # default horizontal alignment
     v_align = 'top'  # default vertical alignment
 
+    # Parse colors and alignment from textFormat
+    background_color = None
+    background_color_rgb = None
+    foreground_color = None
+    foreground_color_rgb = None
+    
     text_format = area.find('.//textFormat')
     if text_format is not None:
         # Parse font attribute (format: "FontName,size,...")
@@ -657,6 +766,17 @@ def _parseTextArea(area, area_width: float, area_height: float, area_left: float
                 v_align = 'bottom'
             elif 'ALIGNTOP' in alignment:
                 v_align = 'top'
+        
+        # Parse background and foreground colors (CEWE format: AARRGGBB)
+        bg_color = text_format.get('backgroundColor')
+        if bg_color:
+            background_color = convert_cewe_color(bg_color, include_alpha=True)
+            background_color_rgb = convert_cewe_color(bg_color, include_alpha=False)
+        
+        fg_color = text_format.get('foregroundColor')
+        if fg_color:
+            foreground_color = convert_cewe_color(fg_color, include_alpha=True)
+            foreground_color_rgb = convert_cewe_color(fg_color, include_alpha=False)
 
     # Extract plain text for debug output
     import re, html
@@ -682,4 +802,17 @@ def _parseTextArea(area, area_width: float, area_height: float, area_left: float
         'h_align': h_align,
         'v_align': v_align,
     }
+    
+    # Add color information if present
+    if background_color is not None:
+        text_info['background_color'] = background_color
+        text_info['background_color_rgb'] = background_color_rgb
+    if foreground_color is not None:
+        text_info['foreground_color'] = foreground_color
+        text_info['foreground_color_rgb'] = foreground_color_rgb
+    
+    # Add decoration/border information if present
+    border_info = _parse_decoration(area)
+    text_info.update(border_info)
+    
     return text_info

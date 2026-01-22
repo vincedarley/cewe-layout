@@ -297,20 +297,28 @@ def _photos_to_rectangles(photos, photo_dimensions, preferred_sizes, edge_gap, i
                         rect_width = math.sqrt(slot_area * custom_aspect)
                         rect_height = math.sqrt(slot_area / custom_aspect)
                     # else: fall through to use current slot dimensions
-            
-            # If no custom aspect ratio or calculation failed, use current slot dimensions
-            if rect_width is None or rect_height is None:
-                slot_width = photo.get('area_width', 0)
-                slot_height = photo.get('area_height', 0)
-                if slot_width > 0 and slot_height > 0:
-                    # Convert to gap-free space: add internal_gap to match evaluation coordinate system
-                    rect_width = float(slot_width) + internal_gap
-                    rect_height = float(slot_height) + internal_gap
-                # else: fall through to use image dimensions
+                
+                # If custom aspect calculation failed or not provided, use current slot dimensions
+                if rect_width is None or rect_height is None:
+                    slot_width = photo.get('area_width', 0)
+                    slot_height = photo.get('area_height', 0)
+                    if slot_width > 0 and slot_height > 0:
+                        # Convert to gap-free space: add internal_gap to match evaluation coordinate system
+                        rect_width = float(slot_width) + internal_gap
+                        rect_height = float(slot_height) + internal_gap
+                    # else: fall through to use image dimensions
+            else:
+                # User wants photo's natural aspect ratio (use_slot = False)
+                # Dimensions must be in cache
+                if not photo_dimensions or fn not in photo_dimensions:
+                    return [], f"Photo dimensions not found in cache for: {fn}. All photo dimensions must be provided."
+                
+                img_width, img_height = photo_dimensions[fn]
+                rect_width = float(img_width)
+                rect_height = float(img_height)
         
-        # If not using slot, or slot dimensions were invalid, use image file dimensions
+        # Final fallback: if still no dimensions, use image file dimensions
         if rect_width is None or rect_height is None:
-            # User wants photo's natural aspect ratio
             # Dimensions must be in cache
             if not photo_dimensions or fn not in photo_dimensions:
                 return [], f"Photo dimensions not found in cache for: {fn}. All photo dimensions must be provided."

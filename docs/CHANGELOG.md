@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.1.0] - 2026-?
+
+Layout:
+- Fix to using original photo aspect ratio instead of saved slot.
+
+Page Viewer:
+- Functional rendering on/off toggle
+- When off the UI will now render text background and foreground colour correctly, and will render border decorations
+  for photos and texts.
+
 ## [1.0.0] - 2026-01-20
 
 ### Many new features
