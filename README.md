@@ -139,9 +139,9 @@ Note that there is no support for any more recent Mimeo photo-book formats. If y
 
 **Future, TO DO and possible ideas**
 
-- Validate we have bleed/margins correct for front and back cover ("special pages").
 - More/better layout clean-up/fine-tuning algorithms? (Gap Perfecter, Gridify, and Tree Builder all have their good and bad aspects in improving layouts).
-- Add basic rendering of some decorative aspects (photo & text borders, text fonts, etc)
+- Some manual layout editing capabilities?
+- More accurate text rendering (the problem is that CEWE Layout uses a pseudo html 'qrichtext' format from Qt)
 
 **Other capabilities (partially or completely implemented)**
 

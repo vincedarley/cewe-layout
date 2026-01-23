@@ -7,6 +7,7 @@ import glob
 import logging
 from cewe_layout.page_utils import determine_page_owner_of_area, page_sort_key
 from cewe_layout.book.cewe_photobook import CEWEPhotobook
+from cewe_layout.text_utils import _extract_plain_text_from_html
 
 logger = logging.getLogger(__name__)
 
@@ -88,7 +89,6 @@ def _parse_decoration(area) -> dict[str, Any]:
     cewe_color = border.get('color')
     if cewe_color:
         border_info['border_color'] = convert_cewe_color(cewe_color, include_alpha=True)
-        border_info['border_color_rgb'] = convert_cewe_color(cewe_color, include_alpha=False)
     
     # Width (in 0.1mm units like other dimensions)
     width_str = border.get('width')
@@ -776,9 +776,7 @@ def _parseTextArea(area, area_width: float, area_height: float, area_left: float
 
     # Parse colors and alignment from textFormat
     background_color = None
-    background_color_rgb = None
     foreground_color = None
-    foreground_color_rgb = None
     
     text_format = area.find('.//textFormat')
     if text_format is not None:
@@ -815,12 +813,10 @@ def _parseTextArea(area, area_width: float, area_height: float, area_left: float
         bg_color = text_format.get('backgroundColor')
         if bg_color:
             background_color = convert_cewe_color(bg_color, include_alpha=True)
-            background_color_rgb = convert_cewe_color(bg_color, include_alpha=False)
         
         fg_color = text_format.get('foregroundColor')
         if fg_color:
             foreground_color = convert_cewe_color(fg_color, include_alpha=True)
-            foreground_color_rgb = convert_cewe_color(fg_color, include_alpha=False)
     
     # Check for inline color styling in the HTML content (overrides textFormat color)
     # Common pattern: <span style="...color:#rrggbb...">
@@ -829,19 +825,12 @@ def _parseTextArea(area, area_width: float, area_height: float, area_left: float
     if color_match:
         # Found inline color - override foreground colors
         inline_color_rgb = '#' + color_match.group(1).lower()
-        foreground_color_rgb = inline_color_rgb
         foreground_color = inline_color_rgb + 'ff'  # Add fully opaque alpha channel
         logger.debug(f"  Found inline color style: {inline_color_rgb} (overriding textFormat color)")
 
     # Extract plain text for debug output
-    plain_text = raw_html
-    plain_text = re.sub(r'<!\[CDATA\[(.*?)\]\]>', r'\1', plain_text, flags=re.DOTALL)
-    plain_text = re.sub(r'<style[^>]*>.*?</style>', '', plain_text, flags=re.DOTALL | re.IGNORECASE)
-    plain_text = re.sub(r'<head[^>]*>.*?</head>', '', plain_text, flags=re.DOTALL | re.IGNORECASE)
-    plain_text = re.sub(r'<[^>]+>', '', plain_text)
-    plain_text = html.unescape(plain_text)
-    plain_text = ' '.join(plain_text.split()).strip()
-
+    plain_text = _extract_plain_text_from_html(raw_html)
+    
     logger.debug(
         f"  Page {owner} textarea: text='{plain_text[:50]}{'...' if len(plain_text) > 50 else ''}' font_size={font_size} h_align={h_align} v_align={v_align}")
 
@@ -860,10 +849,8 @@ def _parseTextArea(area, area_width: float, area_height: float, area_left: float
     # Add color information if present
     if background_color is not None:
         text_info['background_color'] = background_color
-        text_info['background_color_rgb'] = background_color_rgb
     if foreground_color is not None:
         text_info['foreground_color'] = foreground_color
-        text_info['foreground_color_rgb'] = foreground_color_rgb
     
     # Add decoration/border information if present
     border_info = _parse_decoration(area)

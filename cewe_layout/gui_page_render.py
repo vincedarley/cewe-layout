@@ -1,18 +1,30 @@
 """Pure rendering engine for photobook pages - no business logic, only visualization."""
 import tkinter as tk
+from typing import Any
 
 from PIL import Image, ImageDraw, ImageTk
 from dataclasses import dataclass
 import os
 from pathlib import Path
 import logging
-import re
-import html
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from cewe_layout.colour_utils import getBackgroundAndFrameColour
+from cewe_layout.text_utils import _extract_plain_text_from_html, convert_qt_html_to_tkhtmlview
 
 logger = logging.getLogger(__name__)
+
+# Feature flag: Use tkhtmlview for HTML rendering instead of plain text extraction
+# Mostly works well, except that we can't have a transparent background (tkhtmlview limitation).
+HTML_RENDER = True
+
+# Try to import tkhtmlview
+try:
+    from tkhtmlview import HTMLLabel
+    TKHTMLVIEW_AVAILABLE = True
+except ImportError:
+    TKHTMLVIEW_AVAILABLE = False
+    logger.info("tkhtmlview not available - HTML rendering disabled")
 
 # Register HEIF/HEIC support if available
 try:
@@ -21,40 +33,6 @@ try:
     logger.info("HEIF/HEIC support enabled via pillow-heif")
 except ImportError:
     logger.info("pillow-heif not available - HEIC files will not be supported")
-
-def _extract_text_from_html(html_text):
-    """Extract plain text from HTML CDATA content.
-    
-    Args:
-        html_text: HTML string, possibly wrapped in CDATA
-        
-    Returns:
-        Plain text string with HTML tags removed
-    """
-    if not html_text:
-        return ""
-    
-    # Remove CDATA wrapper if present
-    text = re.sub(r'<!\[CDATA\[(.*?)\]\]>', r'\1', html_text, flags=re.DOTALL)
-    
-    # Remove <style>...</style> blocks (including CSS content)
-    text = re.sub(r'<style[^>]*>.*?</style>', '', text, flags=re.DOTALL | re.IGNORECASE)
-    
-    # Remove <head>...</head> blocks
-    text = re.sub(r'<head[^>]*>.*?</head>', '', text, flags=re.DOTALL | re.IGNORECASE)
-    
-    # Remove all HTML tags
-    text = re.sub(r'<[^>]+>', '', text)
-    
-    # Decode HTML entities
-    text = html.unescape(text)
-    
-    # Clean up whitespace
-    text = ' '.join(text.split())
-    
-    return text.strip()
-
-
 
 
 @dataclass
@@ -105,6 +83,7 @@ class PageRenderer:
         self.delete_buttons = []  # Currently displayed delete button widgets
         self.delete_button_info_list = []  # List of button info for hover state management
         self.drag_rectangles = []  # Currently displayed drag rectangle canvas items
+        self.html_text_widgets = []  # tkhtmlview widgets for HTML text rendering
         try:
             from PIL import ImageFont
             self.label_font = ImageFont.truetype('Arial', 16)
@@ -163,6 +142,12 @@ class PageRenderer:
             functional_rendering: If True, render UI in a rougher form optimised for functionality,
                           If false, then try to be as accurate as possible in the render.
         """
+        # Clear HTML text widgets from previous render FIRST (before creating new ones)
+        for widget in self.html_text_widgets:
+            widget.place_forget()  # Remove from canvas first
+            widget.destroy()
+        self.html_text_widgets.clear()
+        
         # Store functional_rendering mode
         self.functional_rendering = functional_rendering
         # Store swap callback for later use
@@ -305,6 +290,7 @@ class PageRenderer:
             btn.destroy()
         self.delete_buttons.clear()
         self.delete_button_info_list.clear()
+        
         self.hovered_item_idx = None
     
     def clear_caches(self) -> None:
@@ -563,13 +549,13 @@ class PageRenderer:
                 draw.rectangle([x0, y0, x1, y1], outline='blue', width=2)
 
             if not self.functional_rendering:
-                border_color = p.get('border_color_rgb')
+                border_color = p.get('border_color')  # RRGGBBAA format with alpha
                 border_width = p.get('border_width', 0)  # 0.1mm units
                 
-                # Draw frame if specified
+                # Draw frame if specified (extract RGB only, alpha ignored in outlines)
                 if border_color and border_width > 0:
                     border_width_px = max(1, int(border_width * scale))
-                    draw.rectangle([x0, y0, x1, y1], outline=border_color, width=border_width_px)
+                    draw.rectangle([x0, y0, x1, y1], outline=border_color[:7], width=border_width_px)
 
             # Photo number label with light grey background
             label_text = f'{i}'
@@ -633,122 +619,100 @@ class PageRenderer:
             else:
                 # Accurate rendering mode: use MCF colors (no fallback)
                 bg_color_rgba = t.get('background_color')  # RRGGBBAA format with alpha
-                bg_color_rgb = t.get('background_color_rgb')  # RGB format for PIL
-                border_color = t.get('border_color_rgb')
+                border_color = t.get('border_color')  # RRGGBBAA format with alpha
                 border_width = t.get('border_width', 0)  # 0.1mm units
                 
                 # Draw text block background if specified (and not fully transparent)
-                if bg_color_rgba and bg_color_rgb:
+                if bg_color_rgba:
                     # Extract alpha channel from '#rrggbbaa' format
                     alpha_hex = bg_color_rgba[-2:]  # Last 2 characters
                     alpha_int = int(alpha_hex, 16)  # Convert hex to 0-255
                     
                     if alpha_int > 0:  # Only draw if not fully transparent
                         from PIL import Image, ImageColor
-                        rgb_tuple = ImageColor.getrgb(bg_color_rgb)  # Convert '#rrggbb' to (r, g, b)
+                        rgb_tuple = ImageColor.getrgb(bg_color_rgba[:7])  # Convert '#rrggbb' to (r, g, b) - slice first 7 chars
                         overlay = Image.new('RGBA', (int(x1-x0), int(y1-y0)), rgb_tuple + (alpha_int,))
                         draw._image.paste(overlay, (int(x0), int(y0)), overlay)
                 
-                # Draw text block frame if specified
+                # Draw text block frame if specified (extract RGB only, alpha ignored in outlines)
                 if border_color and border_width > 0:
                     border_width_px = max(1, int(border_width * scale))
-                    draw.rectangle([x0, y0, x1, y1], outline=border_color, width=border_width_px)
+                    draw.rectangle([x0, y0, x1, y1], outline=border_color[:7], width=border_width_px)
                 
                 # Use foreground color from MCF if available
-                text_color = t.get('foreground_color_rgb', 'black')
+                text_color = t.get('foreground_color', 'black')
             
             # Extract and display the actual text content
             raw_html = t.get('raw_html', '')
-            plain_text = _extract_text_from_html(raw_html)
             
-            # Get font size and alignment from parsed data
-            font_size = t.get('font_size', 12)
-            h_align = t.get('h_align', 'left')
-            v_align = t.get('v_align', 'top')
-            
-            # Create font at the appropriate size (scale appropriately for display)
-            try:
-                # MCF coordinate system uses 254 DPI (10 units per mm)
-                # Font sizes are in points (72 points = 1 inch)
-                # So: 1 point = 254/72 ≈ 3.528 MCF units
-                # Then scale converts MCF units to screen pixels
-                display_font_size = max(8, int(font_size * 3.528 * scale))
-                text_font = ImageFont.truetype('Arial', display_font_size)
-            except:
-                text_font = None
-            
-            if plain_text:
-                # Draw the text content with alignment
-                max_width = int(x1 - x0 - 8)  # 4px padding on each side
-                if max_width > 0:
-                    # Simple word wrapping
-                    words = plain_text.split()
-                    lines = []
-                    current_line = []
-                    
-                    for word in words:
-                        test_line = ' '.join(current_line + [word])
-                        if text_font:
-                            bbox = draw.textbbox((0, 0), test_line, font=text_font)
-                            text_width = bbox[2] - bbox[0]
-                        else:
-                            text_width = len(test_line) * 6  # Rough estimate
-                        
-                        if text_width <= max_width:
-                            current_line.append(word)
-                        else:
-                            if current_line:
-                                lines.append(' '.join(current_line))
-                                current_line = [word]
-                            else:
-                                lines.append(word)  # Word too long, add anyway
-                    
-                    if current_line:
-                        lines.append(' '.join(current_line))
-                    
-                    # Calculate line height from font
-                    if text_font:
-                        # Get actual line height from font metrics
-                        bbox = draw.textbbox((0, 0), 'Ay', font=text_font)
-                        line_height = int((bbox[3] - bbox[1]) * 1.2)  # Add 20% for line spacing
-                    else:
-                        line_height = 14
-                    
-                    total_text_height = len(lines) * line_height
-                    box_height = y1 - y0
-                    
-                    # Calculate vertical position based on alignment
-                    if v_align == 'center':
-                        y_start = y0 + (box_height - total_text_height) / 2
-                    elif v_align == 'bottom':
-                        y_start = y1 - total_text_height - 4
-                    else:  # top
-                        y_start = y0 + 4
-                    
-                    # Draw each line with horizontal alignment
-                    y_offset = y_start
-                    for line in lines:
-                        if y_offset < y1:  # Only draw if within bounds
-                            # Calculate horizontal position based on alignment
-                            if text_font:
-                                bbox = draw.textbbox((0, 0), line, font=text_font)
-                                line_width = bbox[2] - bbox[0]
-                            else:
-                                line_width = len(line) * 6
-                            
-                            if h_align == 'center':
-                                x_pos = x0 + (x1 - x0 - line_width) / 2
-                            elif h_align == 'right':
-                                x_pos = x1 - line_width - 4
-                            else:  # left
-                                x_pos = x0 + 4
-                            
-                            # text_color was already set above based on functional_rendering mode
-                            draw.text((x_pos, y_offset), line, fill=text_color, font=text_font)
-                            y_offset += line_height
-                        else:
-                            break
-            
+            if not self.functional_rendering and HTML_RENDER and TKHTMLVIEW_AVAILABLE and raw_html:
+                # HTML rendering mode using tkhtmlview
+                # Convert Qt HTML to tkhtmlview-compatible format
+                converted_html = convert_qt_html_to_tkhtmlview(raw_html)
+                
+                # Get font size for wrapper styling
+                font_size = t.get('font_size', 12)
+                
+                # Strip alpha from text color for tkhtmlview (only accepts RGB, not RGBA)
+                text_color_rgb = text_color[:7] if text_color.startswith('#') and len(text_color) > 7 else text_color
+                
+                # Build style for wrapper div with MCF colors and font size
+                style_parts = [f'color: {text_color_rgb}']
+                
+                # Add background if specified
+                bg_color_rgba = t.get('background_color')
+                if bg_color_rgba:
+                    alpha_hex = bg_color_rgba[-2:]
+                    alpha_int = int(alpha_hex, 16)
+                    #if alpha_int > 0:
+                        #style_parts.append(f'background-color: {bg_color_rgb}')
+                
+                # tkhtmlview only supports 'px' and '%' units for font-size
+                style_parts.append(f'font-size: {font_size}px')
+                
+                style_attr = '; '.join(style_parts)
+                final_html = f'<div style="{style_attr}">{converted_html}</div>'
+                
+                # Create tkhtmlview widget overlaid on canvas (background already drawn on canvas)
+                html_widget = HTMLLabel(
+                    self.canvas,
+                    html=final_html,
+                    background=bg_color_rgba[:7] if bg_color_rgba else None,
+                    bd=0,
+                    highlightthickness=0,
+                    relief='flat'
+                )
+                
+                # Position widget on canvas
+                widget_width = int(x1 - x0)
+                widget_height = int(y1 - y0)
+                html_widget.place(x=int(x0), y=int(y0), width=widget_width, height=widget_height)
+                
+                # Store widget for cleanup
+                self.html_text_widgets.append(html_widget)
+            else:
+                # Plain text rendering mode (original behavior)
+                plain_text = _extract_plain_text_from_html(raw_html)
+                
+                # Get font size and alignment from parsed data
+                font_size = t.get('font_size', 12)
+                h_align = t.get('h_align', 'left')
+                v_align = t.get('v_align', 'top')
+                
+                # Create font at the appropriate size (scale appropriately for display)
+                try:
+                    # MCF coordinate system uses 254 DPI (10 units per mm)
+                    # Font sizes are in points (72 points = 1 inch)
+                    # So: 1 point = 254/72 ≈ 3.528 MCF units
+                    # Then scale converts MCF units to screen pixels
+                    display_font_size = max(8, int(font_size * 3.528 * scale))
+                    text_font = ImageFont.truetype('Arial', display_font_size)
+                except:
+                    text_font = None
+                
+                if plain_text:
+                    self._draw_plain_text(draw, h_align, plain_text, text_color, text_font, v_align, x0, x1, y0, y1)
+
             # Draw label in top-right corner - 25 pixels is enough space for T1-T9
             draw.text((int(x1) - 25, y0+4), f'T{i}', fill='green', font=self.label_font)
             
@@ -760,7 +724,80 @@ class PageRenderer:
                 'x': int(x1) - 20,  # 20px from right edge - all we need for the X button
                 'y': int(y0) + 2,   # 2px from top edge
             })
-    
+
+    def _draw_plain_text(self, draw, h_align, plain_text: str, text_color: str | Any, text_font: Any | None, v_align,
+                         x0: int | Any, x1: int | Any, y0: int | Any, y1: int | Any):
+        # Draw the text content with alignment
+        max_width = int(x1 - x0 - 8)  # 4px padding on each side
+        if max_width > 0:
+            # Simple word wrapping
+            words = plain_text.split()
+            lines = []
+            current_line = []
+
+            for word in words:
+                test_line = ' '.join(current_line + [word])
+                if text_font:
+                    bbox = draw.textbbox((0, 0), test_line, font=text_font)
+                    text_width = bbox[2] - bbox[0]
+                else:
+                    text_width = len(test_line) * 6  # Rough estimate
+
+                if text_width <= max_width:
+                    current_line.append(word)
+                else:
+                    if current_line:
+                        lines.append(' '.join(current_line))
+                        current_line = [word]
+                    else:
+                        lines.append(word)  # Word too long, add anyway
+
+            if current_line:
+                lines.append(' '.join(current_line))
+
+            # Calculate line height from font
+            if text_font:
+                # Get actual line height from font metrics
+                bbox = draw.textbbox((0, 0), 'Ay', font=text_font)
+                line_height = int((bbox[3] - bbox[1]) * 1.2)  # Add 20% for line spacing
+            else:
+                line_height = 14
+
+            total_text_height = len(lines) * line_height
+            box_height = y1 - y0
+
+            # Calculate vertical position based on alignment
+            if v_align == 'center':
+                y_start = y0 + (box_height - total_text_height) / 2
+            elif v_align == 'bottom':
+                y_start = y1 - total_text_height - 4
+            else:  # top
+                y_start = y0 + 4
+
+            # Draw each line with horizontal alignment
+            y_offset = y_start
+            for line in lines:
+                if y_offset < y1:  # Only draw if within bounds
+                    # Calculate horizontal position based on alignment
+                    if text_font:
+                        bbox = draw.textbbox((0, 0), line, font=text_font)
+                        line_width = bbox[2] - bbox[0]
+                    else:
+                        line_width = len(line) * 6
+
+                    if h_align == 'center':
+                        x_pos = x0 + (x1 - x0 - line_width) / 2
+                    elif h_align == 'right':
+                        x_pos = x1 - line_width - 4
+                    else:  # left
+                        x_pos = x0 + 4
+
+                    # text_color was already set above based on functional_rendering mode
+                    draw.text((x_pos, y_offset), line, fill=text_color, font=text_font)
+                    y_offset += line_height
+                else:
+                    break
+
     def _draw_page_frame(self, draw, frame_x, frame_y, frame_w, frame_h, frame_color):
         """Draw dashed frame around a page."""
         dash_length = 10
