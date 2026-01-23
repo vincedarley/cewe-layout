@@ -11,7 +11,8 @@ from cewe_layout.book.cewe_photobook import CEWEPhotobook
 logger = logging.getLogger(__name__)
 
 # Fixed edge gaps for A5 Calendar format (calculated from Month 1 image area)
-# These gaps define the usable image layout area within each calendar page
+# These gaps define the usable image layout area within each calendar page.
+# At some point we'll want to generalise the code for other Calendar sizes.
 CALENDAR_EDGE_GAPS = {
     'left': 70.0,
     'top': 120.0,
@@ -308,92 +309,6 @@ def extract_pages_info(fotobook_root):
     else:
         logger.debug(f"extract_pages_info: Found fullcover page with areas")
 
-    # Helper function to extract areas from a cover page
-    def _process_cover_page(page_el, page_number, is_front_cover):
-        """Process a cover page and add it to pages_map."""
-        bundlesize = page_el.find('./bundlesize')
-        if bundlesize is None:
-            logger.warning(f"Cover page {page_number} missing bundlesize, skipping")
-            return
-        
-        try:
-            spread_w = float(bundlesize.get('width'))
-            spread_h = float(bundlesize.get('height'))
-        except (TypeError, ValueError, AttributeError) as e:
-            logger.warning(f"Cover page {page_number} has invalid bundlesize: {e}, skipping")
-            return
-        
-        # Extract background for cover
-        background_id = None
-        for bg in page_el.findall('background'):
-            if bg.get('alignment') is not None:
-                background_id = bg.get('designElementId')
-                break
-        
-        # Detect if this is a calendar cover (single page) vs photobook cover (spread)
-        is_calendar_cover = page_el.get('type') == 'calendarcoverfront'
-        
-        # Use the same dimension calculation as normal pages for consistency
-        # For calendars: single_page_mode=True gives full width
-        # For photobooks: single_page_mode=False gives half width, with origin based on front/back
-        page_w, origin_left = _calculate_page_dimensions(is_calendar_cover, True, spread_w)
-        
-        # Initialize page entry using helper function
-        # Note: is_calendar must match the actual format (calendar covers ARE calendar pages)
-        pages_map[page_number] = _create_page_info(
-            page_w, spread_h, origin_left, background_id,
-            False, is_calendar_cover, 0.0,  # is_canvas=False, is_calendar=is_calendar_cover, rotation=0
-            spread_w, spread_h, page_number, page_el.get('type')
-        )
-        
-        # Add cover-specific metadata
-        pages_map[page_number]['is_cover'] = True
-        pages_map[page_number]['is_front_cover'] = is_front_cover
-        pages_map[page_number]['has_full_bleed'] = True  # Covers have bleed on all 4 sides
-        
-        # Extract areas from cover page
-        # Front cover is right half (x >= spread_w/2), back cover is left half (x < spread_w/2)
-        for area in page_el.findall('.//area'):
-            pos = area.find('position')
-            if pos is None:
-                continue
-            
-            try:
-                area_left = float(pos.get('left').replace(',', '.'))
-                area_top = float(pos.get('top').replace(',', '.'))
-                area_width = float(pos.get('width').replace(',', '.'))
-                area_height = float(pos.get('height').replace(',', '.'))
-                area_rot = float(pos.get('rotation').replace(',', '.'))
-            except (TypeError, ValueError, AttributeError) as e:
-                logger.warning(f"Cover page {page_number}: Failed to parse area position: {e}")
-                continue
-            
-            areatype = area.get('areatype', 'imagearea')
-            
-            # Filter based on which half of the spread this area is in (photobooks only)
-            if not is_calendar_cover:
-                area_center_x = area_left + area_width / 2.0
-                is_on_right_half = area_center_x >= page_w  # page_w is spread_w/2
-                
-                # Skip this area if it's not on the correct half
-                if is_front_cover and not is_on_right_half:
-                    continue  # Front cover: skip left half
-                if not is_front_cover and is_on_right_half:
-                    continue  # Back cover: skip right half
-            
-            # Note: origin_left handles the page offset, so coordinates remain in spread units
-            # The renderer will subtract origin_left to make them page-relative
-            
-            areatype = area.get('areatype', 'imagearea')
-            
-            if areatype == 'textarea':
-                text_info = _parseTextArea(area, area_width, area_height, area_left, area_top, area_rot, page_number)
-                pages_map[page_number]['texts'].append(text_info)
-            elif areatype == 'imagearea':
-                for imageTag in area.findall('image'):
-                    info = _parseImageArea(imageTag, area_width, area_height, area_left, area_top, area_rot, area)
-                    pages_map[page_number]['photos'].append(info)
-    
     # For photobooks: identify the two pagenr="0" type="emptypage" elements
     # First one (before pagenr="1") is inside front cover (page 0)
     # Last one (after last numbered page) is inside back cover (page N+1)
@@ -515,23 +430,20 @@ def extract_pages_info(fotobook_root):
             
             # Get dimensions from a normal page
             sample_page = pages_map[min(numeric_pages)]
-            pages_map[inside_back_page_num] = {
-                'photos': [],
-                'texts': [],
-                'page_width': sample_page['page_width'],
-                'page_height': sample_page['page_height'],
-                'origin_left': sample_page['page_width'],  # Right side (inside back is odd page number)
-                'background_id': None,
-                'is_canvas': False,
-                'is_calendar': False,
-                'is_cover': False,
-                'is_front_cover': False,
-                'has_full_bleed': False,
-                'rotation': 0.0,
-                'physical_width': sample_page['page_width'] * 2,
-                'physical_height': sample_page['page_height'],
-                'calendar_edge_gaps': None
-            }
+            pages_map[inside_back_page_num] = _create_page_info(
+                sample_page['page_width'], sample_page['page_height'],
+                sample_page['page_width'],  # origin_left: Right side (inside back is odd page number)
+                None,  # background_id
+                False, False,  # is_canvas=False, is_calendar=False
+                0.0,  # rotation
+                sample_page['page_width'] * 2, sample_page['page_height'],  # physical dimensions
+                inside_back_page_num,
+                'emptypage'  # page_type
+            )
+            # Add cover-specific metadata
+            pages_map[inside_back_page_num]['is_cover'] = False
+            pages_map[inside_back_page_num]['is_front_cover'] = False
+            pages_map[inside_back_page_num]['has_full_bleed'] = False
             logger.debug(f"extract_pages_info: Created inside back cover as page {inside_back_page_num}")
     
     # Now process areas and add them to the pre-created pages
@@ -698,11 +610,11 @@ def extract_pages_info(fotobook_root):
         is_calendar_cover = cover_page.get('type') == 'calendarcoverfront'
         
         # Process front cover (right half for photobooks, full page for calendars) as page "F"
-        _process_cover_page(cover_page, "F", is_front_cover=True)
+        _process_cover_page(pages_map, cover_page, "F", is_front_cover=True)
         
         # Process back cover only for photobooks (calendars don't have back covers)
         if not is_calendar_cover:
-            _process_cover_page(cover_page, "B", is_front_cover=False)
+            _process_cover_page(pages_map, cover_page, "B", is_front_cover=False)
     
     # Build sorted pages list: page "F" (front cover), page 0 (inside front), pages 1..N, 
     # page N+1 (inside back), page "B" (back cover)
@@ -721,6 +633,93 @@ def extract_pages_info(fotobook_root):
     
     # Return CEWEPhotobook instance instead of raw list
     return CEWEPhotobook(pages)
+
+
+# Helper function to extract areas from a cover page
+def _process_cover_page(pages_map, page_el, page_number, is_front_cover):
+    """Process a cover page and add it to pages_map."""
+    bundlesize = page_el.find('./bundlesize')
+    if bundlesize is None:
+        logger.warning(f"Cover page {page_number} missing bundlesize, skipping")
+        return
+
+    try:
+        spread_w = float(bundlesize.get('width'))
+        spread_h = float(bundlesize.get('height'))
+    except (TypeError, ValueError, AttributeError) as e:
+        logger.warning(f"Cover page {page_number} has invalid bundlesize: {e}, skipping")
+        return
+
+    # Extract background for cover
+    background_id = None
+    for bg in page_el.findall('background'):
+        if bg.get('alignment') is not None:
+            background_id = bg.get('designElementId')
+            break
+
+    # Detect if this is a calendar cover (single page) vs photobook cover (spread)
+    is_calendar_cover = page_el.get('type') == 'calendarcoverfront'
+
+    # Use the same dimension calculation as normal pages for consistency
+    # For calendars: single_page_mode=True gives full width
+    # For photobooks: single_page_mode=False gives half width, with origin based on front/back
+    page_w, origin_left = _calculate_page_dimensions(is_calendar_cover, True, spread_w)
+
+    # Initialize page entry using helper function
+    # Note: is_calendar must match the actual format (calendar covers ARE calendar pages)
+    pages_map[page_number] = _create_page_info(
+        page_w, spread_h, origin_left, background_id,
+        False, is_calendar_cover, 0.0,  # is_canvas=False, is_calendar=is_calendar_cover, rotation=0
+        spread_w, spread_h, page_number, page_el.get('type')
+    )
+
+    # Add cover-specific metadata
+    pages_map[page_number]['is_cover'] = True
+    pages_map[page_number]['is_front_cover'] = is_front_cover
+    pages_map[page_number]['has_full_bleed'] = True  # Covers have bleed on all 4 sides
+
+    # Extract areas from cover page
+    # Front cover is right half (x >= spread_w/2), back cover is left half (x < spread_w/2)
+    for area in page_el.findall('.//area'):
+        pos = area.find('position')
+        if pos is None:
+            continue
+
+        try:
+            area_left = float(pos.get('left').replace(',', '.'))
+            area_top = float(pos.get('top').replace(',', '.'))
+            area_width = float(pos.get('width').replace(',', '.'))
+            area_height = float(pos.get('height').replace(',', '.'))
+            area_rot = float(pos.get('rotation').replace(',', '.'))
+        except (TypeError, ValueError, AttributeError) as e:
+            logger.warning(f"Cover page {page_number}: Failed to parse area position: {e}")
+            continue
+
+        areatype = area.get('areatype', 'imagearea')
+
+        # Filter based on which half of the spread this area is in (photobooks only)
+        if not is_calendar_cover:
+            area_center_x = area_left + area_width / 2.0
+            is_on_right_half = area_center_x >= page_w  # page_w is spread_w/2
+
+            # Skip this area if it's not on the correct half
+            if is_front_cover and not is_on_right_half:
+                continue  # Front cover: skip left half
+            if not is_front_cover and is_on_right_half:
+                continue  # Back cover: skip right half
+
+        # Note: origin_left handles the page offset, so coordinates remain in spread units
+        # The renderer will subtract origin_left to make them page-relative
+
+        areatype = area.get('areatype', 'imagearea')
+
+        if areatype == 'textarea':
+            text_info = _parseTextArea(area, area_width, area_height, area_left, area_top, area_rot, page_number)
+            pages_map[page_number]['texts'].append(text_info)
+        elif areatype == 'imagearea':
+            for imageTag in area.findall('image'):
+                info = _parseImageArea(imageTag, area_width, area_height, area_left, area_top, area_rot, area)
+                pages_map[page_number]['photos'].append(info)
 
 
 def _parseImageArea(imageTag, area_width: float, area_height: float, area_left: float, area_top: float,
@@ -822,9 +821,19 @@ def _parseTextArea(area, area_width: float, area_height: float, area_left: float
         if fg_color:
             foreground_color = convert_cewe_color(fg_color, include_alpha=True)
             foreground_color_rgb = convert_cewe_color(fg_color, include_alpha=False)
+    
+    # Check for inline color styling in the HTML content (overrides textFormat color)
+    # Common pattern: <span style="...color:#rrggbb...">
+    import re, html
+    color_match = re.search(r'color:\s*#([0-9a-fA-F]{6})', raw_html)
+    if color_match:
+        # Found inline color - override foreground colors
+        inline_color_rgb = '#' + color_match.group(1).lower()
+        foreground_color_rgb = inline_color_rgb
+        foreground_color = inline_color_rgb + 'ff'  # Add fully opaque alpha channel
+        logger.debug(f"  Found inline color style: {inline_color_rgb} (overriding textFormat color)")
 
     # Extract plain text for debug output
-    import re, html
     plain_text = raw_html
     plain_text = re.sub(r'<!\[CDATA\[(.*?)\]\]>', r'\1', plain_text, flags=re.DOTALL)
     plain_text = re.sub(r'<style[^>]*>.*?</style>', '', plain_text, flags=re.DOTALL | re.IGNORECASE)

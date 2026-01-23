@@ -632,16 +632,22 @@ class PageRenderer:
                 text_color = 'black'
             else:
                 # Accurate rendering mode: use MCF colors (no fallback)
-                bg_color = t.get('background_color_rgb')  # RGB format for PIL
+                bg_color_rgba = t.get('background_color')  # RRGGBBAA format with alpha
+                bg_color_rgb = t.get('background_color_rgb')  # RGB format for PIL
                 border_color = t.get('border_color_rgb')
                 border_width = t.get('border_width', 0)  # 0.1mm units
                 
-                # Draw text block background if specified
-                if bg_color:
-                    from PIL import Image, ImageColor
-                    rgb_tuple = ImageColor.getrgb(bg_color)  # Convert '#rrggbb' to (r, g, b)
-                    overlay = Image.new('RGBA', (int(x1-x0), int(y1-y0)), rgb_tuple + (255,))  # Fully opaque
-                    draw._image.paste(overlay, (int(x0), int(y0)), overlay)
+                # Draw text block background if specified (and not fully transparent)
+                if bg_color_rgba and bg_color_rgb:
+                    # Extract alpha channel from '#rrggbbaa' format
+                    alpha_hex = bg_color_rgba[-2:]  # Last 2 characters
+                    alpha_int = int(alpha_hex, 16)  # Convert hex to 0-255
+                    
+                    if alpha_int > 0:  # Only draw if not fully transparent
+                        from PIL import Image, ImageColor
+                        rgb_tuple = ImageColor.getrgb(bg_color_rgb)  # Convert '#rrggbb' to (r, g, b)
+                        overlay = Image.new('RGBA', (int(x1-x0), int(y1-y0)), rgb_tuple + (alpha_int,))
+                        draw._image.paste(overlay, (int(x0), int(y0)), overlay)
                 
                 # Draw text block frame if specified
                 if border_color and border_width > 0:
