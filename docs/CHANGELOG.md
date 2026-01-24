@@ -6,6 +6,7 @@ All notable changes to this project will be documented in this file.
 
 Layout:
 - Fix to using original photo aspect ratio instead of saved slot.
+- Auto-Run algorithm (optional) any time we add to the photos/texts on the page
 
 Page Viewer:
 - Functional rendering on/off toggle

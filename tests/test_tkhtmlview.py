@@ -95,7 +95,7 @@ def extract_text_blocks_from_mcf(mcf_path):
                 alpha_int = int(alpha_hex, 16) if alpha_hex else 255
                 if alpha_int > 0:  # Not fully transparent
                     bg_color = textformat_bg
-                    bg_color_rgb = text_area.get('background_color_rgb')
+                    bg_color_rgb = text_area.get('background_color')[:7]
             
             # Extract text properties
             text_block = {

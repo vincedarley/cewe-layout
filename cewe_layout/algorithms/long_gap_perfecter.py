@@ -74,6 +74,14 @@ class LongGapPerfecterAlgorithm(LayoutAlgorithm):
     PROXIMITY_THRESHOLD = 100.0  # 10mm - parallel lines within this distance are merged
     ALIGNMENT_TOLERANCE = 50.0  # 5mm - photos within this distance are considered "touching"
     
+    def __init__(self, debug: bool = False):
+        """Initialize LongGapPerfecterAlgorithm.
+        
+        Args:
+            debug: If True, print diagnostic information during layout generation.
+        """
+        self.debug = debug
+    
     def getName(self) -> str:
         return "Long Gap Perfecter"
     
@@ -108,31 +116,29 @@ class LongGapPerfecterAlgorithm(LayoutAlgorithm):
             if rect.x is None or rect.y is None:
                 return False, [], f"Long Gap Perfecter requires all rectangles to have x,y positions set. Rectangle {rect.item_id} has x={rect.x}, y={rect.y}"
         
-        debug = True
-        
-        if debug:
+        if self.debug:
             print(f"\n=== Long Gap Perfecter: Processing {len(rectangles)} rectangles ===")
             print(f"Page size: {page_width:.1f} x {page_height:.1f}")
         
         # Step 1: Create extended lines from all edges
-        lines = self._create_extended_lines(rectangles, page_width, page_height, debug)
+        lines = self._create_extended_lines(rectangles, page_width, page_height)
         
-        if debug:
+        if self.debug:
             print(f"\nStep 1 complete: Created {len(lines)} extended lines")
         
         # Step 2: Merge nearby parallel lines
-        merged_lines = self._merge_parallel_lines(lines, debug)
+        merged_lines = self._merge_parallel_lines(lines)
         
-        if debug:
+        if self.debug:
             print(f"\nStep 2 complete: Merged to {len(merged_lines)} lines")
             print("\nFinal lines (sorted by length):")
             for i, line in enumerate(sorted(merged_lines, key=lambda l: l.length(), reverse=True)[:10]):
                 print(f"  {i+1}. {line}, touching {len(line.touching_items)} items")
         
         # Step 3: Align rectangles to lines (longest first)
-        aligned_rects = self._align_to_lines(rectangles, merged_lines, page_width, page_height, debug)
+        aligned_rects = self._align_to_lines(rectangles, merged_lines, page_width, page_height)
         
-        if debug:
+        if self.debug:
             print(f"\nStep 3 complete: Aligned {len(aligned_rects)} rectangles")
         
         return True, aligned_rects, ""
@@ -141,8 +147,7 @@ class LongGapPerfecterAlgorithm(LayoutAlgorithm):
         self,
         rectangles: List[LayoutRectangle],
         page_width: float,
-        page_height: float,
-        debug: bool
+        page_height: float
     ) -> List[ExtendedLine]:
         """
         Step 1: Create extended lines from all rectangle edges.
@@ -154,14 +159,13 @@ class LongGapPerfecterAlgorithm(LayoutAlgorithm):
             rectangles: List of positioned rectangles.
             page_width: Page width.
             page_height: Page height.
-            debug: Enable debug logging.
         
         Returns:
             List of extended lines with touching items tracked.
         """
         lines = []
         
-        if debug:
+        if self.debug:
             print(f"\nCreating extended lines from {len(rectangles)} rectangles:")
             for i, rect in enumerate(rectangles):
                 print(f"  Rect {i} (ID {rect.item_id}): pos=({rect.x:.1f},{rect.y:.1f}) size=({rect.width:.1f}x{rect.height:.1f})")
@@ -177,7 +181,7 @@ class LongGapPerfecterAlgorithm(LayoutAlgorithm):
             # Top edge (horizontal)
             line = self._extend_horizontal_line(
                 rect.y, rect.x, rect.x + rect.width, rect.item_id,
-                rectangles, page_width, page_height, debug
+                rectangles, page_width, page_height
             )
             if line:
                 lines.append(line)
@@ -185,7 +189,7 @@ class LongGapPerfecterAlgorithm(LayoutAlgorithm):
             # Bottom edge (horizontal)
             line = self._extend_horizontal_line(
                 rect.y + rect.height, rect.x, rect.x + rect.width, rect.item_id,
-                rectangles, page_width, page_height, debug
+                rectangles, page_width, page_height
             )
             if line:
                 lines.append(line)
@@ -193,7 +197,7 @@ class LongGapPerfecterAlgorithm(LayoutAlgorithm):
             # Left edge (vertical)
             line = self._extend_vertical_line(
                 rect.x, rect.y, rect.y + rect.height, rect.item_id,
-                rectangles, page_width, page_height, debug
+                rectangles, page_width, page_height
             )
             if line:
                 lines.append(line)
@@ -201,12 +205,12 @@ class LongGapPerfecterAlgorithm(LayoutAlgorithm):
             # Right edge (vertical)
             line = self._extend_vertical_line(
                 rect.x + rect.width, rect.y, rect.y + rect.height, rect.item_id,
-                rectangles, page_width, page_height, debug
+                rectangles, page_width, page_height
             )
             if line:
                 lines.append(line)
         
-        if debug:
+        if self.debug:
             print("\nAll initial horizontal lines created in Step 1:")
             h_lines = [line for line in lines if line.orientation == LineOrientation.HORIZONTAL]
             for line in sorted(h_lines, key=lambda l: l.position):
@@ -222,8 +226,7 @@ class LongGapPerfecterAlgorithm(LayoutAlgorithm):
         source_id: str,
         rectangles: List[LayoutRectangle],
         page_width: float,
-        page_height: float,
-        debug: bool
+        page_height: float
     ) -> Optional[ExtendedLine]:
         """
         Extend a horizontal line left and right until it cuts through a rectangle.
@@ -235,14 +238,13 @@ class LongGapPerfecterAlgorithm(LayoutAlgorithm):
             source_id: ID of rectangle that created this line.
             rectangles: All rectangles.
             page_width: Page width.
-            debug: Enable debug logging.
         
         Returns:
             ExtendedLine or None if line has zero length.
         """
         touching_items = {source_id}
         
-        if debug and abs(y_pos - 913.9) < 1.0:
+        if self.debug and abs(y_pos - 913.9) < 1.0:
             print(f"\n  Creating H-line at y={y_pos:.1f} from Rect {source_id}, initial range x={x_start:.1f} to {x_end:.1f}")
         
         # Extend left from x_start
@@ -311,8 +313,7 @@ class LongGapPerfecterAlgorithm(LayoutAlgorithm):
         source_id: str,
         rectangles: List[LayoutRectangle],
         page_width: float,
-        page_height: float,
-        debug: bool
+        page_height: float
     ) -> Optional[ExtendedLine]:
         """
         Extend a vertical line up and down until it cuts through a rectangle.
@@ -325,7 +326,6 @@ class LongGapPerfecterAlgorithm(LayoutAlgorithm):
             rectangles: All rectangles.
             page_width: Page width.
             page_height: Page height.
-            debug: Enable debug logging.
         
         Returns:
             ExtendedLine or None if line has zero length.
@@ -472,7 +472,7 @@ class LongGapPerfecterAlgorithm(LayoutAlgorithm):
         return (abs(x_pos - rect_left) < self.ALIGNMENT_TOLERANCE or
                 abs(x_pos - rect_right) < self.ALIGNMENT_TOLERANCE)
     
-    def _merge_parallel_lines(self, lines: List[ExtendedLine], debug: bool) -> List[ExtendedLine]:
+    def _merge_parallel_lines(self, lines: List[ExtendedLine]) -> List[ExtendedLine]:
         """
         Step 2: Merge nearby parallel lines into single lines.
         
@@ -481,7 +481,6 @@ class LongGapPerfecterAlgorithm(LayoutAlgorithm):
         
         Args:
             lines: List of extended lines.
-            debug: Enable debug logging.
         
         Returns:
             List of merged lines.
@@ -500,10 +499,10 @@ class LongGapPerfecterAlgorithm(LayoutAlgorithm):
                     line2 = merged[j]
                     
                     # Check if these lines can be merged
-                    new_line = self._try_merge_lines(line1, line2, debug)
+                    new_line = self._try_merge_lines(line1, line2)
                     if new_line:
                         # Merge found - replace both lines with new merged line
-                        if debug:
+                        if self.debug:
                             print(f"\nIteration {iteration}: Merging lines")
                             print(f"  Line 1: {line1}")
                             print(f"  Line 2: {line2}")
@@ -522,7 +521,7 @@ class LongGapPerfecterAlgorithm(LayoutAlgorithm):
                 # No more mergeable pairs found
                 break
         
-        if debug:
+        if self.debug:
             print(f"\nMerging complete after {iteration} iterations")
         
         return merged
@@ -530,8 +529,7 @@ class LongGapPerfecterAlgorithm(LayoutAlgorithm):
     def _try_merge_lines(
         self,
         line1: ExtendedLine,
-        line2: ExtendedLine,
-        debug: bool
+        line2: ExtendedLine
     ) -> Optional[ExtendedLine]:
         """
         Try to merge two lines if they are parallel and close enough.
@@ -539,7 +537,6 @@ class LongGapPerfecterAlgorithm(LayoutAlgorithm):
         Args:
             line1: First line.
             line2: Second line.
-            debug: Enable debug logging.
         
         Returns:
             Merged line if mergeable, None otherwise.
@@ -587,8 +584,7 @@ class LongGapPerfecterAlgorithm(LayoutAlgorithm):
         rectangles: List[LayoutRectangle],
         lines: List[ExtendedLine],
         page_width: float,
-        page_height: float,
-        debug: bool
+        page_height: float
     ) -> List[LayoutRectangle]:
         """
         Step 3: Align rectangles to lines (longest first).
@@ -598,7 +594,6 @@ class LongGapPerfecterAlgorithm(LayoutAlgorithm):
         Args:
             rectangles: List of rectangles to align.
             lines: List of merged lines.
-            debug: Enable debug logging.
         
         Returns:
             List of aligned rectangles.
@@ -622,11 +617,11 @@ class LongGapPerfecterAlgorithm(LayoutAlgorithm):
         # Sort lines by length (longest first)
         sorted_lines = sorted(lines, key=lambda l: l.length(), reverse=True)
         
-        if debug:
+        if self.debug:
             print(f"\nAligning rectangles to {len(sorted_lines)} lines...")
         
         for i, line in enumerate(sorted_lines):
-            if debug and i < 10:  # Only show first 10
+            if self.debug and i < 10:  # Only show first 10
                 print(f"\nProcessing line {i+1}: {line}")
             
             # Align all touching items to this line
@@ -636,18 +631,18 @@ class LongGapPerfecterAlgorithm(LayoutAlgorithm):
                     continue
                 
                 if line.orientation == LineOrientation.HORIZONTAL:
-                    self._align_rect_to_horizontal_line(rect, line, debug and i < 10)
+                    self._align_rect_to_horizontal_line(rect, line, self.debug and i < 10)
                 else:
-                    self._align_rect_to_vertical_line(rect, line, debug and i < 10)
+                    self._align_rect_to_vertical_line(rect, line, self.debug and i < 10)
         
         # Validate and clamp rectangles to page bounds
-        if debug:
+        if self.debug:
             print("\nValidating aligned rectangles are within page bounds:")
         for rect in aligned:
             right_edge = rect.x + rect.width
             bottom_edge = rect.y + rect.height
             if rect.x < 0 or rect.y < 0 or right_edge > page_width or bottom_edge > page_height:
-                if debug:
+                if self.debug:
                     print(f"  WARNING: Rect {rect.item_id} out of bounds!")
                     print(f"    x={rect.x:.1f} (should be >= 0)")
                     print(f"    y={rect.y:.1f} (should be >= 0)")
@@ -673,7 +668,7 @@ class LongGapPerfecterAlgorithm(LayoutAlgorithm):
         self,
         rect: LayoutRectangle,
         line: ExtendedLine,
-        debug: bool
+        show_debug: bool
     ) -> None:
         """
         Align a rectangle to a horizontal line.
@@ -684,7 +679,7 @@ class LongGapPerfecterAlgorithm(LayoutAlgorithm):
         Args:
             rect: Rectangle to align (modified in place).
             line: Horizontal line.
-            debug: Enable debug logging.
+            show_debug: Enable debug logging for this specific call.
         """
         rect_top = rect.y
         rect_bottom = rect.y + rect.height
@@ -695,14 +690,14 @@ class LongGapPerfecterAlgorithm(LayoutAlgorithm):
         if dist_to_top < self.ALIGNMENT_TOLERANCE:
             # Align top to line (keep bottom edge fixed by adjusting height)
             old_bottom = rect.y + rect.height
-            if debug:
+            if show_debug:
                 print(f"  Aligning {rect.item_id} top from {rect_top:.1f} to {line.position:.1f} (dist={dist_to_top:.1f})")
             rect.y = line.position
             rect.height = old_bottom - rect.y
         
         elif dist_to_bottom < self.ALIGNMENT_TOLERANCE:
             # Align bottom to line
-            if debug:
+            if show_debug:
                 print(f"  Aligning {rect.item_id} bottom from {rect_bottom:.1f} to {line.position:.1f} (dist={dist_to_bottom:.1f})")
             rect.height = line.position - rect.y
     
@@ -710,7 +705,7 @@ class LongGapPerfecterAlgorithm(LayoutAlgorithm):
         self,
         rect: LayoutRectangle,
         line: ExtendedLine,
-        debug: bool
+        show_debug: bool
     ) -> None:
         """
         Align a rectangle to a vertical line.
@@ -721,7 +716,7 @@ class LongGapPerfecterAlgorithm(LayoutAlgorithm):
         Args:
             rect: Rectangle to align (modified in place).
             line: Vertical line.
-            debug: Enable debug logging.
+            show_debug: Enable debug logging for this specific call.
         """
         rect_left = rect.x
         rect_right = rect.x + rect.width
@@ -732,17 +727,17 @@ class LongGapPerfecterAlgorithm(LayoutAlgorithm):
         if dist_to_left < self.ALIGNMENT_TOLERANCE:
             # Align left to line (keep right edge fixed by adjusting width)
             old_right = rect.x + rect.width
-            if debug:
+            if show_debug:
                 print(f"  Aligning {rect.item_id} left from {rect_left:.1f} to {line.position:.1f} (dist={dist_to_left:.1f})")
                 print(f"    Before: x={rect.x:.4f}, width={rect.width:.4f}, right={old_right:.4f}")
             rect.x = line.position
             rect.width = old_right - rect.x
-            if debug:
+            if show_debug:
                 new_right = rect.x + rect.width
                 print(f"    After:  x={rect.x:.4f}, width={rect.width:.4f}, right={new_right:.4f}")
         
         elif dist_to_right < self.ALIGNMENT_TOLERANCE:
             # Align right to line
-            if debug:
+            if show_debug:
                 print(f"  Aligning {rect.item_id} right from {rect_right:.1f} to {line.position:.1f} (dist={dist_to_right:.1f})")
             rect.width = line.position - rect.x

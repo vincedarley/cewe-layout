@@ -39,6 +39,14 @@ class GapPerfecterAlgorithm(LayoutAlgorithm):
     EDGE_PROXIMITY = 150.0    # 15mm
     MISALIGNMENT_REMOVAL = 35.0  # 5mm - for aligning bottoms/rights with adjacent rects
     
+    def __init__(self, debug: bool = False):
+        """Initialize GapPerfecterAlgorithm.
+        
+        Args:
+            debug: If True, print diagnostic information during layout generation.
+        """
+        self.debug = debug
+    
     def getName(self) -> str:
         return "Photo Gap Perfecter"
     
@@ -92,8 +100,6 @@ class GapPerfecterAlgorithm(LayoutAlgorithm):
         
         # Step 1: Sort rectangles diagonally (by distance from 0,0)
         sorted_rects = self._sort_diagonally(rectangles)
-        
-        debug = False  # Set to True to enable debug logging
 
         # Step 2: Process each rectangle in order
         perfected_rects = []
@@ -108,20 +114,20 @@ class GapPerfecterAlgorithm(LayoutAlgorithm):
                 preferred_size=rect.preferred_size,
                 preserve_aspect_ratio=rect.preserve_aspect_ratio
             )
-            if debug:
+            if self.debug:
                 print(f"Processing rect {i} (ID {new_rect.item_id}): initial pos=({new_rect.x:.1f},{new_rect.y:.1f}) size=({new_rect.width:.1f}x{new_rect.height:.1f})")   
 
             # Step 3a: Fix small overlaps with previous rects
-            self._fix_overlaps(new_rect, perfected_rects, debug)
+            self._fix_overlaps(new_rect, perfected_rects, self.debug)
             
             # Step 3b: Expand top-left to meet previous rects
-            self._expand_top_left(new_rect, perfected_rects, debug)
+            self._expand_top_left(new_rect, perfected_rects, self.debug)
             
             # Step 3c: Expand right if within 15mm of page edge
-            self._expand_to_right_edge_if_close(new_rect, page_width, debug)
+            self._expand_to_right_edge_if_close(new_rect, page_width, self.debug)
             
             # Step 3d: Expand bottom if within 15mm of page edge
-            self._expand_to_bottom_edge_if_close(new_rect, page_height, debug)
+            self._expand_to_bottom_edge_if_close(new_rect, page_height, self.debug)
             
             perfected_rects.append(new_rect)
         

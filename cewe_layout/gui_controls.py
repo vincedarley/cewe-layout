@@ -116,6 +116,9 @@ class LayoutViewer:
         # Algorithm selection
         self.algorithm_var = tk.StringVar(value='Collage-Gen')
         
+        # Auto-run flag: run algorithm automatically when items are added
+        self.auto_run_var = tk.BooleanVar(value=True)
+        
         # Debug flag for diagnostic output
         self.debug_var = tk.BooleanVar(value=False)
         
@@ -374,6 +377,10 @@ class LayoutViewer:
         mod_sym = get_modifier_symbol()
         self.gen_btn = ttk.Button(algo_frame, text=f'Generate Layout ({mod_sym}R)', command=self._generate_layout)
         self.gen_btn.pack(side='left', padx=(0,4))
+        
+        # Auto Run checkbox - run algorithm automatically when items added
+        auto_run_check = ttk.Checkbutton(algo_frame, text='Auto Run', variable=self.auto_run_var)
+        auto_run_check.pack(side='left', padx=(0,4))
         
         # Debug checkbox next to Generate button
         debug_check = ttk.Checkbutton(algo_frame, text='Debug', variable=self.debug_var)
@@ -1627,6 +1634,10 @@ class LayoutViewer:
         self.render_page()
         
         self.show_status(f'Added {len(new_photos)} photo(s) to page {pageno}')
+        
+        # Auto-run algorithm if enabled (schedule when idle to avoid threading issues)
+        if self.auto_run_var.get():
+            self.root.after_idle(self._generate_layout)
     
     def _stage_photos(self, photo_paths):
         """Stage photo files for later moving to album (on save) and return photo data dicts.
@@ -2428,6 +2439,10 @@ class LayoutViewer:
         # Re-render page
         self.render_page()
         self.show_status(f'Added text box to page {pageno}')
+        
+        # Auto-run algorithm if enabled (schedule when idle to avoid threading issues)
+        if self.auto_run_var.get():
+            self.root.after_idle(self._generate_layout)
     
     def on_size_changed(self, pageno, item_id, var):
         """Handle preferred size entry change.
@@ -3482,7 +3497,14 @@ class LayoutViewer:
             f.write("\n")
             
             f.write("GAP PARAMETERS:\n")
-            f.write(f"  edge_gap: {edge_gap} ({edge_gap/10:.1f}mm)\n")
+            if isinstance(edge_gap, dict):
+                f.write(f"  edge_gap:\n")
+                f.write(f"    left: {edge_gap['left']} ({edge_gap['left']/10:.1f}mm)\n")
+                f.write(f"    top: {edge_gap['top']} ({edge_gap['top']/10:.1f}mm)\n")
+                f.write(f"    right: {edge_gap['right']} ({edge_gap['right']/10:.1f}mm)\n")
+                f.write(f"    bottom: {edge_gap['bottom']} ({edge_gap['bottom']/10:.1f}mm)\n")
+            else:
+                f.write(f"  edge_gap: {edge_gap} ({edge_gap/10:.1f}mm)\n")
             f.write(f"  internal_gap: {internal_gap} ({internal_gap/10:.1f}mm)\n")
             f.write("\n")
             
@@ -3559,8 +3581,12 @@ class LayoutViewer:
             return GridifyAlgorithm(debug=self.debug_var.get())
         elif algo_class is TreeBuilderAlgorithm:
             return TreeBuilderAlgorithm(tolerance=60.0)
+        elif algo_class is GapPerfecterAlgorithm:
+            return GapPerfecterAlgorithm(debug=self.debug_var.get())
+        elif algo_class is LongGapPerfecterAlgorithm:
+            return LongGapPerfecterAlgorithm(debug=self.debug_var.get())
         else:
-            # GapPerfecterAlgorithm and LongGapPerfecterAlgorithm take no parameters
+            # Other algorithms take no parameters
             return algo_class()
     
     def _run_fine_tuning(self, algo_name: str):
