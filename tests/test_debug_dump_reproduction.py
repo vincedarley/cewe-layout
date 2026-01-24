@@ -16,7 +16,7 @@ Usage:
 
 import re
 from pathlib import Path
-from cewe_layout.gap_utils import (
+from cewe_layout.utils.gap_utils import (
     transform_item_to_gapfree, transform_item_from_gapfree,
     transform_page_to_gapfree
 )

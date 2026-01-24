@@ -13,7 +13,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from cewe_layout.mcf_io.mcf_parser import parse_mcf_from_path, extract_pages_info
 from cewe_layout.algorithms.fan_layout import FanLayoutAlgorithm
 from cewe_layout.collage_wrapper import generate_layout_for_page
-from cewe_layout.layout_utils import build_photo_dimensions, evaluate_layout_from_photos_texts
+from cewe_layout.utils.layout_utils import build_photo_dimensions, evaluate_layout_from_photos_texts
 from cewe_layout.pdf_export import export_layout_to_pdf
 from cewe_layout.gui_controls import extract_metadata_from_filename
 

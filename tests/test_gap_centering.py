@@ -11,7 +11,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from cewe_layout.gap_utils import transform_item_for_gap_change, analyze_gaps, make_uniform_edge_gap
+from cewe_layout.utils.gap_utils import transform_item_for_gap_change, make_uniform_edge_gap
 
 
 def test_gap_change_preserves_centering():

@@ -96,8 +96,8 @@ This test will:
 ### Manual Reproduction
 
 ```python
-from cewe_layout.gap_utils import (
-    transform_item_to_gapfree, 
+from cewe_layout.utils.gap_utils import (
+    transform_item_to_gapfree,
     transform_item_from_gapfree,
     transform_page_to_gapfree
 )
@@ -122,8 +122,8 @@ photo_page_left = photo_mcf_left - origin_left  # = 0.0
 # Transform to gap-free
 gf_left, gf_top, gf_w, gf_h = transform_item_to_gapfree(
     photo_page_left, photo_top, photo_width, photo_height,
-    edge_gap, internal_gap, 
-    is_spread=False, 
+    edge_gap, internal_gap,
+    is_spread=False,
     is_left_page=is_left_page
 )
 

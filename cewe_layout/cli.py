@@ -6,7 +6,7 @@ import re
 from pathlib import Path
 from collections import defaultdict
 from cewe_layout.mcf_io.mcf_parser import parse_mcf_from_path, extract_pages_info
-from .photo_utils import get_photo_creation_date, get_photo_star_rating
+from cewe_layout.utils.photo_utils import get_photo_creation_date, get_photo_star_rating
 
 
 def natural_sort_key(path):

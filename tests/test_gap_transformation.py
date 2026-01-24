@@ -5,7 +5,7 @@ Test that gap changes correctly transform layout positions.
 Verifies: MCF (old gaps) → gap-free → MCF (new gaps) transformation.
 """
 
-from cewe_layout.gap_utils import (
+from cewe_layout.utils.gap_utils import (
     transform_item_to_gapfree,
     transform_item_from_gapfree
 )

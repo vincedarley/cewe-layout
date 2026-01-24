@@ -7,7 +7,7 @@ import platform
 import logging
 from pathlib import Path
 
-from .file_utils import get_photos_directory
+from cewe_layout.utils.file_utils import get_photos_directory
 
 logger = logging.getLogger(__name__)
 

@@ -12,7 +12,7 @@ from typing import Dict, List, Optional, Any, Union, Tuple
 
 from .photobook import Photobook, PhotobookPage
 from .cewe_photobook import CEWEPhotobook
-from ..file_utils import extract_metadata_from_filename, encode_metadata_in_filename
+from cewe_layout.utils.file_utils import extract_metadata_from_filename, encode_metadata_in_filename
 
 logger = logging.getLogger(__name__)
 

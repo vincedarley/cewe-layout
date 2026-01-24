@@ -5,12 +5,11 @@ This module provides the main entry point for the GUI to initiate photo improvem
 
 import logging
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Callable
 import shutil
 
 from .photo_improver import PhotoImprover
 from .photo_comparison_window import PhotoComparisonWindow
-from ..file_utils import encode_metadata_in_filename
 
 logger = logging.getLogger(__name__)
 

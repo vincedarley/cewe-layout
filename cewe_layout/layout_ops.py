@@ -89,7 +89,7 @@ class LayoutManager:
             page_height: Page height in MCF units (for gap estimation).
             origin_left: For right-hand pages, the absolute X offset (default 0.0).
         """
-        from .gap_utils import analyze_gaps
+        from cewe_layout.utils.gap_utils import analyze_gaps
         
         orig = self.get_original(pageno)
         if not orig or not orig.photos:
@@ -139,7 +139,7 @@ class LayoutManager:
         For calendar pages, returns the fixed calendar edge gaps.
         Always returns a dict with keys 'top', 'bottom', 'left', 'right'.
         """
-        from .gap_utils import make_uniform_edge_gap
+        from cewe_layout.utils.gap_utils import make_uniform_edge_gap
         # If calendar mode is active, return the fixed calendar gaps
         if self.calendar_edge_gaps is not None:
             return self.calendar_edge_gaps

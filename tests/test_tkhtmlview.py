@@ -22,7 +22,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from cewe_layout.mcf_io.mcf_parser import parse_mcf_from_path, extract_pages_info
-from cewe_layout.text_utils import convert_qt_html_to_tkhtmlview
+from cewe_layout.utils.text_utils import convert_qt_html_to_tkhtmlview
 
 try:
     from tkhtmlview import HTMLLabel, HTMLScrolledText
@@ -67,7 +67,7 @@ def extract_text_blocks_from_mcf(mcf_path):
         page_bg_color_rgb = None
         page_background_id = page_info.get('background_id')
         if page_background_id:
-            from cewe_layout.colour_utils import get_color_hex
+            from cewe_layout.utils.colour_utils import get_color_hex
             try:
                 page_bg_int = int(page_background_id)
                 page_bg_hex = get_color_hex(page_bg_int)

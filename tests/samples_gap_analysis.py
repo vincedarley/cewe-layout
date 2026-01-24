@@ -19,7 +19,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from samples_helpers import read_page_file, write_result_section
-from cewe_layout.gap_utils import analyze_gaps
+from cewe_layout.utils.gap_utils import analyze_gaps
 
 
 def create_items_list(page_data):

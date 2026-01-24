@@ -5,9 +5,9 @@ from lxml import etree
 import os
 import glob
 import logging
-from cewe_layout.page_utils import determine_page_owner_of_area, page_sort_key
+from cewe_layout.utils.page_utils import determine_page_owner_of_area, page_sort_key
 from cewe_layout.book.cewe_photobook import CEWEPhotobook
-from cewe_layout.text_utils import _extract_plain_text_from_html
+from cewe_layout.utils.text_utils import _extract_plain_text_from_html
 
 logger = logging.getLogger(__name__)
 
@@ -820,7 +820,7 @@ def _parseTextArea(area, area_width: float, area_height: float, area_left: float
     
     # Check for inline color styling in the HTML content (overrides textFormat color)
     # Common pattern: <span style="...color:#rrggbb...">
-    import re, html
+    import re
     color_match = re.search(r'color:\s*#([0-9a-fA-F]{6})', raw_html)
     if color_match:
         # Found inline color - override foreground colors

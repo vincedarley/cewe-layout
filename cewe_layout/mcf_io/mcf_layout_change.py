@@ -9,9 +9,9 @@ import os
 from typing import List, Dict, Any
 import re
 import logging
-from cewe_layout.page_utils import determine_page_owner_of_area
+from cewe_layout.utils.page_utils import determine_page_owner_of_area
 from .mcf_parser import is_canvas_format, is_calendar_format
-from ..layout_utils import _slot_changed_significantly
+from cewe_layout.utils.layout_utils import _slot_changed_significantly
 
 logger = logging.getLogger(__name__)
 

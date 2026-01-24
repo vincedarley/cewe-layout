@@ -11,7 +11,7 @@ Layout algorithms themselves know nothing about files, MCF, or paths.
 """
 
 from .algorithms.base import LayoutRectangle
-from .gap_utils import (
+from cewe_layout.utils.gap_utils import (
     transform_page_to_gapfree,
     transform_item_to_gapfree,
     transform_item_from_gapfree

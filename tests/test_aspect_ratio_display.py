@@ -6,7 +6,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from cewe_layout.mcf_io.mcf_parser import parse_mcf_from_path, extract_pages_info
-from cewe_layout.gap_utils import analyze_gaps, make_uniform_edge_gap
+from cewe_layout.utils.gap_utils import analyze_gaps, make_uniform_edge_gap
 
 # Path to the album
 album_path = Path(__file__).parent.parent.parent / "Album-2022.xmcf" / "data.mcf"

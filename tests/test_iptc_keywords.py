@@ -10,7 +10,7 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from cewe_layout.photo_utils import get_iptc_keywords, get_photo_preferred_size
+from cewe_layout.utils.photo_utils import get_iptc_keywords, get_photo_preferred_size
 
 
 def test_keywords_from_file(img_path: Path):

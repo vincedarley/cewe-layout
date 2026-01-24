@@ -9,7 +9,7 @@ Test that gap transformation works correctly for ALL gap change scenarios:
 import sys
 sys.path.insert(0, '.')
 
-from cewe_layout.gap_utils import transform_item_for_gap_change, transform_page_to_gapfree
+from cewe_layout.utils.gap_utils import transform_item_for_gap_change, transform_page_to_gapfree
 
 # Test setup
 page_w = 2100.0

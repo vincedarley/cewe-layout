@@ -432,7 +432,7 @@ def create_image_area(img: Dict[str, Any], output_dir: Path, z_position: int, ce
     Returns:
         Area XML element
     """
-    from ..file_utils import encode_metadata_in_filename
+    from cewe_layout.utils.file_utils import encode_metadata_in_filename
     
     # Get UI page identifier ("F", "B", 0, 1, 2, ...) for filename generation
     ui_page = img.get('ui_page', 0)

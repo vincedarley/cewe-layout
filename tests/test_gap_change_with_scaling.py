@@ -4,7 +4,7 @@
 import sys
 sys.path.insert(0, '.')
 
-from cewe_layout.gap_utils import transform_page_to_gapfree, transform_item_to_gapfree, transform_item_from_gapfree
+from cewe_layout.utils.gap_utils import transform_page_to_gapfree, transform_item_to_gapfree, transform_item_from_gapfree
 
 # 2x2 grid setup
 page_w = 2100.0

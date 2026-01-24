@@ -20,7 +20,7 @@ from samples_helpers import read_page_file
 from cewe_layout.algorithms.fan_layout import FanLayoutAlgorithm
 from cewe_layout.algorithms.base import TreeNode, LayoutRectangle
 from cewe_layout.algorithms.evaluator import evaluate_layout
-from cewe_layout.gap_utils import analyze_gaps, transform_page_to_gapfree, make_uniform_edge_gap
+from cewe_layout.utils.gap_utils import analyze_gaps, transform_page_to_gapfree
 
 
 def patch_fan_to_use_deepcopy():

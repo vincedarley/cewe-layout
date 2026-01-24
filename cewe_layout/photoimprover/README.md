@@ -3,6 +3,18 @@
 This module provides functionality to search for and replace low-quality photos
 in a CEWE photobook with higher-quality versions.
 
+In theory this should be very helpful when importing/converting old photobooks (PDF, etc)
+with low-quality images where you know your Photo Library contains higher quality
+original photos of the same images. In practice the similarity-matching is currently not
+quite good enough to fulfill that ambition. It certainly finds some matches which
+is nice, but the hit rate is low enough that I currently find it more efficient to 
+open the converted album in CEWE Creator and manually/visually find and drag-drop the higher quality
+photos from MacOS Photos to CEWE Creator, replacing each photo in turn without
+modifying the layout.
+
+So, mostly a TODO here: if we can improve the similarity-matching then this
+could become very useful but otherwise this is best viewed as a proof of concept.
+
 ## Architecture
 
 The photo improver is organized into a clean subdirectory structure:

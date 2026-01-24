@@ -9,8 +9,8 @@ from pathlib import Path
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from cewe_layout.colour_utils import getBackgroundAndFrameColour
-from cewe_layout.text_utils import _extract_plain_text_from_html, convert_qt_html_to_tkhtmlview
+from cewe_layout.utils.colour_utils import getBackgroundAndFrameColour
+from cewe_layout.utils.text_utils import _extract_plain_text_from_html, convert_qt_html_to_tkhtmlview
 
 logger = logging.getLogger(__name__)
 
@@ -440,7 +440,7 @@ class PageRenderer:
             if '_source_path' in p:
                 img_path = p['_source_path']
             else:
-                from .file_utils import split_safecontainer_prefix
+                from cewe_layout.utils.file_utils import split_safecontainer_prefix
                 prefix, clean_fn = split_safecontainer_prefix(fn)
                 
                 if self.image_folder_attr:
@@ -1377,7 +1377,7 @@ class PageRenderer:
         Returns:
             PIL Image of size (w, h), or None if load fails
         """
-        from .file_utils import extract_metadata_from_filename
+        from cewe_layout.utils.file_utils import extract_metadata_from_filename
         
         # Avoid creating huge thumbnails
         if w <= 0 or h <= 0:
@@ -1454,7 +1454,7 @@ class PageRenderer:
                         original_slot_height = scaled_height_mcf + 2 * cutout_top
                         
                         # Check if slot dimensions changed significantly (>10%)
-                        from cewe_layout.layout_utils import _slot_changed_significantly
+                        from cewe_layout.utils.layout_utils import _slot_changed_significantly
                         dimensions_changed = _slot_changed_significantly(
                             original_slot_width, original_slot_height,
                             slot_width_mcf, slot_height_mcf

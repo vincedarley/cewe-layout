@@ -18,9 +18,9 @@ from pathlib import Path
 # Add parent to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from samples_helpers import read_page_file, write_result_section, page_data_to_rectangles
+from samples_helpers import read_page_file, write_result_section
 from cewe_layout.algorithms.evaluator import evaluate_layout
-from cewe_layout.gap_utils import analyze_gaps, make_uniform_edge_gap, transform_page_to_gapfree, transform_item_to_gapfree
+from cewe_layout.utils.gap_utils import analyze_gaps, transform_page_to_gapfree, transform_item_to_gapfree
 from cewe_layout.algorithms.base import LayoutRectangle
 
 

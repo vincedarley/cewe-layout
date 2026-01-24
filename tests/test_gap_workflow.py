@@ -13,7 +13,7 @@ import sys
 sys.path.insert(0, '.')
 
 from cewe_layout.layout_ops import LayoutManager
-from cewe_layout.gap_utils import analyze_gap_details, transform_item_to_gapfree, transform_item_from_gapfree
+from cewe_layout.utils.gap_utils import analyze_gap_details, transform_item_to_gapfree, transform_item_from_gapfree
 
 
 def test_complete_gap_workflow():

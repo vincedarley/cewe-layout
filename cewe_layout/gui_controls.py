@@ -27,10 +27,10 @@ from .algorithms.tree_builder import TreeBuilderAlgorithm
 from .algorithms.gridify import GridifyAlgorithm
 from .algorithms.gap_perfecter import GapPerfecterAlgorithm
 from .algorithms.long_gap_perfecter import LongGapPerfecterAlgorithm
-from .photo_utils import get_image_dimensions, get_photo_preferred_size, batch_get_image_dimensions
+from cewe_layout.utils.photo_utils import get_image_dimensions, get_photo_preferred_size, batch_get_image_dimensions
 from cewe_layout.mcf_io.mcf_layout_change import update_page_layout
-from .page_utils import determine_page_owner_of_area, page_sort_key
-from .gap_utils import (
+from cewe_layout.utils.page_utils import determine_page_owner_of_area, page_sort_key
+from cewe_layout.utils.gap_utils import (
     analyze_gaps,
     analyze_gap_details,
     report_gap_variations,
@@ -40,7 +40,7 @@ from .gap_utils import (
     make_uniform_edge_gap,
     make_edge_gap
 )
-from .file_utils import (
+from cewe_layout.utils.file_utils import (
     extract_metadata_from_filename,
     encode_metadata_in_filename,
     get_photos_directory
@@ -1612,7 +1612,7 @@ class LayoutViewer:
         
         # Process all newly added photos: cache dimensions, set preferences, mark as new
         # Batch-fetch IPTC keywords for all photos at once (much faster than individual calls)
-        from .photo_utils import batch_get_iptc_keywords
+        from cewe_layout.utils.photo_utils import batch_get_iptc_keywords
         img_paths_for_batch = [Path(photo['_source_path']) for photo in new_photos_with_layout]
         batch_get_iptc_keywords(img_paths_for_batch)
         
@@ -1698,7 +1698,7 @@ class LayoutViewer:
         logger.debug(f"Reading dimensions from paths: {[str(p)[:80] for p in source_paths[:3]]}...")
         
         # Get both dimensions and keywords in single exiftool call (fast for HEIF/RAW)
-        from .photo_utils import batch_get_exif_data
+        from cewe_layout.utils.photo_utils import batch_get_exif_data
         batch_get_exif_data(source_paths)
         
         # Then read actual dimensions (will use EXIF cache if available, avoiding slow decode)
@@ -3294,7 +3294,7 @@ class LayoutViewer:
         from pathlib import Path
         from PIL import Image
         import io
-        from .file_utils import encode_metadata_in_filename
+        from cewe_layout.utils.file_utils import encode_metadata_in_filename
         
         # Get album directory and create parallel -photos directory
         album_path = Path(self.mcf_file_path).parent
@@ -4210,7 +4210,7 @@ class LayoutViewer:
                             img_path = album_dir / safefn
                     
                     if img_path.exists():
-                        from .photo_utils import get_image_dimensions
+                        from cewe_layout.utils.photo_utils import get_image_dimensions
                         dims = get_image_dimensions(img_path)
                         if dims:
                             photo['image_width'], photo['image_height'] = dims

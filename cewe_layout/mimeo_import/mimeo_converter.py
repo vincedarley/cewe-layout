@@ -13,7 +13,7 @@ from .mimeo_uuid import PhotosLibraryMapper
 from .mimeo_photobook import MimeoPhotobook
 from cewe_layout.mcf_io.mcf_writer import photobook_write_to_mcf
 from cewe_layout.mcf_io.mcf_layout_change import _calculate_cutout
-from ..colour_utils import find_closest_color_code
+from cewe_layout.utils.colour_utils import find_closest_color_code
 import re
 
 logger = logging.getLogger(__name__)
