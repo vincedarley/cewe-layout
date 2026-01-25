@@ -10,6 +10,7 @@ It translates:
 Layout algorithms themselves know nothing about files, MCF, or paths.
 """
 
+from typing import Dict
 from .algorithms.base import LayoutRectangle
 from cewe_layout.utils.gap_utils import (
     transform_page_to_gapfree,
@@ -20,7 +21,7 @@ from cewe_layout.utils.gap_utils import (
 
 def generate_layout_for_page(photos, page_width_mcf, page_height_mcf, photo_dimensions,
                            algorithm, preferred_sizes=None,
-                           edge_gap=0.0, internal_gap=0.0,
+                           edge_gap: Dict[str, float] = None, internal_gap=0.0,
                            texts=None, use_slot_aspect=None, slot_aspect_ratios=None,
                            origin_left=0.0, pageno=None, has_full_bleed=False, **kwargs):
     """
@@ -157,8 +158,8 @@ def generate_layout_for_page(photos, page_width_mcf, page_height_mcf, photo_dime
     for i, rect1 in enumerate(positioned_rects):
         for j, rect2 in enumerate(positioned_rects[i+1:], start=i+1):
             # Check for rectangle overlap (allowing small tolerance for floating point)
-            hasOverlap, overlap_area = calculate_overlap(rect1, rect2, 1.0)
-            if hasOverlap:
+            has_overlap, overlap_area = calculate_overlap(rect1, rect2, 1.0)
+            if has_overlap:
                 overlapping_pairs.append((rect1.item_id, rect2.item_id, overlap_area))
     
     if overlapping_pairs:
@@ -218,13 +219,13 @@ def calculate_overlap(rect1, rect2, tolerance=1.0):
     return True, overlap_area
 
 
-def _photos_to_rectangles(photos, photo_dimensions, preferred_sizes, edge_gap, internal_gap, 
+def _photos_to_rectangles(photos, photo_dimensions, preferred_sizes, edge_gap: Dict[str, float], internal_gap,
                           use_slot_aspect, slot_aspect_ratios, origin_left, is_left_page,
                           has_full_bleed, force_use_current_layout=False):
     """
     Convert MCF photo list to abstract LayoutRectangle objects in gap-free space.
     
-    Uses pre-loaded photo dimensions from cache. Does not load images.
+    Uses preloaded photo dimensions from cache. Does not load images.
     Positions are ALWAYS taken from current layout (photos parameter).
     Dimensions (aspect ratio) come from either current slot or image file based on use_slot_aspect.
     
@@ -371,7 +372,8 @@ def _photos_to_rectangles(photos, photo_dimensions, preferred_sizes, edge_gap, i
     return rectangles, ""
 
 
-def _texts_to_rectangles(texts, preferred_sizes=None, edge_gap=0.0, internal_gap=0.0, origin_left=0.0, pageno=None, is_left_page=True, has_full_bleed=False):
+def _texts_to_rectangles(texts, preferred_sizes=None, edge_gap: Dict[str, float] = None, internal_gap=0.0,
+                         origin_left=0.0, pageno=None, is_left_page=True, has_full_bleed=False):
     """
     Convert MCF text block list to abstract LayoutRectangle objects in gap-free space.
     
@@ -437,7 +439,8 @@ def _texts_to_rectangles(texts, preferred_sizes=None, edge_gap=0.0, internal_gap
     return rectangles, ""
 
 
-def _rectangles_to_photos(photos, rectangles, edge_gap=0.0, internal_gap=0.0, is_left_page=True, has_full_bleed=False):
+def _rectangles_to_photos(photos, rectangles, edge_gap: Dict[str, float] = None, internal_gap=0.0,
+                          is_left_page=True, has_full_bleed=False):
     """
     Convert algorithm output (positioned LayoutRectangle) back to MCF photo format.
     
@@ -489,7 +492,8 @@ def _rectangles_to_photos(photos, rectangles, edge_gap=0.0, internal_gap=0.0, is
     return updated_photos
 
 
-def _rectangles_to_texts(texts, rectangles, edge_gap=0.0, internal_gap=0.0, is_left_page=True, has_full_bleed=False):
+def _rectangles_to_texts(texts, rectangles, edge_gap: Dict[str, float] = None, internal_gap=0.0,
+                         is_left_page=True, has_full_bleed=False):
     """
     Convert algorithm output (positioned LayoutRectangle) back to MCF text block format.
     

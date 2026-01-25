@@ -56,7 +56,7 @@ def build_photo_dimensions(photos, mcf_base_folder, image_folder_attr=''):
 
 
 def evaluate_layout_from_photos_texts(photos, texts, page_w, page_h, origin_left,
-                                      preferred_sizes, edge_gap, internal_gap,
+                                      preferred_sizes, edge_gap: Dict[str, float], internal_gap,
                                       is_spread=False,
                                       size_importance=100.0, acceptable_empty_fraction=0.05,
                                       undersized_threshold=0.5, undersized_penalty=5.0):
