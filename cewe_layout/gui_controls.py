@@ -1044,17 +1044,16 @@ class LayoutViewer:
         
         return page_data_list
     
-    def _handle_delete_button_click(self, item_type, item_index, pageno, identifier):
+    def _handle_delete_button_click(self, item_type, item_index, pageno):
         """Handle delete button click from PageRenderer.
         
         Args:
             item_type: 'photo' or 'text'
             item_index: 0-based index within page's photos or texts
             pageno: Page number
-            identifier: filename for photos, None for texts
         """
         if item_type == 'photo':
-            self._delete_photo(item_index, pageno, identifier)
+            self._delete_photo(item_index, pageno)
         else:  # 'text'
             self._delete_text(item_index, pageno)
     
@@ -1392,13 +1391,12 @@ class LayoutViewer:
         else:
             self.show_status('Failed to swap photos', error=True)
     
-    def _delete_photo(self, photo_index, pageno, filename):
+    def _delete_photo(self, photo_index, pageno):
         """Delete a photo from a page layout.
         
         Args:
             photo_index: 0-based index of photo in the page's layout
             pageno: Page number that owns this photo
-            filename: Filename of the photo to delete
         """
         if self.book.get_page_count() == 0:
             return

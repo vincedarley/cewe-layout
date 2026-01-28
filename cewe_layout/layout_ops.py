@@ -5,6 +5,8 @@ and per-photo preferred size management.
 """
 from collections import defaultdict
 import copy
+from cewe_layout.utils.gap_utils import analyze_gaps
+from cewe_layout.utils.file_utils import extract_metadata_from_filename
 
 
 class PageLayout:
@@ -89,8 +91,7 @@ class LayoutManager:
             page_height: Page height in MCF units (for gap estimation).
             origin_left: For right-hand pages, the absolute X offset (default 0.0).
         """
-        from cewe_layout.utils.gap_utils import analyze_gaps
-        
+
         orig = self.get_original(pageno)
         if not orig or not orig.photos:
             return {}
@@ -107,9 +108,6 @@ class LayoutManager:
         total_area = sum(((p.get('area_width', 0) or 0) + gap) * ((p.get('area_height', 0) or 0) + gap) for p in orig.photos)
         if total_area <= 0:
             return {}
-        
-        # Import helper to extract base filename
-        from .gui_controls import extract_metadata_from_filename
         
         result = {}
         for p in orig.photos:

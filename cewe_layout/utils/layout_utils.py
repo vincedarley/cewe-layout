@@ -8,7 +8,7 @@ from .photo_utils import get_image_dimensions
 from cewe_layout.algorithms.base import LayoutRectangle
 from cewe_layout.algorithms.evaluator import evaluate_layout
 from .gap_utils import transform_page_to_gapfree, transform_item_to_gapfree
-
+from typing import Dict
 
 def build_photo_dimensions(photos, mcf_base_folder, image_folder_attr=''):
     """Build photo_dimensions dict from photo list.
@@ -139,9 +139,9 @@ def evaluate_layout_from_photos_texts(photos, texts, page_w, page_h, origin_left
     )
 
 
-def _slot_changed_significantly(old_width: float, old_height: float,
-                                         new_width: float, new_height: float,
-                                         threshold: float = 0.10) -> bool:
+def slot_changed_significantly(old_width: float, old_height: float,
+                               new_width: float, new_height: float,
+                               threshold: float = 0.10) -> bool:
     """Check if slot dimensions changed significantly between old and new sizes.
 
     This is used to detect when a photo slot has been resized so drastically that

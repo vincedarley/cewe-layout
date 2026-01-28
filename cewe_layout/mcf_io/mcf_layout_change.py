@@ -11,7 +11,7 @@ import re
 import logging
 from cewe_layout.utils.page_utils import determine_page_owner_of_area
 from .mcf_parser import is_canvas_format, is_calendar_format
-from cewe_layout.utils.layout_utils import _slot_changed_significantly
+from cewe_layout.utils.layout_utils import slot_changed_significantly
 
 logger = logging.getLogger(__name__)
 
@@ -651,7 +651,7 @@ def update_page_layout(path: str, uiPage: Any, photos: List[Dict[str, Any]],
         # 2. Slot size changed significantly (>10%) - old cutout values no longer valid
         should_recalculate = (
                 matching_photo['filename'] in new_photos_set or
-                _slot_changed_significantly(old_width, old_height, physical_width, physical_height)
+                slot_changed_significantly(old_width, old_height, physical_width, physical_height)
         )
         
         if should_recalculate:

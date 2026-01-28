@@ -133,8 +133,9 @@ class PageRenderer:
             canvas_w, canvas_h: Canvas dimensions in pixels
             margin_mcf: Display margin in MCF units
             delete_callback: Function to call when delete button clicked
-                           Signature: (item_type, item_index, pageno, identifier)
+                           Signature: (item_type, item_index, pageno)
                            where item_type is 'photo' or 'text'
+            show_pdf_composite: whether to draw a background large image we extracted from a pdf file
             protected_inside_covers: List of page numbers that are protected (inside covers)
             swap_callback: Optional callback for photo swap completion
                           Signature: (source_pageno, source_photo_idx, dest_pageno, dest_photo_idx)
@@ -701,6 +702,7 @@ class PageRenderer:
                 
                 # Create font at the appropriate size (scale appropriately for display)
                 try:
+                    from PIL import ImageFont
                     # MCF coordinate system uses 254 DPI (10 units per mm)
                     # Font sizes are in points (72 points = 1 inch)
                     # So: 1 point = 254/72 ≈ 3.528 MCF units
@@ -959,7 +961,7 @@ class PageRenderer:
                 - 'photo_index', 'filename', 'x', 'y' for photos
                 - 'text_index', 'x', 'y' for text boxes
             delete_callback: Function to call when button clicked
-                           Signature: (item_type, item_index, pageno, identifier)
+                           Signature: (item_type, item_index, pageno)
         """
         # Destroy any existing delete buttons from previous render
         self.clear_delete_buttons()
@@ -977,11 +979,11 @@ class PageRenderer:
                 item_idx = info['item_index']
                 pn = info['pageno']
                 filename = info['filename']
-                cmd = lambda idx=item_idx, pageno=pn, fn=filename: delete_callback('photo', idx, pageno, fn)
+                cmd = lambda idx=item_idx, pageno=pn, fn=filename: delete_callback('photo', idx, pageno)
             else:  # text_index
                 item_idx = info['item_index']
                 pn = info['pageno']
-                cmd = lambda idx=item_idx, pageno=pn: delete_callback('text', idx, pageno, None)
+                cmd = lambda idx=item_idx, pageno=pn: delete_callback('text', idx, pageno)
             
             # Create small white X button with red text and precise pixel sizing
             btn = tk.Button(
@@ -1454,8 +1456,8 @@ class PageRenderer:
                         original_slot_height = scaled_height_mcf + 2 * cutout_top
                         
                         # Check if slot dimensions changed significantly (>10%)
-                        from cewe_layout.utils.layout_utils import _slot_changed_significantly
-                        dimensions_changed = _slot_changed_significantly(
+                        from cewe_layout.utils.layout_utils import slot_changed_significantly
+                        dimensions_changed = slot_changed_significantly(
                             original_slot_width, original_slot_height,
                             slot_width_mcf, slot_height_mcf
                         )
