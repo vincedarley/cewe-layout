@@ -926,12 +926,30 @@ def update_page_layout(path: str, uiPage: Any, photos: List[Dict[str, Any]],
             outline.tail = '\n                    '
             
             textFormat = etree.SubElement(text_elem, 'textFormat')
-            textFormat.set('Alignment', 'ALIGNLEADING')
+            # Build alignment string from text_layout (same logic as mcf_writer.py)
+            h_align = text_layout.get('h_align', 'left')
+            v_align = text_layout.get('v_align', 'top')
+            align_parts = []
+            if v_align == 'center':
+                align_parts.append('ALIGNVCENTER')
+            elif v_align == 'bottom':
+                align_parts.append('ALIGNBOTTOM')
+            else:
+                align_parts.append('ALIGNTOP')
+            if h_align == 'center':
+                align_parts.append('ALIGNHCENTER')
+            elif h_align == 'right':
+                align_parts.append('ALIGNRIGHT')
+            else:
+                align_parts.append('ALIGNLEFT')
+            textFormat.set('Alignment', ','.join(align_parts))
             textFormat.set('IndentMargin', '4')
             textFormat.set('VerticalIndentMargin', '50')
             textFormat.set('backgroundColor', '#00000000')
             textFormat.set('font', 'CEWE Head,12,-1,5,400,0,0,0,0,0,0,1,0,0,0,1')
-            textFormat.set('foregroundColor', '#ff000000')
+            # Use foreground_color from text_layout if present, else default to black
+            foreground_color = text_layout.get('foreground_color', '#ff000000')
+            textFormat.set('foregroundColor', foreground_color)
             textFormat.set('hasOutline', '0')
             textFormat.set('hyphenation', '0')
             textFormat.set('letterSpacing', '0')

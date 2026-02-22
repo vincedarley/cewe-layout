@@ -135,6 +135,12 @@ class LayoutViewer:
         # This allows users to override the slot aspect ratio
         self.slot_aspect_ratios = {}
         
+        # Track which photos have paired text boxes (dict: {(pageno, 'photo', photo_idx): BooleanVar})
+        self.paired_checkboxes = {}
+        
+        # Auto-pair photos and text on page load (BooleanVar, default True)
+        self.auto_pair_var = tk.BooleanVar(value=True)
+        
         # Cache photo dimensions: {filename: (width, height)} to avoid re-reading images
         self.photo_dimensions = {}
 
@@ -544,6 +550,9 @@ class LayoutViewer:
         # Actual header
         ttk.Label(photo_frame, text='Actual', font=('TkDefaultFont', 9, 'bold')).grid(row=0, column=6, padx=2, pady=(2,0), sticky='w')
         
+        # Paired text header (for photos only)
+        ttk.Label(photo_frame, text='Paired\ntext', font=('TkDefaultFont', 9, 'bold'), justify='center').grid(row=0, column=7, rowspan=2, padx=2, pady=(2,0), sticky='ew')
+        
         # Item (photo/text) weight rows will be added dynamically to photo_frame
         self.photo_frame = photo_frame
 
@@ -556,10 +565,16 @@ class LayoutViewer:
         photo_frame.columnconfigure(4, minsize=44, weight=0)   # Photo AR
         photo_frame.columnconfigure(5, minsize=120, weight=1)  # Preferred (expandable)
         photo_frame.columnconfigure(6, minsize=60, weight=0)   # Actual
+        photo_frame.columnconfigure(7, minsize=48, weight=0)   # Paired text checkbox
         
         # Add text box button (will be positioned below weight rows)
         mod_sym = get_modifier_symbol()
         self.add_text_btn = ttk.Button(photo_frame, text=f'New Text Box ({mod_sym}Shift+N)', command=self.add_text_box)
+        # Position will be updated dynamically in update_weights_display()
+        
+        # Auto-pair checkbox (positioned to right of New Text Box button)
+        self.auto_pair_checkbox = ttk.Checkbutton(photo_frame, text='Auto-pair photos and text', 
+                                                  variable=self.auto_pair_var)
         # Position will be updated dynamically in update_weights_display()
         
         # RIGHT COLUMN: Cost info (top) and Parameters (bottom)
@@ -1189,6 +1204,21 @@ class LayoutViewer:
         
         # Update control widgets
         self._update_page_range_display()
+        
+        # Auto-detect pairings if enabled
+        if self.auto_pair_var.get():
+            for page_idx in page_indices:
+                page = self.book.get_page(page_idx)
+                pageno_i = page.get_page_number()
+                info_i = page.get_page_info()
+                current_layout_i = self.layout_mgr.get_current(pageno_i)
+                photos_i = current_layout_i.photos if current_layout_i else info_i.get('photos', [])
+                texts_i = current_layout_i.texts if current_layout_i else info_i.get('texts', [])
+                
+                # Only auto-detect if there are both photos and texts
+                if photos_i and texts_i:
+                    self._auto_detect_pairings(pageno_i, photos_i, texts_i)
+        
         self.update_weights_display()
 
     def _getPageWinTitle(self, all_photos: list[Any], all_texts: list[Any], page_width_mcf,
@@ -1491,11 +1521,23 @@ class LayoutViewer:
             self.show_status(f'Invalid text index: {text_index}', error=True)
             return
         
+        # Check if this text is paired with any photo - if so,unpair it
+        from cewe_layout.utils.pairing_utils import detect_paired_text
+        pairings = self.layout_mgr.get_pairings(pageno)
+        updated_pairings = set(pairings)
+        
+        for photo_idx in list(pairings):
+            if photo_idx < len(photos):
+                paired_text_idx = detect_paired_text(photos[photo_idx], texts, tolerance=50)
+                if paired_text_idx == text_index:
+                    # This photo is paired with the text being deleted - unpair it
+                    updated_pairings.discard(photo_idx)
+        
         # Remove text from list
         updated_texts = texts[:text_index] + texts[text_index+1:]
         
-        # Push updated layout
-        self.layout_mgr.push_layout(pageno, photos, updated_texts)
+        # Push updated layout with updated pairings
+        self.layout_mgr.push_layout(pageno, photos, updated_texts, pairings=updated_pairings)
         
         # Shift cached data for items after deleted text
         # Text items use their own index within the texts list
@@ -2217,18 +2259,43 @@ class LayoutViewer:
             # Use the same coordinate space as evaluation
             total_area = (eval_page_w * eval_page_h)
             item_area = rect.width * rect.height
-            actual_fraction = item_area / total_area if total_area > 0 else 0.0
+            actual_fraction = item_area / total_area if total_area> 0 else 0.0
             
             # Simpler: just show the area fraction as percentage of page
             actual_pct = actual_fraction * 100
             actual_label = ttk.Label(self.photo_frame, text=f'{actual_pct:.1f}%', font=('TkDefaultFont', 9))
             actual_label.grid(row=row, column=6, padx=2, pady=1)
             
-            self.weight_widgets.append((item_label, dpi_label, slot_ar_entry, checkbox_widget, photo_ar_label, desired_entry, actual_label))
+            # Column 7: Paired text checkbox (photos only)
+            paired_checkbox_widget = None
+            if item_type == 'photo':
+                checkbox_key = (pageno, item_type, item_idx)
+                if checkbox_key not in self.paired_checkboxes:
+                    # Initialize as unchecked - will be set by auto-pairing if enabled
+                    self.paired_checkboxes[checkbox_key] = tk.BooleanVar(value=False)
+                
+                # Get current pairing state from layout manager
+                pairings = self.layout_mgr.get_pairings(pageno)
+                current_paired = item_idx in pairings
+                self.paired_checkboxes[checkbox_key].set(current_paired)
+                
+                paired_checkbox_widget = ttk.Checkbutton(
+                    self.photo_frame, 
+                    variable=self.paired_checkboxes[checkbox_key],
+                    command=lambda pg=pageno, idx=item_idx: self._on_paired_checkbox_changed(pg, idx)
+                )
+                paired_checkbox_widget.grid(row=row, column=7, padx=2, pady=1)
+            else:
+                # Empty label for text blocks
+                paired_checkbox_widget = ttk.Label(self.photo_frame, text='')
+                paired_checkbox_widget.grid(row=row, column=7, padx=2, pady=1)
+            
+            self.weight_widgets.append((item_label, dpi_label, slot_ar_entry, checkbox_widget, photo_ar_label, desired_entry, actual_label, paired_checkbox_widget))
         
-        # Position "Add text box" button below all items (skip row 0 and 1 for headers)
+        # Position "Add text box" button and Auto-pair checkbox below all items (skip row 0 and 1 for headers)
         next_row = 2 + len(rectangles)
-        self.add_text_btn.grid(row=next_row, column=0, columnspan=7, padx=2, pady=4, sticky='w')
+        self.add_text_btn.grid(row=next_row, column=0, columnspan=4, padx=2, pady=4, sticky='w')
+        self.auto_pair_checkbox.grid(row=next_row, column=4, columnspan=4, padx=2, pady=4, sticky='w')
         
         # Report gap variations for current layout
         if photos or texts:
@@ -2419,7 +2486,14 @@ class LayoutViewer:
             'area_top': text_top,
             'area_width': text_w,
             'area_height': text_h,
+            'h_align': 'center',  # Center-align new text boxes
         }
+        
+        # Set text color based on page background (white text for dark backgrounds)
+        from cewe_layout.utils.colour_utils import is_dark_background
+        background_id = info.get('background_id')
+        if is_dark_background(background_id):
+            new_text['foreground_color'] = '#ffffffff'  # White text (AARRGGBB format)
         
         # Add to current texts
         updated_texts = list(texts) + [new_text]
@@ -2474,6 +2548,131 @@ class LayoutViewer:
         except ValueError as e:
             logger.warning(f"Page {pageno}: Invalid preferred size input '{var.get()}' for '{item_id}': {e}")
     
+    def _on_paired_checkbox_changed(self, pageno, photo_idx):
+        """Handle paired text checkbox change.
+        
+        Args:
+            pageno: Page number
+            photo_idx: Index of photo in the page's photo list
+        """
+        import logging
+        from cewe_layout.utils.pairing_utils import detect_paired_text
+        
+        logger = logging.getLogger(__name__)
+        
+        checkbox_key = (pageno, 'photo', photo_idx)
+        is_checked = self.paired_checkboxes[checkbox_key].get()
+        
+        # Get current layout
+        current_layout = self.layout_mgr.get_current(pageno)
+        if not current_layout:
+            logger.warning(f"Page {pageno}: No current layout found")
+            return
+        
+        photos = current_layout.photos
+        texts = current_layout.texts
+        
+        if photo_idx >= len(photos):
+            logger.warning(f"Page {pageno}: Photo index {photo_idx} out of range")
+            return
+        
+        photo = photos[photo_idx]
+        
+        if is_checked:
+            # User wants to pair - check if text already exists
+            text_idx = detect_paired_text(photo, texts, tolerance=50)
+            
+            if text_idx is None:
+                # No matching text found - create one
+                page = self.book.get_page(self.pageIndex)
+                page_info = page.get_page_info()
+                page_h = page_info.get('page_height')
+                
+                # Calculate text box position and size
+                photo_left = photo.get('area_left', 0)
+                photo_top = photo.get('area_top', 0)
+                photo_width = photo.get('area_width', 0)
+                photo_height = photo.get('area_height', 0)
+                
+                # Text box: same width as photo, 3% of page height
+                text_width = photo_width
+                text_height = page_h * 0.03
+                text_left = photo_left
+                text_top = photo_top + photo_height  # Directly below photo
+                
+                new_text = {
+                    'area_left': round(text_left),
+                    'area_top': round(text_top),
+                    'area_width': round(text_width),
+                    'area_height': round(text_height),
+                    'h_align': 'center',  # Center-align paired captions
+                }
+                
+                # Set text color based on page background (white text for dark backgrounds)
+                from cewe_layout.utils.colour_utils import is_dark_background
+                background_id = page_info.get('background_id')
+                if is_dark_background(background_id):
+                    new_text['foreground_color'] = '#ffffffff'  # White text (AARRGGBB format)
+                
+                # Add text to layout
+                updated_texts = list(texts) + [new_text]
+                
+                # Push updated layout with pairing enabled
+                pairings = self.layout_mgr.get_pairings(pageno)
+                pairings.add(photo_idx)
+                self.layout_mgr.push_layout(pageno, photos, updated_texts, pairings=pairings)
+                
+                # Set default preferred size for new text box
+                text_id = f'TEXT_{len(texts)}'
+                self.layout_mgr.set_size(pageno, text_id, 1.0)
+                
+                logger.info(f"Page {pageno}: Created paired text box for photo {photo_idx}")
+            else:
+                # Text already exists - just update pairing state
+                self.layout_mgr.set_pairing(pageno, photo_idx, True)
+                logger.info(f"Page {pageno}: Paired photo {photo_idx} with existing text {text_idx}")
+        else:
+            # User wants to unpair
+            self.layout_mgr.set_pairing(pageno, photo_idx, False)
+            logger.info(f"Page {pageno}: Unpaired photo {photo_idx}")
+        
+        # Mark page as modified
+        self._mark_current_pages_modified()
+        
+        # Re-render page
+        self.render_page()
+        self.show_status(f'Updated pairing for photo {photo_idx+1}')
+    
+    def _auto_detect_pairings(self, pageno, photos, texts):
+        """Automatically detect and set pairings for a page.
+        
+        Args:
+            pageno: Page number
+            photos: List of photo dicts
+            texts: List of text dicts
+        """
+        from cewe_layout.utils.pairing_utils import detect_paired_text
+        import logging
+        
+        logger = logging.getLogger(__name__)
+        
+        # Get current pairings
+        pairings = self.layout_mgr.get_pairings(pageno)
+        new_pairings = set()
+        
+        # Check each photo for potential pairing
+        for photo_idx, photo in enumerate(photos):
+            text_idx = detect_paired_text(photo, texts, tolerance=50)
+            if text_idx is not None:
+                new_pairings.add(photo_idx)
+                logger.debug(f"Page {pageno}: Auto-paired photo {photo_idx} with text {text_idx}")
+        
+        # Update pairings if changed
+        if new_pairings != pairings:
+            # Push layout with new pairings (preserves photos and texts)
+            self.layout_mgr.push_layout(pageno, photos, texts, pairings=new_pairings)
+            logger.info(f"Page {pageno}: Auto-detected {len(new_pairings)} pairings")
+    
     def on_slot_aspect_changed(self, pageno, item_idx, var, item_type):
         """Handle slot aspect ratio entry change.
         
@@ -2498,6 +2697,97 @@ class LayoutViewer:
                 logger.warning(f"Page {pageno}, {item_type} {item_idx}: Rejected slot aspect ratio {new_aspect} (out of range 0.1-10.0)")
         except ValueError as e:
             logger.warning(f"Page {pageno}, {item_type} {item_idx}: Invalid slot aspect ratio input '{var.get()}': {e}")
+    
+    def _on_paired_checkbox_changed(self, pageno, photo_idx):
+        """Handle paired text checkbox change.
+        
+        Args:
+            pageno: Page number
+            photo_idx: Index of photo in the page's photo list
+        """
+        import logging
+        from cewe_layout.utils.pairing_utils import detect_paired_text
+        logger = logging.getLogger(__name__)
+        
+        # Get current checkbox state
+        checkbox_key = (pageno, 'photo', photo_idx)
+        is_checked = self.paired_checkboxes[checkbox_key].get()
+        
+        # Get current layout
+        page = self.book.get_page(self.pageIndex)
+        info = page.get_page_info()
+        current_layout = self.layout_mgr.get_current(pageno)
+        photos = current_layout.photos if current_layout else info.get('photos', [])
+        texts = current_layout.texts if current_layout else info.get('texts', [])
+        
+        if photo_idx >= len(photos):
+            logger.warning(f"Photo index {photo_idx} out of range for page {pageno}")
+            return
+        
+        photo = photos[photo_idx]
+        
+        if is_checked:
+            # User wants to pair - check if text already exists
+            text_idx = detect_paired_text(photo, texts, tolerance=50)
+            
+            if text_idx is None:
+                # No matching text found - create one
+                page_h = info.get('page_height')
+                
+                # Calculate text box position and size
+                photo_left = photo.get('area_left', 0)
+                photo_top = photo.get('area_top', 0)
+                photo_width = photo.get('area_width', 0)
+                photo_height = photo.get('area_height', 0)
+                
+                # Text box: same width as photo, 3% of page height
+                text_width = photo_width
+                text_height = page_h * 0.03
+                text_left = photo_left
+                text_top = photo_top + photo_height  # Directly below photo
+                
+                new_text = {
+                    'area_left': round(text_left),
+                    'area_top': round(text_top),
+                    'area_width': round(text_width),
+                    'area_height': round(text_height),
+                    'h_align': 'center',  # Center-align paired captions
+                }
+                
+                # Set text color based on page background (white text for dark backgrounds)
+                from cewe_layout.utils.colour_utils import is_dark_background
+                background_id = info.get('background_id')
+                if is_dark_background(background_id):
+                    new_text['foreground_color'] = '#ffffffff'  # White text (AARRGGBB format)
+                
+                # Add text to layout
+                updated_texts = list(texts) + [new_text]
+                
+                # Push updated layout with pairing enabled
+                pairings = self.layout_mgr.get_pairings(pageno)
+                pairings.add(photo_idx)
+                self.layout_mgr.push_layout(pageno, photos, updated_texts, pairings=pairings)
+                
+                # Set default preferred size for new text box
+                text_id = f'TEXT_{len(texts)}'
+                self.layout_mgr.set_size(pageno, text_id, 1.0)
+                
+                logger.info(f"Page {pageno}: Created paired text box for photo {photo_idx}")
+            else:
+                # Text already exists - just update pairing state
+                self.layout_mgr.set_pairing(pageno, photo_idx, True)
+                logger.info(f"Page {pageno}: Paired photo {photo_idx} with existing text {text_idx}")
+        else:
+            # User wants to unpair
+            self.layout_mgr.set_pairing(pageno, photo_idx, False)
+            logger.info(f"Page {pageno}: Unpaired photo {photo_idx}")
+        
+        # Mark page as modified
+        self._mark_current_pages_modified()
+        
+        # Re-render page
+        self.render_page()
+        self.show_status(f'Updated pairing for photo {photo_idx+1} on page {pageno}')
     
     def on_edge_gap_changed(self):
         """Handle edge gap entry change.
@@ -3739,6 +4029,18 @@ class LayoutViewer:
                 # Get slot aspect ratio info for all items.
                 slot_aspect_ratios_combined, use_slot_aspect_for_photos =_collect_slot_aspect_ratio_info (page_infos)
 
+                # Combine pairings from both pages
+                # Note: In spread mode, photo indices are sequential across both pages
+                pairings_combined = set()
+                for pageno in page_numbers:
+                    page_pairings = self.layout_mgr.get_pairings(pageno)
+                    # Offset second page's pairings by number of photos in first page
+                    if pageno == page_numbers[1]:
+                        offset = len(original_photos_by_page[page_numbers[0]])
+                        pairings_combined.update(idx + offset for idx in page_pairings)
+                    else:
+                        pairings_combined.update(page_pairings)
+
                 # Run algorithm on combined spread
                 algo_start = time()
                 success, updated_photos, updated_texts, error_msg = generate_layout_for_page(
@@ -3749,7 +4051,8 @@ class LayoutViewer:
                     slot_aspect_ratios=slot_aspect_ratios_combined,
                     origin_left=0.0,  # Spread starts at 0
                     pageno=pageno0,  # For logging
-                    has_full_bleed=True # Spread mode: two pages side-by-side
+                    has_full_bleed=True, # Spread mode: two pages side-by-side
+                    pairings=pairings_combined
                 )
                 algo_time = time() - algo_start
                 print(f"Algorithm: {algo_time:.3f}s")
@@ -3987,6 +4290,9 @@ class LayoutViewer:
                         slot_aspect_ratios=slot_aspect_ratios_for_page
                     )
                 
+                # Get pairings for this page
+                pairings = self.layout_mgr.get_pairings(pageno)
+                
                 algo_start = time()
                 # Check if this is a special page
                 has_full_bleed = info.get('has_full_bleed', False)
@@ -3997,7 +4303,8 @@ class LayoutViewer:
                     use_slot_aspect=use_slot_aspect_for_photos, 
                     slot_aspect_ratios=slot_aspect_ratios_for_page,
                     origin_left=info.get('origin_left', 0.0), pageno=pageno,
-                    has_full_bleed=has_full_bleed
+                    has_full_bleed=has_full_bleed,
+                    pairings=pairings
                 )
                 algo_time = time() - algo_start
                 print(f"Algorithm: {algo_time:.3f}s")

@@ -11,16 +11,20 @@ from cewe_layout.utils.file_utils import extract_metadata_from_filename
 
 class PageLayout:
     """In-memory representation of a page layout."""
-    def __init__(self, pageno, photos_with_areas, texts_with_areas=None, internal_gap=0.0):
+    def __init__(self, pageno, photos_with_areas, texts_with_areas=None, internal_gap=0.0, pairings=None):
         self.pageno = pageno
         # photos_with_areas: list of photo dicts with area info
         self.photos = copy.deepcopy(photos_with_areas)
         # texts_with_areas: list of text block dicts with area info
         self.texts = copy.deepcopy(texts_with_areas) if texts_with_areas else []
         self.internal_gap = internal_gap  # Uniform spacing in MCF units (0.1mm)
+        # pairings: set of photo indices that have paired text boxes
+        self.pairings = set(pairings) if pairings else set()
 
     def clone(self):
-        return PageLayout(self.pageno, self.photos, self.texts, self.internal_gap)
+        layout = PageLayout(self.pageno, self.photos, self.texts, self.internal_gap)
+        layout.pairings = set(self.pairings)
+        return layout
 
 
 class LayoutManager:
@@ -37,7 +41,7 @@ class LayoutManager:
 
     def set_original(self, pageno, photos, texts=None):
         """Store the original layout read from the file."""
-        self.page_original[pageno] = PageLayout(pageno, photos, texts)
+        self.page_original[pageno] = PageLayout(pageno, photos, texts, pairings=set())
 
     def get_original(self, pageno):
         """Return the original layout for a page."""
@@ -51,9 +55,20 @@ class LayoutManager:
             return self.page_layouts[pageno][-1].clone()
         return self.get_original(pageno)
 
-    def push_layout(self, pageno, photos, texts=None):
-        """Store a new layout variant for a page."""
-        self.page_layouts[pageno].append(PageLayout(pageno, photos, texts))
+    def push_layout(self, pageno, photos, texts=None, pairings=None):
+        """Store a new layout variant for a page.
+        
+        Args:
+            pageno: Page number
+            photos: List of photo dicts
+            texts: List of text dicts
+            pairings: Set of photo indices with paired text, or None to preserve current pairings
+        """
+        # If pairings not specified, preserve current pairings
+        if pairings is None:
+            current = self.get_current(pageno)
+            pairings = current.pairings if current else set()
+        self.page_layouts[pageno].append(PageLayout(pageno, photos, texts, pairings=pairings))
 
     def undo_layout(self, pageno):
         """Remove the most recent layout, reverting to previous."""
@@ -387,3 +402,46 @@ class LayoutManager:
             self.push_layout(pageno2, photos2, layout2.texts)
         
         return True
+    
+    def get_pairings(self, pageno):
+        """Get set of photo indices with paired text for a page.
+        
+        Returns:
+            Set of photo indices (integers) that have paired text boxes.
+        """
+        current = self.get_current(pageno)
+        return set(current.pairings) if current else set()
+    
+    def set_pairing(self, pageno, photo_idx, is_paired):
+        """Set or clear pairing for a specific photo.
+        
+        Args:
+            pageno: Page number
+            photo_idx: Index of photo in the page's photo list
+            is_paired: True to mark as paired, False to unpair
+        """
+        current = self.get_current(pageno)
+        if not current:
+            return
+        
+        pairings = set(current.pairings)
+        if is_paired:
+            pairings.add(photo_idx)
+        else:
+            pairings.discard(photo_idx)
+        
+        # Push new layout with updated pairings
+        self.push_layout(pageno, current.photos, current.texts, pairings=pairings)
+    
+    def clear_pairings(self, pageno):
+        """Clear all pairings for a page.
+        
+        Args:
+            pageno: Page number
+        """
+        current = self.get_current(pageno)
+        if not current:
+            return
+        
+        # Push new layout with empty pairings
+        self.push_layout(pageno, current.photos, current.texts, pairings=set())

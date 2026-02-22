@@ -364,6 +364,30 @@ def find_closest_color_code(rgba_str: str) -> int:
     
     return closest_code
 
+def is_dark_background(background_id) -> bool:
+    """Check if background is dark (should use white text).
+    
+    Uses luminance calculation to determine if background is dark.
+    Backgrounds with luminance < 128 are considered dark.
+    
+    Args:
+        background_id: CEWE background design element ID
+    
+    Returns:
+        True if background is dark, False otherwise
+    """
+    if not background_id:
+        return False
+    try:
+        bg_id_int = int(background_id)
+        hex_color = get_color_hex(bg_id_int).lstrip('#')
+        r, g, b = tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
+        luminance = 0.299 * r + 0.587 * g + 0.114 * b
+        return luminance < 128
+    except (ValueError, TypeError):
+        return False
+
+
 def getBackgroundAndFrameColour(background_id) -> tuple[str, str]:
     if background_id:
         try:

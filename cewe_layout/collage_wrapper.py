@@ -23,7 +23,7 @@ def generate_layout_for_page(photos, page_width_mcf, page_height_mcf, photo_dime
                            algorithm, preferred_sizes=None,
                            edge_gap: Dict[str, float] = None, internal_gap=0.0,
                            texts=None, use_slot_aspect=None, slot_aspect_ratios=None,
-                           origin_left=0.0, pageno=None, has_full_bleed=False, **kwargs):
+                           origin_left=0.0, pageno=None, has_full_bleed=False, pairings=None, **kwargs):
     """
     High-level function to generate a new layout for a page.
     
@@ -45,6 +45,7 @@ def generate_layout_for_page(photos, page_width_mcf, page_height_mcf, photo_dime
         origin_left: Origin offset for right-side pages in MCF units. Default 0.0.
         pageno: Optional page number for error messages. Default None.
         has_full_bleed: True if this is a cover page or spread with bleed on all 4 sides. Default False.
+        pairings: Optional set of photo indices with paired text boxes. Default None.
         **kwargs: Additional algorithm-specific parameters.
     
     Returns:
@@ -76,18 +77,30 @@ def generate_layout_for_page(photos, page_width_mcf, page_height_mcf, photo_dime
         page_width_mcf, page_height_mcf, edge_gap, internal_gap, has_full_bleed
     )
     
-    # Step 1: Translate MCF photos and texts to abstract layout rectangles
-    photo_rects, error = _photos_to_rectangles(
-        photos, photo_dimensions, preferred_sizes, edge_gap, internal_gap, 
-        use_slot_aspect, slot_aspect_ratios, origin_left, is_left_page, has_full_bleed,
-        force_use_current_layout
-    )
-    if error:
-        return False, [], [], error
-    
-    text_rects, error = _texts_to_rectangles(texts, preferred_sizes, edge_gap, internal_gap, origin_left, pageno, is_left_page, has_full_bleed)
-    if error:
-        return False, [], [], error
+    # If pairings are specified, use pairing wrapper to merge paired items
+    if pairings:
+        from cewe_layout.pairing_wrapper import merge_paired_items
+        photo_rects, text_rects, paired_text_indices, error = merge_paired_items(
+            photos, texts, pairings, photo_dimensions, preferred_sizes,
+            edge_gap, internal_gap, use_slot_aspect, slot_aspect_ratios,
+            origin_left, is_left_page, has_full_bleed, force_use_current_layout
+        )
+        if error:
+            return False, [], [], error
+    else:
+        # No pairings - use standard path
+        paired_text_indices = set()
+        photo_rects, error = _photos_to_rectangles(
+            photos, photo_dimensions, preferred_sizes, edge_gap, internal_gap, 
+            use_slot_aspect, slot_aspect_ratios, origin_left, is_left_page, has_full_bleed,
+            force_use_current_layout
+        )
+        if error:
+            return False, [], [], error
+        
+        text_rects, error = _texts_to_rectangles(texts, preferred_sizes, edge_gap, internal_gap, origin_left, pageno, is_left_page, has_full_bleed)
+        if error:
+            return False, [], [], error
     
     # Combine photos and texts for layout algorithm
     all_rectangles = photo_rects + text_rects
@@ -175,9 +188,16 @@ def generate_layout_for_page(photos, page_width_mcf, page_height_mcf, photo_dime
             logger.warning(warning)
     
     # Step 3: Translate results back to MCF coordinates (apply gaps)
-    # Split by item_id prefix: numeric = photo, TEXT_ = text
-    photo_positioned = [r for r in positioned_rects if r.item_id.isdigit()]
-    text_positioned = [r for r in positioned_rects if r.item_id.startswith('TEXT_')]
+    # If pairings were used, split paired results back to separate photo and text
+    if pairings:
+        from cewe_layout.pairing_wrapper import split_paired_results
+        photo_positioned, text_positioned = split_paired_results(
+            positioned_rects, page_height_mcf, paired_text_indices
+        )
+    else:
+        # No pairings - split by item_id prefix: numeric = photo, TEXT_ = text
+        photo_positioned = [r for r in positioned_rects if r.item_id.isdigit()]
+        text_positioned = [r for r in positioned_rects if r.item_id.startswith('TEXT_')]
     
     updated_photos = _rectangles_to_photos(photos, photo_positioned, edge_gap, internal_gap, is_left_page, has_full_bleed)
     updated_texts = _rectangles_to_texts(texts, text_positioned, edge_gap, internal_gap, is_left_page, has_full_bleed)
