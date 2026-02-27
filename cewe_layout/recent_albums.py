@@ -101,8 +101,15 @@ class RecentAlbumsManager:
         # Remove if already exists
         self._albums = [a for a in self._albums if a['path'] != album_path]
         
+        # Determine display name - use .xmcf bundle name if inside one
+        path_obj = Path(album_path)
+        album_name = path_obj.name  # Default to file name
+        
+        # If this is a data.mcf inside an .xmcf bundle, use the bundle name instead
+        if path_obj.name == 'data.mcf' and path_obj.parent.suffix in ['.xmcf', '.mcfx']:
+            album_name = path_obj.parent.name
+        
         # Add to front with timestamp
-        album_name = Path(album_path).name
         self._albums.insert(0, {
             'path': album_path,
             'name': album_name,

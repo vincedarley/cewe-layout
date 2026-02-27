@@ -65,8 +65,6 @@ if __name__ == '__main__':
     else:
         # Default: GUI mode
         import tkinter as tk
-        from tkinter import ttk
-        from tkinter.filedialog import askopenfilename
         
         def load_and_launch_album(root):
             """Load the album (with optional PDF conversion) and launch the GUI.
@@ -146,74 +144,76 @@ if __name__ == '__main__':
             else:
                 launch_gui(real, pdf_photobook, root=root)
         
+        # Create invisible root window to manage the Tk event loop
+        # This root stays hidden and only manages the mainloop
+        # All visible windows (welcome, viewer, controls) are Toplevels
+        root = None
+        try:
+            from tkinterdnd2 import TkinterDnD
+            root = TkinterDnD.Tk()
+        except (ImportError, RuntimeError, Exception):
+            # Check if a Tk window was partially created via tk.Tk.__init__ before the exception
+            existing_root = getattr(tk, '_default_root', None)
+            if existing_root is not None:
+                # Reuse the partially-created window
+                root = existing_root
+            else:
+                # Fall back to creating a standard Tk window
+                root = tk.Tk()
+        
+        root.title('QLayout')
+        
+        # Make root effectively invisible by positioning off-screen and making it tiny
+        # Don't use withdraw() because that deactivates the menubar on macOS
+        # This keeps the menubar active when all other windows are closed
+        root.geometry('1x1+5000+5000')  # 1x1 pixel, positioned way off-screen
+        root.attributes('-alpha', 0.0)  # Make completely transparent (macOS/Linux)
+        
+        # Prevent root from appearing in taskbar/dock
+        try:
+            root.attributes('-topmost', False)
+        except:
+            pass
+        
+        # Set up persistent menubar on root (for when all windows are closed)
+        # Import MenuManager early to use for both root and welcome window
+        from cewe_layout.menu_manager import MenuManager
+        from cewe_layout.recent_albums import RecentAlbumsManager
+        
+        recent_albums_mgr = RecentAlbumsManager()
+        
+        def open_album_from_persistent_menu(album_path):
+            """Open album from persistent menu (when no windows visible)."""
+            args.cewe = album_path
+            load_and_launch_album(root=root)
+        
+        # Create persistent menubar on root
+        root_menu = MenuManager(root, recent_albums_mgr, tk_root=root)
+        root_menu.create_welcome_menu(
+            on_open_album=open_album_from_persistent_menu,
+            on_quit=root.quit
+        )
+        
         # If no album specified, show welcome screen
         if not args.cewe:
-            # Create root window with TkinterDnD support if available
-            # Note: If TkinterDnD initialization fails partway through, it may have
-            # already created a Tk window via tk.Tk.__init__(). We detect and reuse that.
-            root = None
-            try:
-                from tkinterdnd2 import TkinterDnD
-                root = TkinterDnD.Tk()
-            except (ImportError, RuntimeError, Exception):
-                # Check if a Tk window was partially created via tk.Tk.__init__ before the exception
-                existing_root = getattr(tk, '_default_root', None)
-                if existing_root is not None:
-                    # Reuse the partially-created window
-                    root = existing_root
-                else:
-                    # Fall back to creating a standard Tk window
-                    root = tk.Tk()
-            
-            root.title('QLayout')
-            root.geometry('500x300')
-            
-            # Create welcome frame
-            welcome_frame = ttk.Frame(root)
-            welcome_frame.pack(expand=True, fill='both')
-            
-            # Center content
-            content_frame = ttk.Frame(welcome_frame)
-            content_frame.place(relx=0.5, rely=0.5, anchor='center')
-            
-            ttk.Label(content_frame, text='QLayout', font=('TkDefaultFont', 24, 'bold')).pack(pady=(0, 20))
-            
-            def open_album():
-                album_file = askopenfilename(
-                    title='Open CEWE Album (.mcf file inside .xmcf bundle, or standalone .mcf)',
-                    parent=root
-                )
-                if album_file:
-                    args.cewe = album_file
-                    welcome_frame.destroy()
-                    # Continue with album loading, reusing the root window
-                    load_and_launch_album(root=root)
-                    
-            ttk.Button(
-                content_frame,
-                text='Open Album...',
-                command=open_album,
-                width=20
-            ).pack()
-            
-            # Wait for user to select album
-            root.mainloop()
+            from cewe_layout.gui_welcome import create_welcome_window
+
+            # Define the open_album callback used by welcome menu and button
+            def open_album_from_menu(album_path):
+                """Called when album selected from menu/button (Open or Recent)."""
+                args.cewe = album_path
+                load_and_launch_album(root=root)
+
+            create_welcome_window(
+                root=root,
+                recent_albums_mgr=recent_albums_mgr,
+                on_open_album=open_album_from_menu,
+                on_quit=root.quit,
+                app_root=ROOT,
+            )
         else:
-            # Album specified via command line, create root window
-            root = None
-            try:
-                from tkinterdnd2 import TkinterDnD
-                root = TkinterDnD.Tk()
-            except (ImportError, RuntimeError, Exception):
-                # Check if a Tk window was partially created via tk.Tk.__init__ before the exception
-                existing_root = getattr(tk, '_default_root', None)
-                if existing_root is not None:
-                    # Reuse the partially-created window
-                    root = existing_root
-                else:
-                    # Fall back to creating a standard Tk window
-                    root = tk.Tk()
-            
-            root.title('QLayout')
-            load_and_launch_album(root)
-            root.mainloop()
+            # Album specified via command line, launch directly
+            load_and_launch_album(root=root)
+        
+        # Run the mainloop on the invisible root (keeps app alive)
+        root.mainloop()

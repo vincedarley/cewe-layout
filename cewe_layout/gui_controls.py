@@ -747,9 +747,15 @@ class LayoutViewer:
         # Setup keyboard shortcuts
         self._setup_keyboard_shortcuts()
         
-        # Setup macOS menu bar if on macOS
+        # Setup window close handler - don't quit app when window closed
+        self.root.protocol('WM_DELETE_WINDOW', self.close_window)
+        self.ctrlWin.protocol('WM_DELETE_WINDOW', self.close_window)
+        
+        # Setup menu bar if on macOS
         if is_macos():
-            self._setup_macos_menu()
+            from cewe_layout.menu_manager import MenuManager
+            menu_mgr = MenuManager(self.root, self.recent_albums, tk_root=tk._default_root)
+            menu_mgr.create_album_menu(self)
         
         self.render_page()
 
@@ -817,18 +823,20 @@ class LayoutViewer:
         self.ctrlWin.bind(f'<{modifier}-Shift-n>', lambda e: self.add_text_box())
         self.ctrlWin.bind(f'<{modifier}-Shift-N>', lambda e: self.add_text_box())
         
-        # Cmd/Ctrl+O: Open Photos
-        self.root.bind(f'<{modifier}-o>', lambda e: self._prompt_add_photos())
-        self.root.bind(f'<{modifier}-O>', lambda e: self._prompt_add_photos())
-        self.ctrlWin.bind(f'<{modifier}-o>', lambda e: self._prompt_add_photos())
-        self.ctrlWin.bind(f'<{modifier}-O>', lambda e: self._prompt_add_photos())
+        # Cmd/Ctrl+A: Add Photos
+        self.root.bind(f'<{modifier}-a>', lambda e: self._prompt_add_photos())
+        self.root.bind(f'<{modifier}-A>', lambda e: self._prompt_add_photos())
+        self.ctrlWin.bind(f'<{modifier}-a>', lambda e: self._prompt_add_photos())
+        self.ctrlWin.bind(f'<{modifier}-A>', lambda e: self._prompt_add_photos())
         
-        # Cmd/Ctrl+W: Close/Quit (macOS convention)
+        # Cmd/Ctrl+O: Open Album (handled by menu/welcome screen)
+        
+        # Cmd/Ctrl+W: Close Window (macOS convention)
         if is_macos():
-            self.root.bind(f'<{modifier}-w>', lambda e: self.quit())
-            self.root.bind(f'<{modifier}-W>', lambda e: self.quit())
-            self.ctrlWin.bind(f'<{modifier}-w>', lambda e: self.quit())
-            self.ctrlWin.bind(f'<{modifier}-W>', lambda e: self.quit())
+            self.root.bind(f'<{modifier}-w>', lambda e: self.close_window())
+            self.root.bind(f'<{modifier}-W>', lambda e: self.close_window())
+            self.ctrlWin.bind(f'<{modifier}-w>', lambda e: self.close_window())
+            self.ctrlWin.bind(f'<{modifier}-W>', lambda e: self.close_window())
         
         # Cmd/Ctrl+0: Focus render window
         self.root.bind(f'<{modifier}-0>', lambda e: self._focus_render_window())
@@ -847,102 +855,6 @@ class LayoutViewer:
         self.ctrlWin.bind('<Left>', lambda e: self.prev_page())
         self.ctrlWin.bind('<Right>', lambda e: self.next_page())
     
-    def _setup_macos_menu(self):
-        """Setup macOS-specific menu bar."""
-        try:
-            # Create menu bar
-            menubar = tk.Menu(self.root)
-            
-            # File menu
-            file_menu = tk.Menu(menubar, tearoff=0)
-            menubar.add_cascade(label='File', menu=file_menu)
-            file_menu.add_command(label='Open Photos...', accelerator='Cmd+O', command=self._prompt_add_photos)
-            file_menu.add_separator()
-            file_menu.add_command(label='Save Modified', accelerator='Cmd+S', command=self.save_layout)
-            file_menu.add_command(label='Export PDF...', accelerator='Cmd+P', command=self.export_to_pdf)
-            file_menu.add_separator()
-            
-            # Recent albums submenu
-            self._build_recent_albums_menu(file_menu)
-            
-            file_menu.add_separator()
-            file_menu.add_command(label='Close Window', accelerator='Cmd+W', command=self.quit)
-            
-            # Edit menu
-            edit_menu = tk.Menu(menubar, tearoff=0)
-            menubar.add_cascade(label='Edit', menu=edit_menu)
-            edit_menu.add_command(label='Undo Layout', accelerator='Cmd+Z', command=self.undo_layout)
-            edit_menu.add_separator()
-            edit_menu.add_command(label='Previous Page', accelerator='←', command=self.prev_page)
-            edit_menu.add_command(label='Next Page', accelerator='→', command=self.next_page)
-            edit_menu.add_separator()
-            edit_menu.add_command(label='Use Original Page', command=self.use_original)
-            
-            # Layout menu
-            layout_menu = tk.Menu(menubar, tearoff=0)
-            menubar.add_cascade(label='Layout', menu=layout_menu)
-            layout_menu.add_command(label='Generate Layout', accelerator='Cmd+R', command=self._generate_layout)
-            layout_menu.add_command(label='New Text Box', accelerator='Cmd+Shift+N', command=self.add_text_box)
-            
-            # Window menu (standard macOS menu)
-            window_menu = tk.Menu(menubar, name='window', tearoff=0)
-            menubar.add_cascade(label='Window', menu=window_menu)
-            # The window menu is automatically populated by Tk on macOS.
-            # Keyboard shortcuts Cmd+0 and Cmd+1 are bound directly, not via menu
-            
-            # Set app name in menu bar (attempts to override "Python")
-            # This works if we're running as a bundled .app, but not from command line
-            try:
-                self.root.createcommand('tk::mac::ShowPreferences', self._show_preferences)
-                self.root.createcommand('::tk::mac::Quit', self.quit)
-                
-                # Try to set app name (may not work from terminal)
-                app_menu = tk.Menu(menubar, name='apple', tearoff=0)
-                menubar.add_cascade(menu=app_menu)
-                app_menu.add_command(label='About QLayout', command=self._show_about)
-                app_menu.add_separator()
-            except tk.TclError:
-                # Not on macOS or commands not available
-                pass
-            
-            # Apply menu to both windows
-            self.root.config(menu=menubar)
-            self.ctrlWin.config(menu=menubar)
-                
-        except Exception as e:
-            # If menu setup fails, just log it and continue
-            logger.warning(f'Failed to setup macOS menu: {e}')
-    
-    def _build_recent_albums_menu(self, parent_menu):
-        """Build Recent Albums submenu and add to parent menu.
-        
-        Args:
-            parent_menu: Parent menu to add Recent Albums submenu to
-        """
-        recent_albums = self.recent_albums.list_all()
-        
-        if not recent_albums:
-            parent_menu.add_command(label='Recent Albums', state='disabled')
-            return
-        
-        recent_menu = tk.Menu(parent_menu, tearoff=0)
-        parent_menu.add_cascade(label='Recent Albums', menu=recent_menu)
-        
-        # Add each recent album as a menu item
-        for album in recent_albums:
-            album_name = album.get('name', 'Unknown')
-            album_path = album.get('path')
-            
-            def open_album(path=album_path):
-                """Open album in new GUI window."""
-                self._open_album_in_new_window(path)
-            
-            recent_menu.add_command(label=album_name, command=open_album)
-        
-        # Add separator and Clear option
-        recent_menu.add_separator()
-        recent_menu.add_command(label='Clear Recent Albums', command=self._clear_recent_albums)
-    
     def _open_album_in_new_window(self, album_path):
         """Open an album file in a new GUI window.
         
@@ -959,17 +871,21 @@ class LayoutViewer:
                 self.recent_albums.remove(album_path)
                 return
             
-            # Import launch_gui from this module
-            from cewe_layout.gui_controls import launch_gui
-            
             # Parse MCF and launch new GUI window (spawning in background)
             from cewe_layout.mcf_io.mcf_parser import resolve_mcf_path
+            from cewe_layout.gui_controls import launch_gui
+            
             real_path = resolve_mcf_path(str(path))
+            
+            # Get the invisible root (first Tk instance) that manages the mainloop
+            # All album windows share this root but live as Toplevels
+            root = tk._default_root
             
             # Launch in a separate thread to prevent blocking
             def launch_thread():
                 try:
-                    launch_gui(real_path, None)
+                    # Pass the shared root so all windows use the same mainloop
+                    launch_gui(real_path, None, root=root)
                 except Exception as e:
                     logger.error(f'Failed to launch GUI for {album_path}: {e}')
             
@@ -1676,6 +1592,19 @@ class LayoutViewer:
         )
         if files:
             self._handle_dropped_files(list(files))
+    
+    def _prompt_open_album(self):
+        """Prompt user to select a CEWE album to open in a new window."""
+        from tkinter import filedialog
+        album_file = filedialog.askopenfilename(
+            title='Open CEWE Album (.mcf file inside .xmcf bundle, or standalone .mcf)',
+            filetypes=[
+                ('CEWE Album Files', '*.mcf'),
+                ('All Files', '*.*')
+            ]
+        )
+        if album_file:
+            self._open_album_in_new_window(album_file)
     
     def _handle_dropped_files(self, file_paths):
         """Process dropped/selected photo files and add to current page."""
@@ -3347,8 +3276,18 @@ class LayoutViewer:
         self.root.update_idletasks()
         self.render_page()
 
-    def quit(self):
-        self.root.quit()
+    def close_window(self):
+        """Close the album window but don't quit the application."""
+        # Destroy both windows
+        try:
+            self.root.destroy()
+        except:
+            pass
+        try:
+            self.ctrlWin.destroy()
+        except:
+            pass
+        # Don't call root.quit() - let the app stay open on macOS
     
     def _update_page_range_display(self):
         """Update the page range label to show valid page numbers."""
@@ -4991,7 +4930,8 @@ def launch_gui(mcf_path, pdf_originalBook: PDFPhotobook = None, root=None):
     Args:
         mcf_path: Path to the MCF file
         pdf_originalBook: Optional PDF photobook data
-        root: Optional existing Tk root window to use (creates new one if not provided)
+        root: Optional Tk root window (if None, creates one). The root should be the invisible
+              root managing the mainloop. All visible windows (viewer, controls) are Toplevels.
     """
     # Configure logging for the GUI
     import logging
@@ -5003,29 +4943,36 @@ def launch_gui(mcf_path, pdf_originalBook: PDFPhotobook = None, root=None):
     
     root_el = parse_mcf_from_path(mcf_path)
     
-    # Track whether we created the root
-    created_root = root is None
-    
-    # Use provided root or create new one
+    # Create or reuse root (invisible manager of mainloop)
     if root is None:
-        # Try to use TkinterDnD.Tk for drag-and-drop support
-        # Note: If TkinterDnD initialization fails partway through, it may have
-        # already created a Tk window via tk.Tk.__init__(). We detect and reuse that.
         try:
             from tkinterdnd2 import TkinterDnD
             root = TkinterDnD.Tk()
         except (ImportError, RuntimeError, Exception):
-            # Check if a Tk window was partially created via tk.Tk.__init__ before the exception
             existing_root = getattr(tk, '_default_root', None)
             if existing_root is not None:
-                # Reuse the partially-created window
                 root = existing_root
             else:
-                # Fall back to creating a standard Tk window
                 root = tk.Tk()
+        
+        # Hide the invisible root
+        root.title('QLayout')
+        root.geometry('1x1')
+        root.withdraw()
+        
+        # We'll run mainloop at the end
+        will_run_mainloop = True
+    else:
+        # Root already exists and mainloop will be managed externally
+        will_run_mainloop = False
     
-    app = LayoutViewer(root, root_el, mcf_path, pdf_originalBook)
+    # Create Toplevel window for rendering (visible window)
+    viewer_window = tk.Toplevel(root)
+    viewer_window.title('cewe-layout — Page Viewer')
+    
+    # Create LayoutViewer with the Toplevel viewer window
+    app = LayoutViewer(viewer_window, root_el, mcf_path, pdf_originalBook)
     
     # Only start mainloop if we created the root ourselves
-    if created_root:
+    if will_run_mainloop:
         root.mainloop()
