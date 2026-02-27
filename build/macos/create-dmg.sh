@@ -3,7 +3,9 @@
 
 set -e
 
-DMG_NAME="QLayout-0.1.0.dmg"
+# Extract version from cewe_layout/__init__.py
+VERSION=$(grep -E "^__version__ = " cewe_layout/__init__.py | sed -E "s/__version__ = '(.*)'/\1/")
+DMG_NAME="QLayout-${VERSION}.dmg"
 DMG_TITLE="QLayout"
 SOURCE_FOLDER="build/macos/QLayout.app"
 MOUNT_POINT="/Volumes/QLayout"
@@ -14,7 +16,7 @@ if [ ! -d "$SOURCE_FOLDER" ]; then
     exit 1
 fi
 
-echo "📀 Creating DMG installer..."
+echo "📀 Creating DMG installer (version ${VERSION})..."
 
 # Create temporary DMG (RW)
 TEMP_DMG="build/macos/tmp-QLayout.dmg"
@@ -33,16 +35,12 @@ hdiutil create -srcfolder "$SOURCE_FOLDER" \
 echo "Mounting DMG..."
 hdiutil attach "$TEMP_DMG" -mountpoint "$MOUNT_POINT"
 
-# Add background and icons
-mkdir -p "$MOUNT_POINT"/.background
-cp build/macos/dmg-background.png "$MOUNT_POINT"/.background/background.png 2>/dev/null || true
-
 # Create symlink to /Applications
 ln -sf /Applications "$MOUNT_POINT/Applications"
 
-# Set window properties (if backgroundImageTiffData available)
+# Set window properties (optional - requires Terminal automation permission)
 echo "Setting DMG appearance..."
-osascript << END
+if osascript << END 2>/dev/null
 tell application "Finder"
     tell disk "$DMG_TITLE"
         open
@@ -51,9 +49,6 @@ tell application "Finder"
         set icon size of icon view of container window to 104
         set position of item "QLayout.app" of container window to {150, 100}
         set position of item "Applications" of container window to {350, 100}
-        if exists file "background.png" of folder ".background" then
-            set background picture of container window to file ".background:background.png"
-        end if
         close
         open
         update without registering applications
@@ -61,10 +56,26 @@ tell application "Finder"
     end tell
 end tell
 END
+then
+    echo "✅ DMG appearance customized"
+else
+    echo "⚠️  Could not customize appearance (Terminal needs Automation permission for Finder)"
+    echo "   DMG will still work, just with default appearance"
+fi
+
+# Give Finder time to finish
+sleep 2
+
+# Close any Finder windows showing the volume
+osascript -e "tell application \"Finder\" to close every window whose target is disk \"$DMG_TITLE\"" 2>/dev/null || true
 
 # Detach
 echo "Finalizing DMG..."
-hdiutil detach "$MOUNT_POINT"
+sync  # Ensure all writes are flushed
+if ! hdiutil detach "$MOUNT_POINT" 2>/dev/null; then
+    echo "⚠️  Normal detach failed, trying force..."
+    hdiutil detach "$MOUNT_POINT" -force
+fi
 
 # Convert to read-only
 hdiutil convert "$TEMP_DMG" \

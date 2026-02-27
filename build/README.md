@@ -59,34 +59,38 @@ Platform-specific:
 
 ## Icons
 
-Each platform requires an app icon:
+**Before building**, generate platform-specific icon files from your source icon.
 
-- **macOS**: `build/macos/qlayout.icns` (512×512, ICNS format)
-- **Windows**: `build/windows/qlayout.ico` (256×256, ICO format)
-- **Linux**: `build/linux/qlayout.png` (512×512, PNG format)
+### Icon Setup
 
-Placeholder icons currently exist. **Replace them with your custom icon before building for distribution.**
+1. Place your 1024×1024 PNG icon at `build/icon-source.png`
+2. Generate platform-specific formats:
+   ```bash
+   python build/convert_icon.py
+   ```
 
-### Creating Icons
+This creates:
+- **macOS**: `build/macos/qlayout.icns` (ICNS format)
+- **Windows**: `build/windows/qlayout.ico` (ICO format with multiple sizes)
+- **Linux**: `build/linux/qlayout.png` (512×512 PNG)
 
-**From PNG source (1024×1024 recommended):**
+**Note**: Icon files are not tracked in git. Regenerate them after updating `icon-source.png`.
 
-```bash
-# macOS:
-pip install pillow
-python3 -c "from PIL import Image; img = Image.open('icon.png'); img.save('build/macos/qlayout.icns')"
+## Versioning
 
-# Windows:
-convert icon.png -define icon:auto-resize=256,128,96,64,48,32,16 build/windows/qlayout.ico
+**Single Source of Truth**: `cewe_layout/__init__.py`
 
-# Linux:
-convert icon.png -resize 512x512 build/linux/qlayout.png
-```
+To update the version:
+1. Edit `__version__` in `cewe_layout/__init__.py` (e.g., `'0.2.0'`)
+2. The version will automatically propagate to:
+   - macOS app Info.plist (CFBundleVersion, CFBundleShortVersionString)
+   - DMG filename (e.g., `QLayout-0.2.0.dmg`)
+   - Package metadata
 
-Or use online icon converters:
-- macOS: https://image2icon.com/
-- Windows: https://icoconvert.com/
-- Linux: ImageMagick's `convert` command
+Use [semantic versioning](https://semver.org/): `MAJOR.MINOR.PATCH`
+- MAJOR: Breaking changes
+- MINOR: New features (backward compatible)
+- PATCH: Bug fixes
 
 ## Configuration
 
@@ -97,16 +101,10 @@ Main spec file: `build/QLayout.spec`
 Edit this file to:
 - Add or remove hidden imports
 - Include additional data files (docs, assets, etc.)
-- Change bundle identifiers or version numbers
+- Change bundle identifier (currently `com.vince.qlayout`)
 - Modify executable behavior
 
-### Version Updates
-
-Update version numbers in:
-1. `build/QLayout.spec` - Bundle version
-2. `build/macos/qlayout.icns` - Plist version (CFBundleVersion, CFBundleShortVersionString)
-3. `build/macos/create-dmg.sh` - DMG filename
-4. `cewe_layout/__init__.py` - Package version (if desired)
+**Note**: Version is read automatically from `cewe_layout/__init__.py`
 
 ## Distribution
 
@@ -121,12 +119,14 @@ For distribution outside the App Store, you need to:
 
 2. **Notarize** the app (required for macOS 10.15+):
    ```bash
-   xcrun notarytool submit QLayout-0.1.0.dmg --apple-id your-email@example.com --team-id XXXXXXXXXX
+   # Get version from package
+   VERSION=$(grep -E "^__version__ = " cewe_layout/__init__.py | sed -E "s/__version__ = '(.*)'/\1/")
+   xcrun notarytool submit QLayout-${VERSION}.dmg --apple-id your-email@example.com --team-id XXXXXXXXXX
    ```
 
 3. **Staple** the notarization:
    ```bash
-   xcrun stapler staple QLayout-0.1.0.dmg
+   xcrun stapler staple QLayout-${VERSION}.dmg
    ```
 
 ### Windows

@@ -1,11 +1,27 @@
 cewe_layout/.DS_Store
 .DS_Store
+**/.DS_Store
 
 # Python caches
 __pycache__/
 **/__pycache__/
 *.pyc
 *.pyo
+
+# PyInstaller build artifacts
+build/QLayout/
+dist/
+*.spec.bak
+
+# Platform-specific built applications
+build/macos/QLayout.app/
+build/windows/QLayout.exe
+build/linux/QLayout
+
+# Generated icon files (regenerate with: python build/convert_icon.py)
+build/macos/qlayout.icns
+build/windows/qlayout.ico
+build/linux/qlayout.png
 
 # Specific subfolders (redundant with above but explicit)
 /cewe_layout/__pycache__
@@ -17,3 +33,4 @@ __pycache__/
 .idea/inspectionProfiles/profiles_settings.xml
 profile.stats
 tests/composite_page1.jpeg
+QLayout-1.2.0.dmg

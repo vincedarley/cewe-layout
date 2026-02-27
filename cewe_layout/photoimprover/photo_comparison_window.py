@@ -165,7 +165,7 @@ class PhotoComparisonWindow:
             img.thumbnail((max_w, max_h), Image.Resampling.LANCZOS)
             
             # Convert to PhotoImage
-            photo = ImageTk.PhotoImage(img)
+            photo = ImageTk.PhotoImage(img, master=label)
             
             # Keep reference to prevent garbage collection
             label.image = photo

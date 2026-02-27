@@ -79,7 +79,7 @@ class PageRenderer:
         # Rendering state (caches, pixel images for buttons)
         self.photo_image = None  # Current displayed PhotoImage
         self.canvas_image_id = None  # Canvas image item ID
-        self.delete_button_pixel = tk.PhotoImage(width=1, height=1)
+        self.delete_button_pixel = tk.PhotoImage(width=1, height=1, master=self.canvas)
         self.delete_buttons = []  # Currently displayed delete button widgets
         self.delete_button_info_list = []  # List of button info for hover state management
         self.drag_rectangles = []  # Currently displayed drag rectangle canvas items
@@ -939,7 +939,7 @@ class PageRenderer:
 
     def _show_image(self, pil_img):
         """Display PIL image on the canvas."""
-        self.photo_image = ImageTk.PhotoImage(pil_img)
+        self.photo_image = ImageTk.PhotoImage(pil_img, master=self.canvas)
         
         # Clear existing image if any
         if self.canvas_image_id is not None:

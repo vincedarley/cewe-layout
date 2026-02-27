@@ -47,6 +47,8 @@ from cewe_layout.utils.file_utils import (
 )
 from .gui_book_transform import open_transform_window
 from .drag_drop import setup_drag_and_drop
+from .recent_albums import RecentAlbumsManager, PreferencesManager
+from .preferences_dialog import PreferencesDialog
 
 
 # Constants for MCF unit conversion and defaults
@@ -223,6 +225,15 @@ class LayoutViewer:
 
         # Main window for page display
         self.root = root
+        
+        # Initialize managers for recent albums and preferences
+        self.recent_albums = RecentAlbumsManager()
+        self.preferences = PreferencesManager()
+        
+        # Add current album to recent list
+        if mcf_file_path:
+            self.recent_albums.add(mcf_file_path)
+        
         # Extract photobook filename (the directory containing data.mcf, not data.mcf itself)
         if mcf_file_path:
             # Get the parent directory name (e.g., "Test-album.xmcf" not "data.mcf")
@@ -232,8 +243,9 @@ class LayoutViewer:
         self.root.title('cewe-layout — Page Viewer')
         
         # Create transparent pixel images early for button sizing
-        self.delete_button_pixel = tk.PhotoImage(width=1, height=1)  # For delete buttons
-        self.button_pixel = tk.PhotoImage(width=1, height=1)  # For compact buttons
+        # Explicitly bind to root to avoid "image does not exist" in PyInstaller
+        self.delete_button_pixel = tk.PhotoImage(width=1, height=1, master=self.root)  # For delete buttons
+        self.button_pixel = tk.PhotoImage(width=1, height=1, master=self.root)  # For compact buttons
 
         # Calculate canvas dimensions based on actual page size from first page
         # Add 5mm (50 MCF units) margin on all sides, just for display purposes. 
@@ -849,6 +861,11 @@ class LayoutViewer:
             file_menu.add_command(label='Save Modified', accelerator='Cmd+S', command=self.save_layout)
             file_menu.add_command(label='Export PDF...', accelerator='Cmd+P', command=self.export_to_pdf)
             file_menu.add_separator()
+            
+            # Recent albums submenu
+            self._build_recent_albums_menu(file_menu)
+            
+            file_menu.add_separator()
             file_menu.add_command(label='Close Window', accelerator='Cmd+W', command=self.quit)
             
             # Edit menu
@@ -896,6 +913,81 @@ class LayoutViewer:
             # If menu setup fails, just log it and continue
             logger.warning(f'Failed to setup macOS menu: {e}')
     
+    def _build_recent_albums_menu(self, parent_menu):
+        """Build Recent Albums submenu and add to parent menu.
+        
+        Args:
+            parent_menu: Parent menu to add Recent Albums submenu to
+        """
+        recent_albums = self.recent_albums.list_all()
+        
+        if not recent_albums:
+            parent_menu.add_command(label='Recent Albums', state='disabled')
+            return
+        
+        recent_menu = tk.Menu(parent_menu, tearoff=0)
+        parent_menu.add_cascade(label='Recent Albums', menu=recent_menu)
+        
+        # Add each recent album as a menu item
+        for album in recent_albums:
+            album_name = album.get('name', 'Unknown')
+            album_path = album.get('path')
+            
+            def open_album(path=album_path):
+                """Open album in new GUI window."""
+                self._open_album_in_new_window(path)
+            
+            recent_menu.add_command(label=album_name, command=open_album)
+        
+        # Add separator and Clear option
+        recent_menu.add_separator()
+        recent_menu.add_command(label='Clear Recent Albums', command=self._clear_recent_albums)
+    
+    def _open_album_in_new_window(self, album_path):
+        """Open an album file in a new GUI window.
+        
+        Args:
+            album_path: Full path to .mcf or .xmcf file
+        """
+        try:
+            from pathlib import Path
+            path = Path(album_path)
+            
+            if not path.exists():
+                from tkinter import messagebox
+                messagebox.showerror('File Not Found', f'Album file not found:\n{album_path}')
+                self.recent_albums.remove(album_path)
+                return
+            
+            # Import launch_gui from this module
+            from cewe_layout.gui_controls import launch_gui
+            
+            # Parse MCF and launch new GUI window (spawning in background)
+            from cewe_layout.mcf_io.mcf_parser import resolve_mcf_path
+            real_path = resolve_mcf_path(str(path))
+            
+            # Launch in a separate thread to prevent blocking
+            def launch_thread():
+                try:
+                    launch_gui(real_path, None)
+                except Exception as e:
+                    logger.error(f'Failed to launch GUI for {album_path}: {e}')
+            
+            thread = threading.Thread(target=launch_thread, daemon=True)
+            thread.start()
+            
+        except Exception as e:
+            from tkinter import messagebox
+            messagebox.showerror('Error', f'Failed to open album:\n{str(e)}')
+            logger.error(f'Error opening album {album_path}: {e}')
+    
+    def _clear_recent_albums(self):
+        """Clear all recent albums with confirmation."""
+        from tkinter import messagebox
+        
+        if messagebox.askyesno('Clear Recent Albums', 'Clear all recent albums from the menu?'):
+            self.recent_albums.clear()
+    
     def _show_about(self):
         """Show about dialog."""
         from tkinter import messagebox
@@ -905,9 +997,8 @@ class LayoutViewer:
         )
     
     def _show_preferences(self):
-        """Show preferences dialog (placeholder)."""
-        from tkinter import messagebox
-        messagebox.showinfo('Preferences', 'Preferences dialog not yet implemented.')
+        """Show preferences dialog."""
+        PreferencesDialog(self.root, self.preferences)
     
     def _focus_render_window(self):
         """Bring the main render window to front."""
@@ -4894,7 +4985,14 @@ class LayoutViewer:
                 self.layout_mgr.mark_photo_as_new(page_numbers[1], filename)
 
 
-def launch_gui(mcf_path, pdf_originalBook: PDFPhotobook):
+def launch_gui(mcf_path, pdf_originalBook: PDFPhotobook = None, root=None):
+    """Launch the GUI for viewing and editing photobook layouts.
+    
+    Args:
+        mcf_path: Path to the MCF file
+        pdf_originalBook: Optional PDF photobook data
+        root: Optional existing Tk root window to use (creates new one if not provided)
+    """
     # Configure logging for the GUI
     import logging
     logging.basicConfig(
@@ -4905,13 +5003,29 @@ def launch_gui(mcf_path, pdf_originalBook: PDFPhotobook):
     
     root_el = parse_mcf_from_path(mcf_path)
     
-    # Try to use TkinterDnD.Tk for drag-and-drop support
-    try:
-        from tkinterdnd2 import TkinterDnD
-        root = TkinterDnD.Tk()
-    except ImportError:
-        # Fall back to regular Tk
-        root = tk.Tk()
+    # Track whether we created the root
+    created_root = root is None
+    
+    # Use provided root or create new one
+    if root is None:
+        # Try to use TkinterDnD.Tk for drag-and-drop support
+        # Note: If TkinterDnD initialization fails partway through, it may have
+        # already created a Tk window via tk.Tk.__init__(). We detect and reuse that.
+        try:
+            from tkinterdnd2 import TkinterDnD
+            root = TkinterDnD.Tk()
+        except (ImportError, RuntimeError, Exception):
+            # Check if a Tk window was partially created via tk.Tk.__init__ before the exception
+            existing_root = getattr(tk, '_default_root', None)
+            if existing_root is not None:
+                # Reuse the partially-created window
+                root = existing_root
+            else:
+                # Fall back to creating a standard Tk window
+                root = tk.Tk()
     
     app = LayoutViewer(root, root_el, mcf_path, pdf_originalBook)
-    root.mainloop()
+    
+    # Only start mainloop if we created the root ourselves
+    if created_root:
+        root.mainloop()

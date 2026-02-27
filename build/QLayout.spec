@@ -8,6 +8,13 @@ Build with:
 This creates a single-file .app bundle optimized for macOS.
 """
 
+# Read version from package
+import sys
+import os
+spec_dir = os.path.dirname(os.path.abspath(SPECPATH))
+sys.path.insert(0, spec_dir)
+from cewe_layout import __version__
+
 block_cipher = None
 
 a = Analysis(
@@ -79,7 +86,7 @@ app = BUNDLE(
         'CFBundleDisplayName': 'QLayout',
         'CFBundleName': 'QLayout',
         'CFBundleIdentifier': 'com.vince.qlayout',
-        'CFBundleVersion': '0.1.0',
-        'CFBundleShortVersionString': '0.1.0',
+        'CFBundleVersion': __version__,
+        'CFBundleShortVersionString': __version__,
     },
 )
