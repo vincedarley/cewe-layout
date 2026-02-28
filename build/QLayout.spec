@@ -21,7 +21,7 @@ a = Analysis(
     ['../run_qlayout.py'],
     pathex=[],
     binaries=[],
-    datas=[],
+    datas=[('../README.md', '.')],
     hiddenimports=[
         'cewe_layout',
         'cewe_layout.mcf_io',

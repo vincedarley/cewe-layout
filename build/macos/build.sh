@@ -21,11 +21,11 @@ fi
 
 # Clean previous builds
 echo "🧹 Cleaning previous builds..."
-rm -rf build/__pycache__ dist/ build/macos/QLayout.app 2>/dev/null || true
+rm -rf build/__pycache__ build/QLayout dist/ build/macos/QLayout.app 2>/dev/null || true
 
-# Run PyInstaller
+# Run PyInstaller with --clean to force fresh build
 echo "📦 Running PyInstaller..."
-pyinstaller build/QLayout.spec
+pyinstaller --clean build/QLayout.spec
 
 # Move output to build/macos
 if [ -d "dist/QLayout.app" ]; then

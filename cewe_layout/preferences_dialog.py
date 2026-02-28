@@ -35,11 +35,20 @@ class PreferencesDialog:
         self.dialog.transient(parent)
         self.dialog.grab_set()
         
-        # Center on parent window
+        # Center on parent window (or screen if parent is hidden)
         self.dialog.update_idletasks()
-        x = parent.winfo_x() + (parent.winfo_width() // 2) - (self.dialog.winfo_width() // 2)
-        y = parent.winfo_y() + (parent.winfo_height() // 2) - (self.dialog.winfo_height() // 2)
-        self.dialog.geometry(f'+{x}+{y}')
+        try:
+            if parent.winfo_viewable():
+                x = parent.winfo_x() + (parent.winfo_width() // 2) - (self.dialog.winfo_width() // 2)
+                y = parent.winfo_y() + (parent.winfo_height() // 2) - (self.dialog.winfo_height() // 2)
+            else:
+                # Parent is hidden, center on screen
+                x = (self.dialog.winfo_screenwidth() // 2) - (self.dialog.winfo_width() // 2)
+                y = (self.dialog.winfo_screenheight() // 2) - (self.dialog.winfo_height() // 2)
+            self.dialog.geometry(f'+{x}+{y}')
+        except tk.TclError:
+            # Fall back to default positioning
+            pass
         
         self._build_ui()
         self._load_preferences()

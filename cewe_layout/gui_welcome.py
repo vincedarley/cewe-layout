@@ -163,13 +163,37 @@ def _render_markdown(text_widget: scrolledtext.ScrolledText, markdown_text: str)
 
 
 def _load_readme_content(app_root: str) -> str:
-    """Load README.md from app root."""
-    readme_path = os.path.join(app_root, 'README.md')
-    try:
-        with open(readme_path, 'r', encoding='utf-8') as readme_file:
-            return readme_file.read()
-    except Exception as exc:
-        return f'Unable to load README.md from {readme_path}.\n\nError: {exc}'
+    """Load README.md from app root, searching multiple locations.
+    
+    Handles both dev mode (running from source) and bundled app mode (PyInstaller).
+    """
+    candidate_paths = [
+        os.path.join(app_root, 'README.md'),
+        os.path.join(os.path.dirname(app_root), 'README.md'),
+        os.path.join(os.path.dirname(os.path.dirname(app_root)), 'README.md'),
+        os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(app_root))), 'README.md'),
+    ]
+    
+    # If running in a PyInstaller bundle, try to find the actual cewe-layout source directory
+    if 'build' in app_root.lower() or '.app' in app_root.lower():
+        # Try to find cewe-layout directory by climbing the tree
+        current = app_root
+        for _ in range(10):
+            current = os.path.dirname(current)
+            candidate = os.path.join(current, 'cewe-layout', 'README.md')
+            if os.path.exists(candidate):
+                candidate_paths.insert(0, candidate)
+                break
+    
+    for readme_path in candidate_paths:
+        try:
+            if os.path.exists(readme_path):
+                with open(readme_path, 'r', encoding='utf-8') as readme_file:
+                    return readme_file.read()
+        except Exception:
+            continue
+    
+    return f'Unable to locate README.md. Searched in:\n\n' + '\n'.join(candidate_paths)
 
 
 def create_welcome_window(root: tk.Tk, recent_albums_mgr, on_open_album, on_quit, app_root: str) -> tk.Toplevel:

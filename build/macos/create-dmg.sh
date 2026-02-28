@@ -77,6 +77,9 @@ if ! hdiutil detach "$MOUNT_POINT" 2>/dev/null; then
     hdiutil detach "$MOUNT_POINT" -force
 fi
 
+# Remove old DMG if it exists
+rm -f "$DMG_NAME" 2>/dev/null || true
+
 # Convert to read-only
 hdiutil convert "$TEMP_DMG" \
     -format UDZO \

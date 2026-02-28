@@ -914,7 +914,16 @@ class LayoutViewer:
     
     def _show_preferences(self):
         """Show preferences dialog."""
-        PreferencesDialog(self.root, self.preferences)
+        # Use the persistent root window if viewer window is destroyed
+        try:
+            if self.root.winfo_exists():
+                parent = self.root
+            else:
+                parent = tk._default_root
+        except (tk.TclError, AttributeError):
+            parent = tk._default_root
+        
+        PreferencesDialog(parent, self.preferences)
     
     def _focus_render_window(self):
         """Bring the main render window to front."""
