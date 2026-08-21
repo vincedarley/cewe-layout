@@ -92,7 +92,6 @@ def setup_drag_and_drop_macos(canvas, album_path: Path, drop_callback):
                     # MUST use absolute path for Photos to accept it
                     abs_photos_dir = self.photos_dir.resolve()
                     destURL = NSURL.fileURLWithPath_isDirectory_(str(abs_photos_dir), True)
-                    
                     filenames = sender.namesOfPromisedFilesDroppedAtDestination_(destURL)
                     
                     if filenames:
@@ -138,14 +137,21 @@ def setup_drag_and_drop_macos(canvas, album_path: Path, drop_callback):
         from AppKit import NSApp
         from Cocoa import NSWindow
         
-        # Get all windows and find the one containing our canvas
+        # Get all windows and find the Page Viewer window (not the controls window)
         windows = NSApp().windows()
         tk_window = None
         for window in windows:
-            # Check if this window's title matches (crude but effective)
-            if window.contentView():
+            if window.contentView() and 'Page Viewer' in window.title():
                 tk_window = window
                 break
+        
+        # Fallback: if no Page Viewer found, use first window with content view
+        if not tk_window:
+            for window in windows:
+                if window.contentView():
+                    tk_window = window
+                    logger.warning(f"Page Viewer window not found, using fallback: '{window.title()}'")
+                    break
         
         if not tk_window:
             logger.warning("Could not find NSWindow for Tkinter canvas")

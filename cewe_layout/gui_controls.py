@@ -299,6 +299,8 @@ class LayoutViewer:
         # Enable drag-and-drop for photo files
         album_path = Path(self.mcf_file_path).parent if self.mcf_file_path else None
         if album_path:
+            # Force window creation before PyObjC setup (needed to find correct NSWindow)
+            self.root.update()
             setup_drag_and_drop(
                 self.canvas, album_path, self._handle_dropped_files,
                 show_status_callback=lambda msg, duration_ms: self.show_status(msg)
